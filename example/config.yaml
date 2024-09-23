@@ -1,0 +1,14 @@
+project_name: "My Craeft Project"
+output_formats:
+  - html
+  - pdf
+  - latex
+output_directory: "./dist"
+server:
+  host: "localhost"
+  port: 8080
+publish:
+  provider: "ftp"
+  ftp_credentials:
+    username: "ftp_user"
+    password: "ftp_pass"
