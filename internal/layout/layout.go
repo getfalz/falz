@@ -8,11 +8,15 @@ import (
 	"io"
 	"os"
 	"strings"
+
+	log "github.com/sirupsen/logrus"
 )
 
 type Layout struct {
 	XMLName xml.Name   `xml:"Layout"`
 	Child   Renderable `xml:",any"` // Child can be Fragment, Content, Grid, or Flow
+	CSS     string     `xml:"css,attr"`
+	JS      string     `xml:"js,attr"`
 }
 
 type Renderable interface {
@@ -146,6 +150,7 @@ func (g Grid) Render() (string, error) {
 
 // Fragment struct loads and renders raw HTML from a file
 func (f Fragment) Render() (string, error) {
+	// TODO the file should be searched using tools.FindFile
 	content, err := os.ReadFile(f.Source)
 	if err != nil {
 		return "", err
@@ -156,21 +161,44 @@ func (f Fragment) Render() (string, error) {
 // Content struct loads Markdown, converts it to HTML, and renders it
 func (c Content) Render() (string, error) {
 	return "{{.Content}}", nil
-
-	// content, err := os.ReadFile(c.Source)
-	// if err != nil {
-	// 	return "", err
-	// }
-	// return string(content), nil
-	// htmlContent := blackfriday.Run(content) // Convert Markdown to HTML
-	// return string(htmlContent), nil
 }
 
 func (l Layout) Render(path string) (string, error) {
-	if l.Child == nil {
-		return "", nil
+	// TODO the layout template should be declared on xml. that way, the system is independent of the output.
+	// but find a way to define the variables placeholders. maybe use fasttemplate?
+	tmpl := `
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Title</title>
+    <link rel="stylesheet" href="{{.CSS}}">
+    <script src="{{.JS}}" defer></script>
+</head>
+<body>
+    {{.Body}}
+</body>
+</html>
+`
+
+	body, err := l.Child.Render()
+	if err != nil {
+		log.Error(err)
+		body = ""
 	}
-	return l.Child.Render() // Render the child element
+
+	var rendered bytes.Buffer
+	t := template.Must(template.New("main").Parse(tmpl))
+	err = t.Execute(&rendered, map[string]interface{}{
+		"CSS":  l.CSS,
+		"JS":   l.JS,
+		"Body": template.HTML(body),
+	})
+	if err != nil {
+		return "", err
+	}
+	return rendered.String(), nil
 }
 
 func (l Layout) GetContents() map[string]string {
@@ -211,6 +239,15 @@ func (i Item) collectContents(contents map[string]string) {
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	l.XMLName = start.Name
+	for _, attr := range start.Attr {
+		switch attr.Name.Local {
+		case "js":
+			l.JS = attr.Value
+		case "css":
+			l.CSS = attr.Value
+		}
+	}
+
 	for {
 		t, err := d.Token()
 		if err == io.EOF {

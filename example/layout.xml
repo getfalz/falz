@@ -1,4 +1,6 @@
-<Layout>
+<Layout
+    css="/assets/styles.css"
+    >
     <Flow direction="row" align="center" wrap="true">
         <Item width="200px" height="200px">
             <Fragment source="main.header"
