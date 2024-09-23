@@ -166,7 +166,7 @@ func (c Content) Render() (string, error) {
 	// return string(htmlContent), nil
 }
 
-func (l Layout) Render() (string, error) {
+func (l Layout) Render(path string) (string, error) {
 	if l.Child == nil {
 		return "", nil
 	}
