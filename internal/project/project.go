@@ -37,7 +37,7 @@ func New(base string) (*Project, error) {
 		Config: config,
 	}
 
-	p.Server = &Server{config: config, project: p}
+	p.Server = NewServer(p)
 
 	return p, nil
 }
@@ -79,25 +79,26 @@ func (p *Project) GetLayout(path string) (*layout.Layout, error) {
 }
 
 // BuildPage builds a single page from a given path
-func (p *Project) BuildPage(path string) error {
+func (p *Project) BuildPage(path string) (string, error) {
 	base := filepath.Dir(path)
 	fileName := filepath.Base(path)
 
 	lyt, err := p.GetLayout(base)
 	if err != nil {
-		return err
+		return "", err
 	}
 	layoutTpl, err := lyt.Render(base)
 	if err != nil {
-		return err
+		return "", err
 	}
 	contentPattern := lyt.GetContents()
 
+	var outputFile string
 	for _, pat := range contentPattern {
 		match, err := filepath.Match(pat, fileName)
 		if err != nil {
 			log.Errorf("Error matching file: %v\n", err)
-			return err
+			return "", err
 		}
 		if match {
 			targetDir := filepath.Join(p.Config.OutputDirectory, base)
@@ -109,15 +110,15 @@ func (p *Project) BuildPage(path string) error {
 			finalResult, err := content.BuildPage(layoutTpl, filepath.Join(p.Config.SourceDirectory, path))
 			if err != nil {
 				log.Fatalf("Failed to write output file: %s", err)
-				return err
+				return "", err
 			}
 
 			// TODO use the defined suffix for the corresponding plugin
-			outputFile := filepath.Join(targetDir, strings.TrimSuffix(fileName, ".md")+".html")
+			outputFile = filepath.Join(targetDir, strings.TrimSuffix(fileName, ".md")+".html")
 			err = os.WriteFile(outputFile, []byte(finalResult), 0644)
 			if err != nil {
 				log.Fatalf("Failed to write output file: %s", err)
-				return err
+				return "", err
 			}
 
 			log.Infof("Processed file: %s -> %s\n", path, outputFile)
@@ -125,7 +126,7 @@ func (p *Project) BuildPage(path string) error {
 		}
 	}
 
-	return nil
+	return outputFile, nil
 }
 
 func (p *Project) Build(isDev bool) {
@@ -144,7 +145,7 @@ func (p *Project) Build(isDev bool) {
 
 		// Process contents
 		if !d.IsDir() {
-			err := p.BuildPage(path)
+			_, err := p.BuildPage(path)
 			if err != nil {
 				return err
 			}

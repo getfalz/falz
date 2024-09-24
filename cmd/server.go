@@ -46,7 +46,7 @@ to quickly create a Cobra application.`,
 		go p.Server.WatchFiles()
 
 		// 2) start websocket?
-
+		p.Server.HotReload()
 		// 3) start server
 		p.Server.ServeFiles()
 	},

@@ -166,6 +166,7 @@ func (c Content) Render() (string, error) {
 // TODO cache render output
 func (l Layout) Render(path string) (string, error) {
 	// TODO the layout template should be declared on xml. that way, the system is independent of the output.
+	// TODO render websocket script only when the development flag is set
 	// but find a way to define the variables placeholders. maybe use fasttemplate?
 	tmpl := `
 <!DOCTYPE html>
@@ -176,6 +177,16 @@ func (l Layout) Render(path string) (string, error) {
     <title>Title</title>
     <link rel="stylesheet" href="{{.CSS}}">
     <script src="{{.JS}}" defer></script>
+    <script>
+    (() => {
+        const socketUrl = 'ws://'+window.location.host+'/ws';
+        let socket = new WebSocket(socketUrl);
+        socket.addEventListener('message', (evt) => {
+            let data = JSON.parse(evt.data)
+            window.location.href = data.url;
+        });
+    })();
+    </script>
 </head>
 <body>
     {{.Body}}
