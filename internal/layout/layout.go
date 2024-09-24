@@ -163,6 +163,7 @@ func (c Content) Render() (string, error) {
 	return "{{.Content}}", nil
 }
 
+// TODO cache render output
 func (l Layout) Render(path string) (string, error) {
 	// TODO the layout template should be declared on xml. that way, the system is independent of the output.
 	// but find a way to define the variables placeholders. maybe use fasttemplate?

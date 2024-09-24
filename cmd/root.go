@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"context"
 	"craeft/internal/project"
 	"os"
-	"path/filepath"
 
 	log "github.com/sirupsen/logrus"
 
@@ -13,8 +13,10 @@ import (
 var (
 	sourcePath string
 	outputPath string
-	verbose    bool
+	verbose    int
 )
+
+const CTX = "craeft"
 
 var rootCmd = &cobra.Command{
 	Use:   "craeft",
@@ -26,25 +28,21 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		configPath := filepath.Join(sourcePath, "config.yaml")
-
-		log.Info("Loading config from ", configPath)
-		err := project.LoadConfig(configPath)
+		p, err := project.New(sourcePath)
 		if err != nil {
 			log.Fatalf("Error loading config: %v", err)
 		}
 
-		project.AppConfig.SourceDirectory = sourcePath
+		p.Config.SourceDirectory = sourcePath
 
 		if outputPath != "" {
-			project.AppConfig.OutputDirectory = outputPath
+			p.Config.OutputDirectory = outputPath
 		}
 
-		if verbose {
-			log.SetLevel(log.InfoLevel)
-		} else {
-			log.SetLevel(log.WarnLevel)
-		}
+		setLogLevel(verbose)
+
+		ctx := context.WithValue(cmd.Context(), CTX, p)
+		cmd.SetContext(ctx)
 	},
 }
 
@@ -58,5 +56,20 @@ func Execute() {
 func init() {
 	rootCmd.PersistentFlags().StringVar(&sourcePath, "source", ".", "source path of the project")
 	rootCmd.PersistentFlags().StringVar(&outputPath, "output", "", "output path of the project")
-	rootCmd.PersistentFlags().BoolVarP(&verbose, "verbose", "v", false, "verbose output")
+	rootCmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "verbose output")
+}
+
+func setLogLevel(verbosity int) {
+	switch verbosity {
+	case 0:
+		log.SetLevel(log.ErrorLevel)
+	case 1:
+		log.SetLevel(log.WarnLevel)
+	case 2:
+		log.SetLevel(log.InfoLevel)
+	case 3:
+		log.SetLevel(log.DebugLevel)
+	default:
+		log.SetLevel(log.TraceLevel)
+	}
 }

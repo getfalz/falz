@@ -26,27 +26,29 @@ type CraeftConfig struct {
 	OutputFormats   []string      `yaml:"output_formats"`
 	SourceDirectory string        `yaml:"source_directory"`
 	OutputDirectory string        `yaml:"output_directory"`
+	Ignore          []string      `yaml:"ignore_files"`
 	Server          ServerConfig  `yaml:"server"`
 	Publish         PublishConfig `yaml:"publish"`
 }
 
-var AppConfig CraeftConfig
-
-func LoadConfig(configFile string) error {
+// TODO refactor to return config and no use global config
+func loadConfig(configFile string) (*CraeftConfig, error) {
 	file, err := os.Open(configFile)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer file.Close()
 
+	var config CraeftConfig
+
 	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&AppConfig); err != nil {
-		return err
+	if err := decoder.Decode(&config); err != nil {
+		return nil, err
 	}
 
-	if err := defaults.Set(&AppConfig); err != nil {
-		return err
+	if err := defaults.Set(&config); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return &config, nil
 }
