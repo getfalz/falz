@@ -1,23 +1,23 @@
 <Layout
+    template="main.tpl"
     css="/assets/styles.css"
+    js="/assets/scripts.js"
     >
     <Flow direction="row" align="center" wrap="true">
         <Item width="200px" height="200px">
-            <Fragment source="main.header"
-                group:js="header.js"
-                group:css="header.css"
+            <Fragment src="main.header"
+                pipeline="header"
                 />
         </Item>
         <Item width="200px" height="200px">
-            <Content source="*.md"
-                name="navigation"
-                bind="true"
-                />
+            <Content path="*.md"
+                pipeline="markdown"
+                >
+            <Variable name="title" />
+            </Content>
         </Item>
         <Item width="200px" height="200px">
-                <Fragment source="footer"
-                    group:css="footer.css"
-                    />
+                <Fragment src="footer" />
         </Item>
     </Flow>
 </Layout>

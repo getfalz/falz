@@ -1,9 +1,13 @@
 <Layout
+    template="main.tpl"
     css="/assets/styles.css"
     >
     <Flow direction="row" >
         <Item width="500px" height="500px">
-            <Content source="*.md" />
+            <Fragment src="main.header" />
+        </Item>
+        <Item width="500px" height="500px">
+            <Content path="*.md" />
         </Item>
     </Flow>
 </Layout>
