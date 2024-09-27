@@ -8,8 +8,8 @@ import (
 )
 
 var (
-	serverPort int
-	dev        bool
+	serverPort      int
+	enableHotReload bool
 )
 
 var serverCmd = &cobra.Command{
@@ -25,18 +25,19 @@ to quickly create a Cobra application.`,
 		cp := cmd.Context().Value(CTX)
 		p, ok := cp.(*project.Project)
 		if !ok {
-			log.Error("key not found in context")
+			log.Error("Project not found in context.")
 		}
 
 		if serverPort != 0 {
 			p.Config.Server.Port = serverPort
 		}
+		p.Config.EnableHotReload = enableHotReload
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		cp := cmd.Context().Value(CTX)
 		p, ok := cp.(*project.Project)
 		if !ok {
-			log.Error("key not found in context")
+			log.Error("Project not found in context.")
 		}
 
 		// 1) compile files
@@ -46,7 +47,9 @@ to quickly create a Cobra application.`,
 		go p.Server.WatchFiles()
 
 		// 2) start websocket?
-		p.Server.HotReload()
+		if p.Config.EnableHotReload {
+			p.Server.HotReload()
+		}
 		// 3) start server
 		p.Server.ServeFiles()
 	},
@@ -55,5 +58,5 @@ to quickly create a Cobra application.`,
 func init() {
 	rootCmd.AddCommand(serverCmd)
 	serverCmd.Flags().IntVar(&serverPort, "port", 0, "port for the server (default from config file)")
-	serverCmd.Flags().BoolVarP(&dev, "dev", "d", false, "Development output")
+	serverCmd.Flags().BoolVarP(&enableHotReload, "hotreload", "", true, "Enable hot-reload")
 }

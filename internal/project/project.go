@@ -3,6 +3,7 @@ package project
 import (
 	"craeft/internal/content"
 	"craeft/internal/layout"
+	"craeft/internal/utils"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -12,11 +13,17 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-var blackList = []string{"config.yaml", "layout.xml"}
+var (
+	blackList = []string{"config.yaml", "layout.xml"}
+	caches    = &Caches{}
+)
 
 type Project struct {
-	Server  *Server
-	Config  *CraeftConfig
+	Server *Server
+	Config *CraeftConfig
+}
+
+type Caches struct {
 	layouts sync.Map
 }
 
@@ -42,6 +49,7 @@ func New(base string) (*Project, error) {
 	return p, nil
 }
 
+// TODO check if d.Name is any of the fragments
 func (p *Project) ignoreFile(path string) bool {
 	for _, pat := range p.Config.Ignore {
 		match, err := filepath.Match(pat, path)
@@ -49,17 +57,19 @@ func (p *Project) ignoreFile(path string) bool {
 			log.Error(err)
 			return false
 		}
-		return match
+		if match {
+			return true
+		}
 	}
 	return false
 }
 
 func (p *Project) GetLayout(path string) (*layout.Layout, error) {
-	if cached, ok := p.layouts.Load(path); ok {
+	if cached, ok := caches.layouts.Load(path); ok {
 		return cached.(*layout.Layout), nil
 	}
 
-	layoutPath, err := FindFile(p.Config.SourceDirectory, path, "layout.xml")
+	layoutPath, err := utils.FindFile(p.Config.SourceDirectory, path, "layout.xml")
 	if err != nil {
 		return nil, err
 	}
@@ -69,16 +79,18 @@ func (p *Project) GetLayout(path string) (*layout.Layout, error) {
 		return nil, err
 	}
 
-	lyt, err := layout.Parse(layoutFile)
+	// layout should know where is the project base folder, for later fragment lookup
+	lyt, err := layout.Parse(p.Config.ThemePath, layoutFile)
 	if err != nil {
 		return nil, err
 	}
 
-	p.layouts.Store(path, lyt)
+	caches.layouts.Store(path, lyt)
 	return lyt, nil
 }
 
 // BuildPage builds a single page from a given path
+// The path should be relative to the project source
 func (p *Project) BuildPage(path string) (string, error) {
 	base := filepath.Dir(path)
 	fileName := filepath.Base(path)
@@ -91,39 +103,53 @@ func (p *Project) BuildPage(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	contentPattern := lyt.GetContents()
+	contentPattern := lyt.ContentPattern()
 
-	var outputFile string
-	for _, pat := range contentPattern {
-		match, err := filepath.Match(pat, fileName)
+	fragments := lyt.Fragments()
+
+	// skip fragment files
+	// TODO skip js/css files too?
+	for _, f := range fragments {
+		match, err := filepath.Match(f, fileName)
 		if err != nil {
-			log.Errorf("Error matching file: %v\n", err)
 			return "", err
 		}
 		if match {
-			targetDir := filepath.Join(p.Config.OutputDirectory, base)
-
-			if err := os.MkdirAll(targetDir, 0755); err != nil {
-				log.Fatalf("Failed to create output folder: %s", err)
-			}
-
-			finalResult, err := content.BuildPage(layoutTpl, filepath.Join(p.Config.SourceDirectory, path))
-			if err != nil {
-				log.Fatalf("Failed to write output file: %s", err)
-				return "", err
-			}
-
-			// TODO use the defined suffix for the corresponding plugin
-			outputFile = filepath.Join(targetDir, strings.TrimSuffix(fileName, ".md")+".html")
-			err = os.WriteFile(outputFile, []byte(finalResult), 0644)
-			if err != nil {
-				log.Fatalf("Failed to write output file: %s", err)
-				return "", err
-			}
-
-			log.Infof("Processed file: %s -> %s\n", path, outputFile)
-			break // Only parse the first match
+			log.Infof("Skipping file %s", fileName)
+			return "", nil
 		}
+	}
+
+	var outputFile string
+	log.Infof("Matching %s with %s", contentPattern, fileName)
+	match, err := filepath.Match(contentPattern, fileName)
+	if err != nil {
+		log.Errorf("Error matching file: %v\n", err)
+		return "", err
+	}
+	if match {
+		targetDir := filepath.Join(p.Config.OutputDirectory, base)
+
+		if err := os.MkdirAll(targetDir, 0755); err != nil {
+			log.Fatalf("Failed to create output folder: %s", err)
+		}
+
+		log.Debugf("-> Building page: %s\n", path)
+		finalResult, err := content.BuildPage(layoutTpl, filepath.Join(p.Config.SourceDirectory, path))
+		if err != nil {
+			log.Fatalf("Failed to write output file: %s", err)
+			return "", err
+		}
+
+		// TODO use the defined suffix for the corresponding plugin
+		outputFile = filepath.Join(targetDir, strings.TrimSuffix(fileName, ".md")+".html")
+		err = os.WriteFile(outputFile, []byte(finalResult), 0644)
+		if err != nil {
+			log.Fatalf("Failed to write output file: %s", err)
+			return "", err
+		}
+
+		log.Infof("Processed file: %s -> %s\n", path, outputFile)
 	}
 
 	return outputFile, nil
@@ -135,7 +161,15 @@ func (p *Project) Build(isDev bool) {
 			return err
 		}
 
+		rel, err := filepath.Rel(p.Config.SourceDirectory, path)
+		if err != nil {
+			return err
+		}
+		log.Debugf("Visiting %s", rel)
+
+		// d.Name is the last part of the path. can be the name of the folder or the filename
 		if p.ignoreFile(d.Name()) {
+			log.Infof("Skipping file %s", rel)
 			if d.IsDir() {
 				return fs.SkipDir
 			} else {
@@ -143,9 +177,8 @@ func (p *Project) Build(isDev bool) {
 			}
 		}
 
-		// Process contents
 		if !d.IsDir() {
-			_, err := p.BuildPage(path)
+			_, err := p.BuildPage(rel)
 			if err != nil {
 				return err
 			}

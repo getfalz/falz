@@ -22,13 +22,17 @@ type PublishConfig struct {
 
 // TODO set defaults
 type CraeftConfig struct {
-	ProjectName     string        `yaml:"project_name" default:"Default Project"`
-	OutputFormats   []string      `yaml:"output_formats"`
-	SourceDirectory string        `yaml:"source_directory"`
-	OutputDirectory string        `yaml:"output_directory"`
-	Ignore          []string      `yaml:"ignore_files"`
-	Server          ServerConfig  `yaml:"server"`
-	Publish         PublishConfig `yaml:"publish"`
+	ProjectName     string `yaml:"project_name" default:"Default Project"`
+	SourceDirectory string
+	OutputDirectory string   `yaml:"output_directory"`
+	Ignore          []string `yaml:"ignore_files"`
+	Debug           bool     `yaml:"debug"`
+	EnableHotReload bool     `yaml:"enable_hot_reload"`
+	ThemePath       string   `yaml:"theme"`
+
+	OutputFormats []string      `yaml:"output_formats"`
+	Server        ServerConfig  `yaml:"server"`
+	Publish       PublishConfig `yaml:"publish"`
 }
 
 // TODO refactor to return config and no use global config

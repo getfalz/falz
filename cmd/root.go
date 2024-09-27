@@ -11,8 +11,8 @@ import (
 )
 
 var (
-	sourcePath string
 	outputPath string
+	themePath  string
 	verbose    int
 )
 
@@ -28,21 +28,31 @@ Cobra is a CLI library for Go that empowers applications.
 This application is a tool to generate the needed files
 to quickly create a Cobra application.`,
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
-		p, err := project.New(sourcePath)
+		currentPath, err := os.Getwd()
+		if err != nil {
+			log.Fatalf("Error getting current path: %v", err)
+		}
+		p, err := project.New(currentPath)
 		if err != nil {
 			log.Fatalf("Error loading config: %v", err)
 		}
 
-		p.Config.SourceDirectory = sourcePath
+		p.Config.SourceDirectory = currentPath
+		p.Config.OutputDirectory = outputPath
 
-		if outputPath != "" {
-			p.Config.OutputDirectory = outputPath
+		if themePath != "" {
+			p.Config.ThemePath = themePath
+		} else {
+			p.Config.ThemePath = currentPath
 		}
 
 		setLogLevel(verbose)
 
 		ctx := context.WithValue(cmd.Context(), CTX, p)
 		cmd.SetContext(ctx)
+	},
+	Run: func(cmd *cobra.Command, args []string) {
+		_ = cmd.Help()
 	},
 }
 
@@ -54,9 +64,9 @@ func Execute() {
 }
 
 func init() {
-	rootCmd.PersistentFlags().StringVar(&sourcePath, "source", ".", "source path of the project")
-	rootCmd.PersistentFlags().StringVar(&outputPath, "output", "", "output path of the project")
-	rootCmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "verbose output")
+	rootCmd.PersistentFlags().StringVar(&outputPath, "output", "dist", "Build path of the project")
+	rootCmd.PersistentFlags().StringVar(&themePath, "theme", "", "Theme path")
+	rootCmd.PersistentFlags().CountVarP(&verbose, "verbose", "v", "verbose loging")
 }
 
 func setLogLevel(verbosity int) {

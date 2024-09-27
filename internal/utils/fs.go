@@ -1,4 +1,4 @@
-package project
+package utils
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 )
 
+// FindFile searches a file fileName by consuming the targetPath and going up the directory hierarchy until reaching the basePath.
 func FindFile(basePath, targetPath, fileName string) (string, error) {
 	currentPath := targetPath
 

@@ -2,6 +2,7 @@ package layout
 
 import (
 	"bytes"
+	"context"
 	"encoding/xml"
 	"fmt"
 	"html/template"
@@ -9,18 +10,29 @@ import (
 	"os"
 	"strings"
 
+	"craeft/internal/utils"
+
 	log "github.com/sirupsen/logrus"
 )
 
+type ctxKey string
+
+const ctxBasePath = ctxKey("basePath")
+
 type Layout struct {
-	XMLName xml.Name   `xml:"Layout"`
-	Child   Renderable `xml:",any"` // Child can be Fragment, Content, Grid, or Flow
-	CSS     string     `xml:"css,attr"`
-	JS      string     `xml:"js,attr"`
+	XMLName        xml.Name `xml:"Layout"`
+	BasePath       string
+	contentPattern string
+	fragments      []string
+	output         string
+	Child          Renderable `xml:",any"`
+	CSS            string     `xml:"css,attr"`
+	JS             string     `xml:"js,attr"`
+	Tpl            string     `xml:"template,attr"`
 }
 
 type Renderable interface {
-	Render() (string, error)
+	Render(context.Context) (string, error)
 }
 
 type Item struct {
@@ -30,7 +42,7 @@ type Item struct {
 	HExpand  bool         `xml:"hexpand,attr"`
 	VExpand  bool         `xml:"vexpand,attr"`
 	Span     int          `xml:"span,attr"`
-	Children []Renderable `xml:",any"` // Can hold Flow, Grid, Fragment, or Content
+	Children []Renderable `xml:",any"`
 }
 
 type Flow struct {
@@ -48,24 +60,30 @@ type Grid struct {
 	Items   []Item   `xml:"Item"`
 }
 
-// Fragment struct represents an HTML fragment
 type Fragment struct {
-	XMLName xml.Name `xml:"Fragment"`
-	Source  string   `xml:"source,attr"` // Path to the fragment file
+	XMLName  xml.Name `xml:"Fragment"`
+	Source   string   `xml:"src,attr"`
+	Pipeline string   `xml:"pipeline,attr"`
 }
 
-// Content struct represents Markdown content
 type Content struct {
-	XMLName xml.Name `xml:"Content"`
-	Source  string   `xml:"source,attr"` // Path to the markdown file
+	XMLName   xml.Name   `xml:"Content"`
+	Path      string     `xml:"path,attr"`
+	Pipeline  string     `xml:"pipeline,attr"`
+	Variables []Variable `xml:"Variable"`
+}
+
+type Variable struct {
+	XMLName xml.Name `xml:"Variable"`
+	Name    string   `xml:"name,attr"`
 }
 
 // Item struct renders its children (if any) or standalone
-func (i Item) Render() (string, error) {
+func (i Item) Render(ctx context.Context) (string, error) {
 	// Render child elements
 	var childrenHTML strings.Builder
 	for _, child := range i.Children {
-		childHTML, err := child.Render()
+		childHTML, err := child.Render(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -91,10 +109,10 @@ func (i Item) Render() (string, error) {
 }
 
 // Flow struct renders its child items in a flexbox layout
-func (f Flow) Render() (string, error) {
+func (f Flow) Render(ctx context.Context) (string, error) {
 	var itemsHTML strings.Builder
 	for _, item := range f.Items {
-		itemHTML, err := item.Render()
+		itemHTML, err := item.Render(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -120,10 +138,10 @@ func (f Flow) Render() (string, error) {
 }
 
 // Grid struct renders its child items in a grid layout
-func (g Grid) Render() (string, error) {
+func (g Grid) Render(ctx context.Context) (string, error) {
 	var itemsHTML strings.Builder
 	for _, item := range g.Items {
-		itemHTML, err := item.Render()
+		itemHTML, err := item.Render(ctx)
 		if err != nil {
 			return "", err
 		}
@@ -149,9 +167,18 @@ func (g Grid) Render() (string, error) {
 }
 
 // Fragment struct loads and renders raw HTML from a file
-func (f Fragment) Render() (string, error) {
-	// TODO the file should be searched using tools.FindFile
-	content, err := os.ReadFile(f.Source)
+func (f Fragment) Render(ctx context.Context) (string, error) {
+	basePathValue := ctx.Value(ctxBasePath)
+	basePath, ok := basePathValue.(string)
+	if !ok {
+		return "", fmt.Errorf("BasePath not found in context or is not a string")
+	}
+
+	srcPath, err := utils.FindFile(basePath, "", f.Source)
+	if err != nil {
+		return "", err
+	}
+	content, err := os.ReadFile(srcPath)
 	if err != nil {
 		return "", err
 	}
@@ -159,49 +186,37 @@ func (f Fragment) Render() (string, error) {
 }
 
 // Content struct loads Markdown, converts it to HTML, and renders it
-func (c Content) Render() (string, error) {
+func (c Content) Render(ctx context.Context) (string, error) {
 	return "{{.Content}}", nil
 }
 
-// TODO cache render output
-func (l Layout) Render(path string) (string, error) {
-	// TODO the layout template should be declared on xml. that way, the system is independent of the output.
+// Render layout. The fragments will be searched first in the given base path
+func (l *Layout) Render(base string) (string, error) {
 	// TODO render websocket script only when the development flag is set
 	// but find a way to define the variables placeholders. maybe use fasttemplate?
-	tmpl := `
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Title</title>
-    <link rel="stylesheet" href="{{.CSS}}">
-    <script src="{{.JS}}" defer></script>
-    <script>
-    (() => {
-        const socketUrl = 'ws://'+window.location.host+'/ws';
-        let socket = new WebSocket(socketUrl);
-        socket.addEventListener('message', (evt) => {
-            let data = JSON.parse(evt.data)
-            window.location.href = data.url;
-        });
-    })();
-    </script>
-</head>
-<body>
-    {{.Body}}
-</body>
-</html>
-`
 
-	body, err := l.Child.Render()
+	if l.output != "" {
+		return l.output, nil
+	}
+	tplPath, err := utils.FindFile(l.BasePath, base, l.Tpl)
+	if err != nil {
+		return "", err
+	}
+
+	tmpl, err := os.ReadFile(tplPath)
+	if err != nil {
+		return "", err
+	}
+
+	ctx := context.WithValue(context.Background(), ctxBasePath, l.BasePath)
+	body, err := l.Child.Render(ctx)
 	if err != nil {
 		log.Error(err)
 		body = ""
 	}
 
 	var rendered bytes.Buffer
-	t := template.Must(template.New("main").Parse(tmpl))
+	t := template.Must(template.New("main").Parse(string(tmpl)))
 	err = t.Execute(&rendered, map[string]interface{}{
 		"CSS":  l.CSS,
 		"JS":   l.JS,
@@ -210,43 +225,104 @@ func (l Layout) Render(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return rendered.String(), nil
+	l.output = rendered.String()
+	return l.output, nil
 }
 
-func (l Layout) GetContents() map[string]string {
-	contents := make(map[string]string)
-	l.collectContents(contents, l.Child)
-	return contents
+func (l *Layout) Fragments() []string {
+	if len(l.fragments) != 0 {
+		return l.fragments
+	}
+	l.fragments = l.collectFragments(l.Child)
+
+	return l.fragments
 }
 
-// Collect contents from Renderable child elements
-func (l Layout) collectContents(contents map[string]string, child Renderable) {
+func (l Layout) collectFragments(child Renderable) []string {
+	var fragments []string
 	switch v := child.(type) {
-	case *Content:
-		contents[v.Source] = v.Source // Add Content source to the map
-
+	case *Fragment:
+		fragments = append(fragments, v.Source)
 	case *Flow:
 		for _, item := range v.Items {
-			item.collectContents(contents)
+			item.collectFragments(&fragments)
 		}
-
 	case *Grid:
 		for _, item := range v.Items {
-			item.collectContents(contents)
+			item.collectFragments(&fragments)
 		}
 	}
+
+	return fragments
 }
 
-// Add a method to Item to collect its contents
-func (i Item) collectContents(contents map[string]string) {
+// TODO make test to check if nested children can have contents
+func (i Item) collectFragments(fragments *[]string) {
 	if i.Children != nil {
 		for _, child := range i.Children {
 			switch v := child.(type) {
-			case *Content:
-				contents[v.Source] = v.Source
+			case *Fragment:
+				*fragments = append(*fragments, v.Source)
 			}
 		}
 	}
+}
+
+func (l *Layout) ContentPattern() string {
+	if l.contentPattern != "" {
+		return l.contentPattern
+	}
+	l.contentPattern = l.collectContents(l.Child)
+
+	return l.contentPattern
+}
+
+func (l Layout) collectContents(child Renderable) string {
+	var contentPattern string
+	switch v := child.(type) {
+	case *Content:
+		contentPattern = v.Path
+	case *Flow:
+		for _, item := range v.Items {
+			if r := item.collectContents(); r != "" {
+				contentPattern = r
+				break
+			}
+		}
+	case *Grid:
+		for _, item := range v.Items {
+			contentPattern = item.collectContents()
+		}
+	}
+
+	return contentPattern
+}
+
+func (i Item) collectContents() string {
+	var contentPattern string
+	if i.Children != nil {
+		for _, child := range i.Children {
+			switch v := child.(type) {
+			case *Flow:
+				for _, item := range v.Items {
+					if r := item.collectContents(); r != "" {
+						contentPattern = r
+						break
+					}
+				}
+			case *Grid:
+				for _, item := range v.Items {
+					if r := item.collectContents(); r != "" {
+						contentPattern = r
+						break
+					}
+				}
+			case *Content:
+				contentPattern = v.Path
+			}
+		}
+	}
+	return contentPattern
 }
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -257,6 +333,8 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			l.JS = attr.Value
 		case "css":
 			l.CSS = attr.Value
+		case "template":
+			l.Tpl = attr.Value
 		}
 	}
 
@@ -360,8 +438,44 @@ func (i *Item) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	return nil
 }
 
-func Parse(data []byte) (*Layout, error) {
-	layout := &Layout{}
+func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	// custom xml parser needed to ignore the closing tag
+
+	c.XMLName = start.Name
+	// Loop through attributes to extract values
+	for _, attr := range start.Attr {
+		switch attr.Name.Local {
+		case "path":
+			c.Path = attr.Value
+		case "pipeline":
+			c.Pipeline = attr.Value
+		}
+	}
+
+	// Check for self-closing tag
+	for {
+		tok, _ := d.Token()
+		switch t := tok.(type) {
+		case xml.EndElement:
+			if t.Name == start.Name {
+				// Explicitly closed empty element
+				return nil
+			}
+		case xml.StartElement:
+			// Handle other nested elements, if needed (e.g., Variables)
+			if t.Name.Local == "Variable" {
+				var v Variable
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				c.Variables = append(c.Variables, v)
+			}
+		}
+	}
+}
+
+func Parse(basePath string, data []byte) (*Layout, error) {
+	layout := &Layout{BasePath: basePath}
 	err := xml.Unmarshal(data, layout)
 	if err != nil {
 		return nil, err
