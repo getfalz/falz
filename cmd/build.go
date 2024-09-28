@@ -36,7 +36,9 @@ to quickly create a Cobra application.`,
 
 		log.Infof("Building project from %s to %s\n", p.Config.SourceDirectory, p.Config.OutputDirectory)
 
+		// TODO Build could be done parallel. First check for cache access
 		p.Build(false)
+		p.BuildAssets()
 	},
 }
 

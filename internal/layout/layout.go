@@ -217,6 +217,7 @@ func (l *Layout) Render(base string) (string, error) {
 
 	var rendered bytes.Buffer
 	t := template.Must(template.New("main").Parse(string(tmpl)))
+	// TODO check that css/js are only file names and no path to other folder
 	err = t.Execute(&rendered, map[string]interface{}{
 		"CSS":  l.CSS,
 		"JS":   l.JS,

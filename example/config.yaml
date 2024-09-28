@@ -1,4 +1,6 @@
 project_name: "My Craeft Project"
+styles:
+  sass_path: /home/juanolon/.bin/dart-sass/sass
 output_formats:
   - html
   - pdf

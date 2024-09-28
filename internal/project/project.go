@@ -4,17 +4,21 @@ import (
 	"craeft/internal/content"
 	"craeft/internal/layout"
 	"craeft/internal/utils"
+	"errors"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
 
+	"github.com/bep/godartsass"
+	"github.com/mattn/go-zglob"
 	log "github.com/sirupsen/logrus"
 )
 
 var (
-	blackList = []string{"config.yaml", "layout.xml"}
+	blackList = []string{"config.yaml", "**/layout.xml"}
 	caches    = &Caches{}
 )
 
@@ -52,7 +56,7 @@ func New(base string) (*Project, error) {
 // TODO check if d.Name is any of the fragments
 func (p *Project) ignoreFile(path string) bool {
 	for _, pat := range p.Config.Ignore {
-		match, err := filepath.Match(pat, path)
+		match, err := zglob.Match(pat, path)
 		if err != nil {
 			log.Error(err)
 			return false
@@ -110,7 +114,7 @@ func (p *Project) BuildPage(path string) (string, error) {
 	// skip fragment files
 	// TODO skip js/css files too?
 	for _, f := range fragments {
-		match, err := filepath.Match(f, fileName)
+		match, err := zglob.Match(f, fileName)
 		if err != nil {
 			return "", err
 		}
@@ -122,7 +126,7 @@ func (p *Project) BuildPage(path string) (string, error) {
 
 	var outputFile string
 	log.Infof("Matching %s with %s", contentPattern, fileName)
-	match, err := filepath.Match(contentPattern, fileName)
+	match, err := zglob.Match(contentPattern, fileName)
 	if err != nil {
 		log.Errorf("Error matching file: %v\n", err)
 		return "", err
@@ -167,9 +171,8 @@ func (p *Project) Build(isDev bool) {
 		}
 		log.Debugf("Visiting %s", rel)
 
-		// d.Name is the last part of the path. can be the name of the folder or the filename
-		if p.ignoreFile(d.Name()) {
-			log.Infof("Skipping file %s", rel)
+		if p.ignoreFile(rel) {
+			log.Infof("Skipping folder %s", rel)
 			if d.IsDir() {
 				return fs.SkipDir
 			} else {
@@ -190,4 +193,126 @@ func (p *Project) Build(isDev bool) {
 	if err != nil {
 		log.Error(err)
 	}
+}
+
+func (p *Project) BuildAssets() {
+	err := filepath.WalkDir(p.Config.SourceDirectory, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			rel, err := filepath.Rel(p.Config.SourceDirectory, path)
+			if err != nil {
+				return err
+			}
+			log.Infof("Assets Visiting %s - %s", path, rel)
+
+			if p.ignoreFile(rel) {
+				log.Infof("Skipping file %s", rel)
+				return fs.SkipDir
+			}
+
+			err = p.BuildAsset(rel)
+			if err != nil {
+				return err
+			}
+
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		log.Error(err)
+	}
+}
+
+func (p *Project) BuildAsset(path string) error {
+	lyt, err := p.GetLayout(path)
+	if err != nil {
+		return err
+	}
+
+	if lyt.CSS != "" {
+		// check if file exists
+		if _, err := os.Stat(lyt.CSS); os.IsNotExist(err) {
+			log.Errorf("CSS file not found: %s", lyt.CSS)
+		} else {
+			var cssResult string
+			styles, err := os.ReadFile(lyt.CSS)
+			if err != nil {
+				return err
+			}
+
+			sassPath, err := exec.LookPath(p.Config.StylesConfig.SassPath)
+			// parse sass
+			if err == nil {
+				// TODO keep t in struct
+				// build sass
+				t, err := godartsass.Start(godartsass.Options{
+					DartSassEmbeddedFilename: sassPath,
+				})
+				if err != nil {
+					log.Errorf("Failed to start sass compiler: %v", err)
+				}
+
+				defer t.Close()
+
+				var outputStyle godartsass.OutputStyle
+				if p.Config.StylesConfig.Compressed {
+					outputStyle = godartsass.OutputStyleCompressed
+				} else {
+					outputStyle = godartsass.OutputStyleExpanded
+				}
+
+				var cssSyntax godartsass.SourceSyntax
+				switch p.Config.StylesConfig.Parser {
+				case "scss":
+					cssSyntax = godartsass.SourceSyntaxCSS
+				case "indented":
+					cssSyntax = godartsass.SourceSyntaxSASS
+				default:
+					cssSyntax = godartsass.SourceSyntaxSCSS
+				}
+
+				// TODO test if imported files can be outside of the project. if so,
+				// make a custom importer (interface ImportResolver)
+				result, err := t.Execute(godartsass.Args{
+					Source:                  string(styles),
+					EnableSourceMap:         p.Config.StylesConfig.SourceMap,
+					SourceMapIncludeSources: true,
+					OutputStyle:             outputStyle,
+					SourceSyntax:            cssSyntax,
+				})
+				if err != nil {
+					log.Infof("Failed to compile sass: %v", err)
+					return err
+				}
+				cssResult = result.CSS
+			} else {
+				// sass bin not found
+				log.Infof("Sass binary not found, using plain css: %v", err)
+				if errors.Is(err, exec.ErrNotFound) {
+					cssResult = string(styles)
+				} else {
+					return err
+				}
+			}
+			// write css file
+			targetDir := filepath.Join(p.Config.OutputDirectory, path)
+			// TODO handle suffix correctly.
+			outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.CSS, ".sass")+".css")
+			err = os.WriteFile(outputFile, []byte(cssResult), 0644)
+			if err != nil {
+				log.Fatalf("Failed to write css file: %s", err)
+				return err
+			}
+
+			log.Infof("Processed css: %s -> %s\n", path, outputFile)
+		}
+
+	}
+
+	return nil
 }
