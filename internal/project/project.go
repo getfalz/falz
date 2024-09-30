@@ -303,6 +303,7 @@ func (p *Project) BuildAsset(path string) error {
 					log.Infof("Sass binary not found, using plain css: %v", err)
 					if errors.Is(err, exec.ErrNotFound) {
 
+						// TODO test if works
 						log.Infof("[SASS] Using esbuild css loader.")
 						config := api.TransformOptions{
 							Loader:     api.LoaderCSS,
@@ -353,8 +354,16 @@ func (p *Project) BuildAsset(path string) error {
 				}
 				log.Infof("got script: %s", scripts)
 
-				config := api.TransformOptions{
-					Sourcefile: lyt.JS,
+				config := api.BuildOptions{
+					Bundle: true,
+					Write:  false,
+					// Format:   api.FormatESModule,
+					Platform: api.PlatformBrowser,
+					Stdin: &api.StdinOptions{
+						Contents:   string(scripts),
+						ResolveDir: p.Config.ThemePath,
+						Sourcefile: lyt.JS,
+					},
 				}
 				if p.Config.ScriptsConfig.SourceMap {
 					config.Sourcemap = api.SourceMapInline
@@ -364,28 +373,37 @@ func (p *Project) BuildAsset(path string) error {
 					config.MinifyIdentifiers = true
 					config.MinifySyntax = true
 				}
-				// TODO use Build and Bundle
-				result := api.Transform(string(scripts), config)
+				result := api.Build(config)
 
 				if len(result.Errors) > 0 {
 					return fmt.Errorf("[esbuid] Found errors: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", "))
 				}
 
-				jsResult = string(result.Code)
+				if len(result.OutputFiles) > 0 {
+					for _, out := range result.OutputFiles {
+						fmt.Printf("\npath: %v\ncontents: \n%s\n\n hash: %s\n", out.Path, string(out.Contents), out.Hash)
+					}
 
-				// TODO same logic as with css. refactor this
-				targetDir := filepath.Join(p.Config.OutputDirectory, path)
-				log.Infof("Writing js file to %s", targetDir)
-				// TODO handle suffix correctly.
-				outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.JS, ".js")+".js")
-				log.Infof("Writing js file to %s", outputFile)
-				err = os.WriteFile(outputFile, []byte(jsResult), 0644)
-				if err != nil {
-					log.Fatalf("Failed to write js file: %s", err)
-					return err
+					jsResult = string(result.OutputFiles[0].Contents)
+					log.Infof("got js result: %s", jsResult)
+
+					// TODO same logic as with css. refactor this
+					targetDir := filepath.Join(p.Config.OutputDirectory, path)
+					log.Infof("Writing js file to %s", targetDir)
+					// TODO handle suffix correctly.
+					outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.JS, ".js")+".js")
+					log.Infof("Writing js file to %s", outputFile)
+					err = os.WriteFile(outputFile, []byte(jsResult), 0644)
+					if err != nil {
+						log.Fatalf("Failed to write js file: %s", err)
+						return err
+					}
+
+					log.Infof("Processed js: %s -> %s\n", path, outputFile)
+
+				} else {
+					return errors.New("[esbuild] No output files")
 				}
-
-				log.Infof("Processed js: %s -> %s\n", path, outputFile)
 			}
 
 		}
