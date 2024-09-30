@@ -1,7 +1,7 @@
 <Layout
     template="main.tpl"
     css="styles.scss"
-    js="/assets/scripts.js"
+    js="main.js"
     >
     <Flow direction="row" align="center" wrap="true">
         <Item width="200px" height="200px">

@@ -5,6 +5,7 @@ import (
 	"craeft/internal/layout"
 	"craeft/internal/utils"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -13,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/bep/godartsass/v2"
+	"github.com/evanw/esbuild/pkg/api"
 	"github.com/mattn/go-zglob"
 	log "github.com/sirupsen/logrus"
 )
@@ -228,97 +230,173 @@ func (p *Project) BuildAssets() {
 	}
 }
 
+// TODO rewrite BuildAsset to use esbuild ctx.Rebuild. for sass handling, write a esbuild plugin which parses sass.
 func (p *Project) BuildAsset(path string) error {
 	lyt, err := p.GetLayout(path)
 	if err != nil {
 		return err
 	}
 
-	if path == lyt.Path() && lyt.CSS != "" {
-		// check if file exists
-		cssPath := filepath.Join(p.Config.ThemePath, lyt.Path(), lyt.CSS)
-		if _, err := os.Stat(cssPath); os.IsNotExist(err) {
-			log.Errorf("CSS file not found: %s", cssPath)
-		} else {
-			var cssResult string
-			log.Infof("Processing css: %s", cssPath)
-			styles, err := os.ReadFile(cssPath)
-			if err != nil {
-				return err
-			}
-			log.Infof("got styles: %s", styles)
-
-			sassPath, err := exec.LookPath(p.Config.StylesConfig.SassPath)
-			// parse sass
-			if err == nil {
-				// TODO keep t in struct
-				// build sass
-				t, err := godartsass.Start(godartsass.Options{
-					DartSassEmbeddedFilename: sassPath,
-				})
-				if err != nil {
-					log.Errorf("Failed to start sass compiler: %v", err)
-				}
-
-				defer t.Close()
-
-				var outputStyle godartsass.OutputStyle
-				if p.Config.StylesConfig.Compressed {
-					outputStyle = godartsass.OutputStyleCompressed
-				} else {
-					outputStyle = godartsass.OutputStyleExpanded
-				}
-
-				var cssSyntax godartsass.SourceSyntax
-				switch p.Config.StylesConfig.Parser {
-				case "scss":
-					cssSyntax = godartsass.SourceSyntaxCSS
-				case "indented":
-					cssSyntax = godartsass.SourceSyntaxSASS
-				default:
-					cssSyntax = godartsass.SourceSyntaxSCSS
-				}
-
-				// TODO test if imported files can be outside of the project. if so,
-				// make a custom importer (interface ImportResolver)
-				result, err := t.Execute(godartsass.Args{
-					Source:                  string(styles),
-					EnableSourceMap:         p.Config.StylesConfig.SourceMap,
-					SourceMapIncludeSources: true,
-					OutputStyle:             outputStyle,
-					SourceSyntax:            cssSyntax,
-					IncludePaths:            []string{p.Config.ThemePath},
-				})
-				if err != nil {
-					log.Infof("Failed to compile sass: %v", err)
-					return err
-				}
-				cssResult = result.CSS
+	if path == lyt.Path() {
+		if lyt.CSS != "" {
+			// check if file exists
+			cssPath := filepath.Join(p.Config.ThemePath, lyt.Path(), lyt.CSS)
+			if _, err := os.Stat(cssPath); os.IsNotExist(err) {
+				log.Errorf("CSS file not found: %s", cssPath)
 			} else {
-				// sass bin not found
-				log.Infof("Sass binary not found, using plain css: %v", err)
-				if errors.Is(err, exec.ErrNotFound) {
-					cssResult = string(styles)
-				} else {
+				var cssResult string
+				log.Infof("Processing css: %s", cssPath)
+				styles, err := os.ReadFile(cssPath)
+				if err != nil {
 					return err
 				}
-			}
-			// write css file
-			targetDir := filepath.Join(p.Config.OutputDirectory, path)
-			log.Infof("Writing css file to %s", targetDir)
-			// TODO handle suffix correctly.
-			outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.CSS, ".scss")+".css")
-			log.Infof("Writing css file to %s", outputFile)
-			err = os.WriteFile(outputFile, []byte(cssResult), 0644)
-			if err != nil {
-				log.Fatalf("Failed to write css file: %s", err)
-				return err
+				log.Infof("got styles: %s", styles)
+
+				sassPath, err := exec.LookPath(p.Config.StylesConfig.SassPath)
+				// parse sass
+				if err == nil {
+					// TODO keep t in struct
+					// build sass
+					t, err := godartsass.Start(godartsass.Options{
+						DartSassEmbeddedFilename: sassPath,
+					})
+					if err != nil {
+						log.Errorf("Failed to start sass compiler: %v", err)
+					}
+
+					defer t.Close()
+
+					var outputStyle godartsass.OutputStyle
+					if p.Config.StylesConfig.Compressed {
+						outputStyle = godartsass.OutputStyleCompressed
+					} else {
+						outputStyle = godartsass.OutputStyleExpanded
+					}
+
+					var cssSyntax godartsass.SourceSyntax
+					switch p.Config.StylesConfig.Parser {
+					case "scss":
+						cssSyntax = godartsass.SourceSyntaxCSS
+					case "indented":
+						cssSyntax = godartsass.SourceSyntaxSASS
+					default:
+						cssSyntax = godartsass.SourceSyntaxSCSS
+					}
+
+					// TODO test if imported files can be outside of the project. if so,
+					// make a custom importer (interface ImportResolver)
+					result, err := t.Execute(godartsass.Args{
+						Source:                  string(styles),
+						EnableSourceMap:         p.Config.StylesConfig.SourceMap,
+						SourceMapIncludeSources: true,
+						OutputStyle:             outputStyle,
+						SourceSyntax:            cssSyntax,
+						IncludePaths:            []string{p.Config.ThemePath},
+					})
+					if err != nil {
+						log.Infof("Failed to compile sass: %v", err)
+						return err
+					}
+					cssResult = result.CSS
+				} else {
+					// sass bin not found
+					log.Infof("Sass binary not found, using plain css: %v", err)
+					if errors.Is(err, exec.ErrNotFound) {
+
+						log.Infof("[SASS] Using esbuild css loader.")
+						config := api.TransformOptions{
+							Loader:     api.LoaderCSS,
+							Sourcefile: lyt.CSS,
+						}
+						if p.Config.StylesConfig.SourceMap {
+							config.Sourcemap = api.SourceMapInline
+						}
+						if p.Config.StylesConfig.Compressed {
+							config.MinifyWhitespace = true
+							config.MinifyIdentifiers = true
+							config.MinifySyntax = true
+						}
+						result := api.Transform(string(styles), config)
+						cssResult = string(result.Code)
+					} else {
+						return err
+					}
+				}
+				// write css file
+				targetDir := filepath.Join(p.Config.OutputDirectory, path)
+				log.Infof("Writing css file to %s", targetDir)
+				// TODO handle suffix correctly.
+				outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.CSS, ".scss")+".css")
+				log.Infof("Writing css file to %s", outputFile)
+				err = os.WriteFile(outputFile, []byte(cssResult), 0644)
+				if err != nil {
+					log.Fatalf("Failed to write css file: %s", err)
+					return err
+				}
+
+				log.Infof("Processed css: %s -> %s\n", path, outputFile)
 			}
 
-			log.Infof("Processed css: %s -> %s\n", path, outputFile)
 		}
 
+		if lyt.JS != "" {
+			// TODO same logic as with css. refactor this
+			jsPath := filepath.Join(p.Config.ThemePath, lyt.Path(), lyt.JS)
+			if _, err := os.Stat(jsPath); os.IsNotExist(err) {
+				log.Errorf("JS file not found: %s", jsPath)
+			} else {
+				var jsResult string
+				log.Infof("Processing js: %s", jsPath)
+				scripts, err := os.ReadFile(jsPath)
+				if err != nil {
+					return err
+				}
+				log.Infof("got script: %s", scripts)
+
+				config := api.TransformOptions{
+					Sourcefile: lyt.JS,
+				}
+				if p.Config.ScriptsConfig.SourceMap {
+					config.Sourcemap = api.SourceMapInline
+				}
+				if p.Config.ScriptsConfig.Compressed {
+					config.MinifyWhitespace = true
+					config.MinifyIdentifiers = true
+					config.MinifySyntax = true
+				}
+				// TODO use Build and Bundle
+				result := api.Transform(string(scripts), config)
+
+				if len(result.Errors) > 0 {
+					return fmt.Errorf("[esbuid] Found errors: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", "))
+				}
+
+				jsResult = string(result.Code)
+
+				// TODO same logic as with css. refactor this
+				targetDir := filepath.Join(p.Config.OutputDirectory, path)
+				log.Infof("Writing js file to %s", targetDir)
+				// TODO handle suffix correctly.
+				outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.JS, ".js")+".js")
+				log.Infof("Writing js file to %s", outputFile)
+				err = os.WriteFile(outputFile, []byte(jsResult), 0644)
+				if err != nil {
+					log.Fatalf("Failed to write js file: %s", err)
+					return err
+				}
+
+				log.Infof("Processed js: %s -> %s\n", path, outputFile)
+			}
+
+		}
 	}
 
 	return nil
+}
+
+func (p Project) Close() {
+	// TODO
+	// * close server
+	// * clear caches
+	// * close sass server
 }

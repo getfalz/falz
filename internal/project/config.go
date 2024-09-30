@@ -27,16 +27,23 @@ type StylesConfig struct {
 	SassPath   string `yaml:"sass_path" default:"sass"`
 }
 
+type ScriptsConfig struct {
+	Parser     string `yaml:"parser"`
+	Compressed bool   `yaml:"compressed"`
+	SourceMap  bool   `yaml:"sourcemap"`
+}
+
 // TODO set defaults
 type CraeftConfig struct {
 	ProjectName     string `yaml:"project_name" default:"Default Project"`
 	SourceDirectory string
-	OutputDirectory string       `yaml:"output_directory"`
-	Ignore          []string     `yaml:"ignore_files"`
-	Debug           bool         `yaml:"debug"`
-	EnableHotReload bool         `yaml:"enable_hot_reload"`
-	ThemePath       string       `yaml:"theme"`
-	StylesConfig    StylesConfig `yaml:"styles"`
+	OutputDirectory string        `yaml:"output_directory"`
+	Ignore          []string      `yaml:"ignore_files"`
+	Debug           bool          `yaml:"debug"`
+	EnableHotReload bool          `yaml:"enable_hot_reload"`
+	ThemePath       string        `yaml:"theme"`
+	StylesConfig    StylesConfig  `yaml:"styles"`
+	ScriptsConfig   ScriptsConfig `yaml:"scripts"`
 
 	OutputFormats []string      `yaml:"output_formats"`
 	Server        ServerConfig  `yaml:"server"`
