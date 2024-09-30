@@ -1,6 +1,6 @@
 <Layout
     template="main.tpl"
-    css="styles.sass"
+    css="styles.scss"
     js="/assets/scripts.js"
     >
     <Flow direction="row" align="center" wrap="true">

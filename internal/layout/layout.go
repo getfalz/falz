@@ -21,7 +21,8 @@ const ctxBasePath = ctxKey("basePath")
 
 type Layout struct {
 	XMLName        xml.Name `xml:"Layout"`
-	BasePath       string
+	basePath       string
+	path           string
 	contentPattern string
 	fragments      []string
 	output         string
@@ -198,7 +199,7 @@ func (l *Layout) Render(base string) (string, error) {
 	if l.output != "" {
 		return l.output, nil
 	}
-	tplPath, err := utils.FindFile(l.BasePath, base, l.Tpl)
+	tplPath, err := utils.FindFile(l.basePath, base, l.Tpl)
 	if err != nil {
 		return "", err
 	}
@@ -208,7 +209,7 @@ func (l *Layout) Render(base string) (string, error) {
 		return "", err
 	}
 
-	ctx := context.WithValue(context.Background(), ctxBasePath, l.BasePath)
+	ctx := context.WithValue(context.Background(), ctxBasePath, l.basePath)
 	body, err := l.Child.Render(ctx)
 	if err != nil {
 		log.Error(err)
@@ -475,8 +476,13 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	}
 }
 
-func Parse(basePath string, data []byte) (*Layout, error) {
-	layout := &Layout{BasePath: basePath}
+func (l Layout) Path() string {
+	return l.path
+}
+
+// Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml
+func Parse(basePath string, cwd string, data []byte) (*Layout, error) {
+	layout := &Layout{basePath: basePath, path: cwd}
 	err := xml.Unmarshal(data, layout)
 	if err != nil {
 		return nil, err

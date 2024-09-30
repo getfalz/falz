@@ -12,7 +12,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bep/godartsass"
+	"github.com/bep/godartsass/v2"
 	"github.com/mattn/go-zglob"
 	log "github.com/sirupsen/logrus"
 )
@@ -84,7 +84,7 @@ func (p *Project) GetLayout(path string) (*layout.Layout, error) {
 	}
 
 	// layout should know where is the project base folder, for later fragment lookup
-	lyt, err := layout.Parse(p.Config.ThemePath, layoutFile)
+	lyt, err := layout.Parse(p.Config.ThemePath, filepath.Dir(layoutPath), layoutFile)
 	if err != nil {
 		return nil, err
 	}
@@ -234,16 +234,19 @@ func (p *Project) BuildAsset(path string) error {
 		return err
 	}
 
-	if lyt.CSS != "" {
+	if path == lyt.Path() && lyt.CSS != "" {
 		// check if file exists
-		if _, err := os.Stat(lyt.CSS); os.IsNotExist(err) {
-			log.Errorf("CSS file not found: %s", lyt.CSS)
+		cssPath := filepath.Join(p.Config.ThemePath, lyt.Path(), lyt.CSS)
+		if _, err := os.Stat(cssPath); os.IsNotExist(err) {
+			log.Errorf("CSS file not found: %s", cssPath)
 		} else {
 			var cssResult string
-			styles, err := os.ReadFile(lyt.CSS)
+			log.Infof("Processing css: %s", cssPath)
+			styles, err := os.ReadFile(cssPath)
 			if err != nil {
 				return err
 			}
+			log.Infof("got styles: %s", styles)
 
 			sassPath, err := exec.LookPath(p.Config.StylesConfig.SassPath)
 			// parse sass
@@ -284,6 +287,7 @@ func (p *Project) BuildAsset(path string) error {
 					SourceMapIncludeSources: true,
 					OutputStyle:             outputStyle,
 					SourceSyntax:            cssSyntax,
+					IncludePaths:            []string{p.Config.ThemePath},
 				})
 				if err != nil {
 					log.Infof("Failed to compile sass: %v", err)
@@ -301,8 +305,10 @@ func (p *Project) BuildAsset(path string) error {
 			}
 			// write css file
 			targetDir := filepath.Join(p.Config.OutputDirectory, path)
+			log.Infof("Writing css file to %s", targetDir)
 			// TODO handle suffix correctly.
-			outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.CSS, ".sass")+".css")
+			outputFile := filepath.Join(targetDir, strings.TrimSuffix(lyt.CSS, ".scss")+".css")
+			log.Infof("Writing css file to %s", outputFile)
 			err = os.WriteFile(outputFile, []byte(cssResult), 0644)
 			if err != nil {
 				log.Fatalf("Failed to write css file: %s", err)

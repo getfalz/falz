@@ -1,5 +1,6 @@
 <Layout
     template="main.tpl"
+    css="styles.scss"
     >
     <Flow direction="row" >
         <Item width="500px" height="500px">

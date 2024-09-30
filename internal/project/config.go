@@ -24,7 +24,7 @@ type StylesConfig struct {
 	Parser     string `yaml:"parser"` // scss, css
 	Compressed bool   `yaml:"compressed"`
 	SourceMap  bool   `yaml:"sourcemap"`
-	SassPath   string `yaml:"sass_path" default:"dart-sass"`
+	SassPath   string `yaml:"sass_path" default:"sass"`
 }
 
 // TODO set defaults
