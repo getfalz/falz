@@ -32,6 +32,7 @@ to quickly create a Cobra application.`,
 			p.Config.Server.Port = serverPort
 		}
 		p.Config.EnableHotReload = enableHotReload
+		log.Infof("Using theme path: %s", p.Config.ThemePath)
 	},
 	Run: func(cmd *cobra.Command, args []string) {
 		cp := cmd.Context().Value(CTX)

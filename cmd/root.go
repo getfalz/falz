@@ -40,9 +40,7 @@ to quickly create a Cobra application.`,
 		p.Config.SourceDirectory = currentPath
 		p.Config.OutputDirectory = outputPath
 
-		if themePath != "" {
-			p.Config.ThemePath = themePath
-		} else {
+		if p.Config.ThemePath == "" {
 			p.Config.ThemePath = currentPath
 		}
 

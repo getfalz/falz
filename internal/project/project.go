@@ -91,7 +91,7 @@ func (p *Project) GetLayout(path string) (*layout.Layout, error) {
 		return cached.(*layout.Layout), nil
 	}
 
-	layoutPath, err := utils.FindFile(p.Config.SourceDirectory, path, "layout.xml")
+	layoutPath, err := utils.FindFile(p.Config.ThemePath, path, "layout.xml")
 	if err != nil {
 		return nil, err
 	}
@@ -231,6 +231,14 @@ func (p *Project) walk(callback func(path string, d fs.DirEntry) error) {
 func (p *Project) BuildAsset(path string) error {
 	lyt, err := p.GetLayout(path)
 	if err != nil {
+		return err
+	}
+
+	log.Infof("Building assets for %s", lyt.CSS)
+
+	base := filepath.Dir(lyt.CSS)
+	targetDir := filepath.Join(p.Config.OutputDirectory, base)
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return err
 	}
 

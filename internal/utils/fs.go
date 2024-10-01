@@ -8,7 +8,7 @@ import (
 
 // FindFile searches a file fileName by consuming the targetPath and going up the directory hierarchy until reaching the basePath.
 func FindFile(basePath, targetPath, fileName string) (string, error) {
-	currentPath := targetPath
+	currentPath := filepath.Join(basePath, targetPath)
 
 	for {
 		filePath := filepath.Join(currentPath, fileName)

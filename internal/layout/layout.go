@@ -1,11 +1,9 @@
 package layout
 
 import (
-	"bytes"
 	"context"
 	"encoding/xml"
 	"fmt"
-	"html/template"
 	"io"
 	"os"
 	"strings"
@@ -13,6 +11,7 @@ import (
 	"craeft/internal/utils"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/valyala/fasttemplate"
 )
 
 type ctxKey string
@@ -79,6 +78,12 @@ type Variable struct {
 	Name    string   `xml:"name,attr"`
 }
 
+func parseTpl(tpl string, data map[string]any) string {
+	// TODO use config for delimiters
+	t := fasttemplate.New(tpl, "{{", "}}")
+	return t.ExecuteString(data)
+}
+
 // Item struct renders its children (if any) or standalone
 func (i Item) Render(ctx context.Context) (string, error) {
 	// Render child elements
@@ -96,17 +101,23 @@ func (i Item) Render(ctx context.Context) (string, error) {
                 {{.Children}}
              </div>`
 
-	var rendered bytes.Buffer
-	t := template.Must(template.New("item").Parse(tmpl))
-	err := t.Execute(&rendered, map[string]interface{}{
+	result := parseTpl(tmpl, map[string]any{
 		"Width":    i.Width,
 		"Height":   i.Height,
-		"Children": template.HTML(childrenHTML.String()),
+		"Children": childrenHTML.String(),
 	})
-	if err != nil {
-		return "", err
-	}
-	return rendered.String(), nil
+	// var rendered bytes.Buffer
+	// t := template.Must(template.New("item").Parse(tmpl))
+	// err := t.Execute(&rendered, map[string]interface{}{
+	// 	"Width":    i.Width,
+	// 	"Height":   i.Height,
+	// 	"Children": template.HTML(childrenHTML.String()),
+	// })
+	// if err != nil {
+	// 	return "", err
+	// }
+	// return rendered.String(), nil
+	return result, nil
 }
 
 // Flow struct renders its child items in a flexbox layout
@@ -125,17 +136,24 @@ func (f Flow) Render(ctx context.Context) (string, error) {
                 {{.Items}}
              </div>`
 
-	var rendered bytes.Buffer
-	t := template.Must(template.New("flow").Parse(tmpl))
-	err := t.Execute(&rendered, map[string]interface{}{
+	result := parseTpl(tmpl, map[string]any{
 		"Direction": f.Direction,
 		"Align":     f.Align,
-		"Items":     template.HTML(itemsHTML.String()),
+		"Items":     itemsHTML.String(),
 	})
-	if err != nil {
-		return "", err
-	}
-	return rendered.String(), nil
+
+	// var rendered bytes.Buffer
+	// t := template.Must(template.New("flow").Parse(tmpl))
+	// err := t.Execute(&rendered, map[string]interface{}{
+	// 	"Direction": f.Direction,
+	// 	"Align":     f.Align,
+	// 	"Items":     template.HTML(itemsHTML.String()),
+	// })
+	// if err != nil {
+	// 	return "", err
+	// }
+	// return rendered.String(), nil
+	return result, nil
 }
 
 // Grid struct renders its child items in a grid layout
@@ -154,17 +172,24 @@ func (g Grid) Render(ctx context.Context) (string, error) {
                 {{.Items}}
              </div>`
 
-	var rendered bytes.Buffer
-	t := template.Must(template.New("grid").Parse(tmpl))
-	err := t.Execute(&rendered, map[string]interface{}{
+	result := parseTpl(tmpl, map[string]any{
 		"Columns": g.Columns,
 		"Gap":     g.Gap,
-		"Items":   template.HTML(itemsHTML.String()),
+		"Items":   itemsHTML.String(),
 	})
-	if err != nil {
-		return "", err
-	}
-	return rendered.String(), nil
+
+	// var rendered bytes.Buffer
+	// t := template.Must(template.New("grid").Parse(tmpl))
+	// err := t.Execute(&rendered, map[string]interface{}{
+	// 	"Columns": g.Columns,
+	// 	"Gap":     g.Gap,
+	// 	"Items":   template.HTML(itemsHTML.String()),
+	// })
+	// if err != nil {
+	// 	return "", err
+	// }
+	// return rendered.String(), nil
+	return result, nil
 }
 
 // Fragment struct loads and renders raw HTML from a file
@@ -188,6 +213,7 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 
 // Content struct loads Markdown, converts it to HTML, and renders it
 func (c Content) Render(ctx context.Context) (string, error) {
+	// TODO use config delimiters
 	return "{{.Content}}", nil
 }
 
@@ -216,18 +242,26 @@ func (l *Layout) Render(base string) (string, error) {
 		body = ""
 	}
 
-	var rendered bytes.Buffer
-	t := template.Must(template.New("main").Parse(string(tmpl)))
-	// TODO check that css/js are only file names and no path to other folder
-	err = t.Execute(&rendered, map[string]interface{}{
+	result := parseTpl(string(tmpl), map[string]any{
 		"CSS":  l.CSS,
 		"JS":   l.JS,
-		"Body": template.HTML(body),
+		"Body": body,
 	})
-	if err != nil {
-		return "", err
-	}
-	l.output = rendered.String()
+
+	// var rendered bytes.Buffer
+	// t := template.Must(template.New("main").Parse(string(tmpl)))
+	// // TODO check that css/js are only file names and no path to other folder
+	// err = t.Execute(&rendered, map[string]interface{}{
+	// 	"CSS":  l.CSS,
+	// 	"JS":   l.JS,
+	// 	"Body": template.HTML(body),
+	// })
+	// if err != nil {
+	// 	return "", err
+	// }
+	// l.output = rendered.String()
+
+	l.output = result
 	return l.output, nil
 }
 
