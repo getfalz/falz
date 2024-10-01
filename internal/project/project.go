@@ -115,13 +115,14 @@ func (p *Project) BuildPage(path string) (string, error) {
 
 	// skip fragment files
 	// TODO skip js/css files too?
+	// TODO move to Build
 	for _, f := range fragments {
 		match, err := zglob.Match(f, fileName)
 		if err != nil {
 			return "", err
 		}
 		if match {
-			log.Infof("Skipping file %s", fileName)
+			log.Infof("Skipping fragment %s", fileName)
 			return "", nil
 		}
 	}
@@ -134,6 +135,8 @@ func (p *Project) BuildPage(path string) (string, error) {
 		return "", err
 	}
 	if match {
+		// TODO handle content caching
+		page := content.New(path, "md")
 		targetDir := filepath.Join(p.Config.OutputDirectory, base)
 
 		if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -141,23 +144,25 @@ func (p *Project) BuildPage(path string) (string, error) {
 		}
 
 		log.Debugf("-> Building page: %s\n", path)
-		finalResult, err := content.BuildPage(layoutTpl, filepath.Join(p.Config.SourceDirectory, path))
+		result, err := page.Build(layoutTpl)
 		if err != nil {
-			log.Fatalf("Failed to write output file: %s", err)
+			log.Errorf("Failed to write output file: %s", err)
 			return "", err
 		}
 
-		// TODO use the defined suffix for the corresponding plugin
-		outputFile = filepath.Join(targetDir, strings.TrimSuffix(fileName, ".md")+".html")
-		err = os.WriteFile(outputFile, []byte(finalResult), 0644)
-		if err != nil {
-			log.Fatalf("Failed to write output file: %s", err)
-			return "", err
+		for _, r := range result {
+			// TODO use the defined suffix for the corresponding plugin
+			outputFile = filepath.Join(p.Config.OutputDirectory, r.Filename)
+			err = os.WriteFile(outputFile, []byte(r.Result), 0644)
+			if err != nil {
+				log.Errorf("Failed to write output file: %s", err)
+				return "", err
+			}
+			log.Infof("Processed file: %s -> %s\n", path, outputFile)
 		}
-
-		log.Infof("Processed file: %s -> %s\n", path, outputFile)
 	}
 
+	// for multiple files, it returns the last one
 	return outputFile, nil
 }
 

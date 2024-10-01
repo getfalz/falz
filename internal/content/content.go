@@ -12,10 +12,28 @@ import (
 	"github.com/gomarkdown/markdown/parser"
 )
 
+type Content struct {
+	path     string
+	pipeline string
+	output   []ContentResult
+}
+
+type ContentResult struct {
+	Filename string
+	Result   string
+}
+
+func New(path, pipeline string) *Content {
+	return &Content{
+		path:     path,
+		pipeline: pipeline,
+	}
+}
+
 // TODO this method will in future write not only the contents to the template, but all fields the template has
 // eg. title, contentN, ...
-func BuildPage(layoutTpl, path string) (string, error) {
-	file, err := os.ReadFile(path)
+func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
+	file, err := os.ReadFile(c.path)
 	if err != nil {
 		log.Fatalf("Failed to read content file: %s", err)
 	}
@@ -24,24 +42,27 @@ func BuildPage(layoutTpl, path string) (string, error) {
 
 	tmpl, err := template.New("contentTemplate").Parse(layoutTpl)
 	if err != nil {
-		return "", fmt.Errorf("failed to parse template: %v", err)
+		return []ContentResult{}, fmt.Errorf("failed to parse template: %v", err)
 	}
 
 	var result strings.Builder
-	// Data to be injected into the template, for example:
+	// TODO add content variables
 	data := struct {
 		Content string
 	}{
 		Content: string(content),
 	}
 
-	// Execute the template and replace the {{.Content}} placeholder
 	err = tmpl.Execute(&result, data)
 	if err != nil {
-		return "", fmt.Errorf("failed to apply content to template: %v", err)
+		return []ContentResult{}, fmt.Errorf("failed to apply content to template: %v", err)
 	}
 
-	return result.String(), nil
+	outputFile := strings.TrimSuffix(c.path, ".md") + ".html"
+	res := []ContentResult{
+		{Filename: outputFile, Result: result.String()},
+	}
+	return res, nil
 }
 
 func mdToHTML(md []byte) []byte {
