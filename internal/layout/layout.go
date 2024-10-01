@@ -97,8 +97,8 @@ func (i Item) Render(ctx context.Context) (string, error) {
 	}
 
 	// Use a Go template to generate the HTML for the Item
-	tmpl := `<div class="item" style="width: {{.Width}}; height: {{.Height}};">
-                {{.Children}}
+	tmpl := `<div class="item" style="width: {{Width}}; height: {{Height}};">
+                {{Children}}
              </div>`
 
 	result := parseTpl(tmpl, map[string]any{
@@ -132,8 +132,8 @@ func (f Flow) Render(ctx context.Context) (string, error) {
 	}
 
 	// Use a Go template for the Flow layout
-	tmpl := `<div class="flow" style="flex-direction: {{.Direction}}; align-items: {{.Align}};">
-                {{.Items}}
+	tmpl := `<div class="flow" style="flex-direction: {{Direction}}; align-items: {{Align}};">
+                {{Items}}
              </div>`
 
 	result := parseTpl(tmpl, map[string]any{
@@ -168,8 +168,8 @@ func (g Grid) Render(ctx context.Context) (string, error) {
 	}
 
 	// Use a Go template for the Grid layout
-	tmpl := `<div class="grid" style="grid-template-columns: repeat({{.Columns}}, 1fr); gap: {{.Gap}};">
-                {{.Items}}
+	tmpl := `<div class="grid" style="grid-template-columns: repeat({{Columns}}, 1fr); gap: {{Gap}};">
+                {{Items}}
              </div>`
 
 	result := parseTpl(tmpl, map[string]any{
@@ -518,7 +518,7 @@ func (l Layout) HasPart(part string) bool {
 	return false
 }
 
-// Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml
+// Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml and should be relative to project path
 func Parse(basePath string, cwd string, data []byte) (*Layout, error) {
 	layout := &Layout{basePath: basePath, path: cwd}
 	err := xml.Unmarshal(data, layout)

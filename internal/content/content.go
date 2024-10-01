@@ -2,7 +2,6 @@ package content
 
 import (
 	"fmt"
-	"log"
 	"os"
 	"strings"
 	"text/template"
@@ -10,6 +9,7 @@ import (
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
+	log "github.com/sirupsen/logrus"
 )
 
 type Content struct {
@@ -33,7 +33,7 @@ func New(path, pipeline string) *Content {
 // TODO this method will in future write not only the contents to the template, but all fields the template has
 // eg. title, contentN, ...
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
-	if c.output != nil {
+	if len(c.output) > 0 {
 		return c.output, nil
 	}
 

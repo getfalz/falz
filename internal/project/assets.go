@@ -122,7 +122,7 @@ func (a *Assets) BuildCSS(base, fileName string) error {
 	// write css file
 	targetDir := filepath.Join(a.config.OutputDirectory, base)
 	// TODO handle suffix correctly.
-	outputFile := filepath.Join(targetDir, strings.TrimSuffix(fileName, ".scss")+".css")
+	outputFile := filepath.Join(targetDir, strings.TrimSuffix(fileName, ".css")+".css")
 	err = os.WriteFile(outputFile, []byte(cssResult), 0644)
 	if err != nil {
 		log.Fatalf("Failed to write css file: %s", err)

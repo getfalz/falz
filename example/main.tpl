@@ -4,8 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Title</title>
-    <link rel="stylesheet" href="{{.CSS}}">
-    <script src="{{.JS}}" defer></script>
+    <link rel="stylesheet" href="{{CSS}}">
+    <script src="{{JS}}" defer></script>
     <script>
     (() => {
         const socketUrl = 'ws://'+window.location.host+'/ws';
@@ -19,7 +19,7 @@
 </head>
 <body>
     <div class="content">
-    {{.Body}}
+    {{Body}}
     </div>
 </body>
 </html>

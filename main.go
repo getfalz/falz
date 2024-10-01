@@ -72,6 +72,7 @@ func main() {
 					&cli.BoolFlag{
 						Name:  "hotreload",
 						Usage: "Enable hot-reload",
+						Value: true,
 					},
 				},
 				Before: func(c *cli.Context) error {

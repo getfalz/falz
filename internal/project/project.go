@@ -102,7 +102,11 @@ func (p *Project) GetLayout(path string) (*layout.Layout, error) {
 	}
 
 	// layout should know where is the project base folder, for later fragment lookup
-	lyt, err := layout.Parse(p.Config.ThemePath, filepath.Dir(layoutPath), layoutFile)
+	layoutBase, err := filepath.Rel(p.Config.ThemePath, layoutPath)
+	if err != nil {
+		return nil, err
+	}
+	lyt, err := layout.Parse(p.Config.ThemePath, filepath.Dir(layoutBase), layoutFile)
 	if err != nil {
 		return nil, err
 	}
@@ -138,10 +142,12 @@ func (p *Project) BuildPage(path string) (string, error) {
 		var page *content.Content
 		if cached, ok := caches.contents.Load(path); ok {
 			page = cached.(*content.Content)
+			log.Infof("Got page cache: %+v", page)
 		} else {
 			page = content.New(path, "md")
 		}
 
+		page = content.New(path, "md")
 		results, err := page.Build(layoutTpl)
 		if err != nil {
 			return "", err
@@ -204,7 +210,6 @@ func (p *Project) walk(callback func(path string, d fs.DirEntry) error) {
 		if err != nil {
 			return err
 		}
-		log.Debugf("Walking one %s", rel)
 
 		if p.ignoreFile(rel) {
 			log.Infof("Skipping folder %s", rel)
@@ -233,8 +238,6 @@ func (p *Project) BuildAsset(path string) error {
 	if err != nil {
 		return err
 	}
-
-	log.Infof("Building assets for %s", lyt.CSS)
 
 	base := filepath.Dir(lyt.CSS)
 	targetDir := filepath.Join(p.Config.OutputDirectory, base)
