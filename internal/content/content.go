@@ -33,6 +33,10 @@ func New(path, pipeline string) *Content {
 // TODO this method will in future write not only the contents to the template, but all fields the template has
 // eg. title, contentN, ...
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
+	if c.output != nil {
+		return c.output, nil
+	}
+
 	file, err := os.ReadFile(c.path)
 	if err != nil {
 		log.Fatalf("Failed to read content file: %s", err)
