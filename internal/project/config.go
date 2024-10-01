@@ -7,11 +7,6 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
-}
-
 type PublishConfig struct {
 	Provider       string `yaml:"provider"`
 	FTPCredentials struct {
@@ -46,7 +41,6 @@ type CraeftConfig struct {
 	ScriptsConfig   ScriptsConfig `yaml:"scripts"`
 
 	OutputFormats []string      `yaml:"output_formats"`
-	Server        ServerConfig  `yaml:"server"`
 	Publish       PublishConfig `yaml:"publish"`
 }
 

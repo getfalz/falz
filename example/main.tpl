@@ -18,6 +18,8 @@
     </script>
 </head>
 <body>
+    <div class="content">
     {{.Body}}
+    </div>
 </body>
 </html>

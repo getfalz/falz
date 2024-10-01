@@ -480,6 +480,10 @@ func (l Layout) Path() string {
 	return l.path
 }
 
+func (l Layout) HasPart(part string) bool {
+	return false
+}
+
 // Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml
 func Parse(basePath string, cwd string, data []byte) (*Layout, error) {
 	layout := &Layout{basePath: basePath, path: cwd}
