@@ -6,6 +6,8 @@ import (
 	"strings"
 	"text/template"
 
+	"craeft/internal/pipeline"
+
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
@@ -14,7 +16,7 @@ import (
 
 type Content struct {
 	path     string
-	pipeline string
+	pipeline *pipeline.Pipeline
 	output   []ContentResult
 }
 
@@ -23,7 +25,7 @@ type ContentResult struct {
 	Result   string
 }
 
-func New(path, pipeline string) *Content {
+func New(path string, pipeline *pipeline.Pipeline) *Content {
 	return &Content{
 		path:     path,
 		pipeline: pipeline,
@@ -44,6 +46,8 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 
 	content := mdToHTML(file)
 
+	newContent := c.pipeline.Transform(string(content), make(map[string]interface{}))
+
 	tmpl, err := template.New("contentTemplate").Parse(layoutTpl)
 	if err != nil {
 		return []ContentResult{}, fmt.Errorf("failed to parse template: %v", err)
@@ -54,7 +58,7 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	data := struct {
 		Content string
 	}{
-		Content: string(content),
+		Content: string(newContent),
 	}
 
 	err = tmpl.Execute(&result, data)
@@ -71,7 +75,7 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 
 func mdToHTML(md []byte) []byte {
 	// create markdown parser with extensions
-	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
+	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock | parser.Autolink | parser.MathJax
 	p := parser.NewWithExtensions(extensions)
 	doc := p.Parse(md)
 

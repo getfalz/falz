@@ -37,20 +37,24 @@ type ScriptsConfig struct {
 type CraeftConfig struct {
 	ProjectName     string `yaml:"project_name" default:"Default Project"`
 	SourceDirectory string
-	OutputDirectory string        `yaml:"output_directory"`
-	Ignore          []string      `yaml:"ignore_files"`
-	Debug           bool          `yaml:"debug"`
-	EnableHotReload bool          `yaml:"enable_hot_reload"`
-	ThemePath       string        `yaml:"theme"`
-	StylesConfig    StylesConfig  `yaml:"styles"`
-	ScriptsConfig   ScriptsConfig `yaml:"scripts"`
+	OutputDirectory string   `yaml:"output_directory"`
+	Ignore          []string `yaml:"ignore_files"`
+	Debug           bool     `yaml:"debug"`
+	EnableHotReload bool     `yaml:"enable_hot_reload"`
+
+	// TODO this paths will be in ~/.config/craeft
+	ThemePath     string   `yaml:"theme"`
+	PipelinesPath string   `yaml:"pipelines"`
+	Pipelines     []string `yaml:"enabled_pipelines"`
+
+	StylesConfig  StylesConfig  `yaml:"styles"`
+	ScriptsConfig ScriptsConfig `yaml:"scripts"`
 
 	OutputFormats []string      `yaml:"output_formats"`
 	Server        ServerConfig  `yaml:"server"`
 	Publish       PublishConfig `yaml:"publish"`
 }
 
-// TODO refactor to return config and no use global config
 func loadConfig(configFile string) (*CraeftConfig, error) {
 	file, err := os.Open(configFile)
 	if err != nil {

@@ -3,6 +3,7 @@ package project
 import (
 	"craeft/internal/content"
 	"craeft/internal/layout"
+	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 	"fmt"
 	"io/fs"
@@ -16,13 +17,15 @@ import (
 
 var (
 	blackList = []string{"config.yaml", "**/layout.xml"}
-	caches    = &Caches{}
+	// TODO move it to Project
+	caches = &Caches{}
 )
 
 type Project struct {
-	Server *Server
-	Config *CraeftConfig
-	assets *Assets
+	Server    *Server
+	Config    *CraeftConfig
+	assets    *Assets
+	pipelines map[string]*pipeline.Pipeline
 }
 
 type Caches struct {
@@ -44,16 +47,49 @@ func New(base string) (*Project, error) {
 	config.Ignore = append(config.Ignore, blackList...)
 
 	p := &Project{
-		Config: config,
-		assets: &Assets{config: config},
+		Config:    config,
+		assets:    &Assets{config: config},
+		pipelines: make(map[string]*pipeline.Pipeline),
 	}
 
 	p.Server = NewServer(p)
 
+	if err := p.loadPipelines(); err != nil {
+		return nil, err
+	}
+
 	return p, nil
 }
 
+func (p *Project) loadPipelines() error {
+
+	// Check if the pipelines directory exists
+	if _, err := os.Stat(p.Config.PipelinesPath); os.IsNotExist(err) {
+		return fmt.Errorf("pipelines directory does not exist: %s", p.Config.PipelinesPath)
+	}
+
+	for _, pipelineName := range p.Config.Pipelines {
+		pipelinePath := filepath.Join(p.Config.PipelinesPath, pipelineName)
+		log.Infof("Loading pipeline %s from %s", pipelineName, pipelinePath)
+
+		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
+			return fmt.Errorf("pipeline directory does not exist or is not a directory: %s", pipelinePath)
+		}
+
+		pipeline, err := pipeline.New(pipelinePath)
+		if err != nil {
+			return fmt.Errorf("error loading pipeline %s: %v", pipelineName, err)
+		}
+
+		log.Infof("Loaded pipeline %s from %v", pipelineName, pipeline)
+		p.pipelines[pipelineName] = pipeline
+	}
+
+	return nil
+}
+
 // TODO skip js/css files too?
+// TODO move ignoreFiles to tools, so that server is not dependent of Project?
 func (p *Project) ignoreFile(path string) bool {
 	fileName := filepath.Base(path)
 	for _, pat := range p.Config.Ignore {
@@ -129,6 +165,7 @@ func (p *Project) BuildPage(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	// TODO return the whole Content object. so we can access to the pipeline name
 	contentPattern := lyt.ContentPattern()
 
 	var outputFile string
@@ -144,10 +181,17 @@ func (p *Project) BuildPage(path string) (string, error) {
 			page = cached.(*content.Content)
 			log.Infof("Got page cache: %+v", page)
 		} else {
-			page = content.New(path, "md")
+			pl, err := p.GetPipeline("uppercase")
+			if err != nil {
+				return "", err
+			}
+			if err := pl.Load(); err != nil {
+				return "", err
+			}
+			page = content.New(path, pl)
 		}
 
-		page = content.New(path, "md")
+		// page = content.New(path, "md")
 		results, err := page.Build(layoutTpl)
 		if err != nil {
 			return "", err
@@ -261,6 +305,14 @@ func (p *Project) BuildAsset(path string) error {
 	}
 
 	return errors
+}
+
+func (p *Project) GetPipeline(name string) (*pipeline.Pipeline, error) {
+	var m pipeline.Pipeline
+	if m, ok := p.pipelines[name]; ok {
+		return m, nil
+	}
+	return &m, fmt.Errorf("Can't find pipeline %s", name)
 }
 
 func (p Project) Close() {
