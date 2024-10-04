@@ -1,3 +1,3 @@
-# new page
+# Other
 
 hallo world!

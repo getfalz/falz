@@ -7,7 +7,9 @@
             <Fragment src="main.header" />
         </Item>
         <Item width="500px" height="500px">
-            <Content path="*.md" />
+            <Content path="*.md"
+                pipeline="uppercase"
+                />
         </Item>
     </Flow>
 </Layout>

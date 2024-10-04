@@ -1,6 +1,9 @@
 project_name: "My Craeft Project"
 styles:
   sass_path: /home/juanolon/.bin/dart-sass/sass
+pipelines: /home/juanolon/.config/craeft/pipelines
+enabled_pipelines:
+  - uppercase
 output_formats:
   - html
   - pdf

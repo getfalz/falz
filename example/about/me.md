@@ -1,3 +1,3 @@
-# About page
+# About me
 
 This is me

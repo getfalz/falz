@@ -11,7 +11,7 @@
         </Item>
         <Item width="200px" height="200px">
             <Content path="*.md"
-                pipeline="markdown"
+                pipeline="uppercase"
                 >
             <Variable name="title" />
             </Content>
