@@ -66,7 +66,7 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 		return []ContentResult{}, fmt.Errorf("failed to apply content to template: %v", err)
 	}
 
-	outputFile := strings.TrimSuffix(c.path, ".md") + ".html"
+	outputFile := strings.TrimSuffix(c.path, c.pipeline.Config().Suffix) + ".html"
 	res := []ContentResult{
 		{Filename: outputFile, Result: result.String()},
 	}

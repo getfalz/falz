@@ -10,25 +10,32 @@ import (
 
 	"craeft/internal/utils"
 
+	"github.com/mattn/go-zglob"
 	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fasttemplate"
 )
 
 type ctxKey string
 
-const ctxBasePath = ctxKey("basePath")
+type contextKey int
+
+// Enum for context keys
+const (
+	ctxBasePath contextKey = iota
+	ctxRenderPath
+)
 
 type Layout struct {
-	XMLName        xml.Name `xml:"Layout"`
-	basePath       string
-	path           string
-	contentPattern string
-	fragments      []string
-	output         string
-	Child          Renderable `xml:",any"`
-	CSS            string     `xml:"css,attr"`
-	JS             string     `xml:"js,attr"`
-	Tpl            string     `xml:"template,attr"`
+	XMLName    xml.Name `xml:"Layout"`
+	basePath   string
+	path       string
+	contentElm Content
+	fragments  []string
+	output     string
+	Child      Renderable `xml:",any"`
+	CSS        string     `xml:"css,attr"`
+	JS         string     `xml:"js,attr"`
+	Tpl        string     `xml:"template,attr"`
 }
 
 type Renderable interface {
@@ -194,13 +201,10 @@ func (g Grid) Render(ctx context.Context) (string, error) {
 
 // Fragment struct loads and renders raw HTML from a file
 func (f Fragment) Render(ctx context.Context) (string, error) {
-	basePathValue := ctx.Value(ctxBasePath)
-	basePath, ok := basePathValue.(string)
-	if !ok {
-		return "", fmt.Errorf("BasePath not found in context or is not a string")
-	}
+	basePath := getValue(ctx, ctxBasePath)
+	renderPath := getValue(ctx, ctxRenderPath)
 
-	srcPath, err := utils.FindFile(basePath, "", f.Source)
+	srcPath, err := utils.FindFile(basePath, renderPath, f.Source)
 	if err != nil {
 		return "", err
 	}
@@ -217,15 +221,23 @@ func (c Content) Render(ctx context.Context) (string, error) {
 	return "{{.Content}}", nil
 }
 
+func getValue(ctx context.Context, key contextKey) string {
+	// Use the key to get the value from the context
+	if val, ok := ctx.Value(key).(string); ok {
+		return val
+	}
+	return ""
+}
+
 // Render layout. The fragments will be searched first in the given base path
-func (l *Layout) Render(base string) (string, error) {
+func (l *Layout) Render(path string) (string, error) {
 	// TODO render websocket script only when the development flag is set
 	// but find a way to define the variables placeholders. maybe use fasttemplate?
 
 	if l.output != "" {
 		return l.output, nil
 	}
-	tplPath, err := utils.FindFile(l.basePath, base, l.Tpl)
+	tplPath, err := utils.FindFile(l.basePath, path, l.Tpl)
 	if err != nil {
 		return "", err
 	}
@@ -236,6 +248,7 @@ func (l *Layout) Render(base string) (string, error) {
 	}
 
 	ctx := context.WithValue(context.Background(), ctxBasePath, l.basePath)
+	ctx = context.WithValue(ctx, ctxRenderPath, path)
 	body, err := l.Child.Render(ctx)
 	if err != nil {
 		log.Error(err)
@@ -304,61 +317,62 @@ func (i Item) collectFragments(fragments *[]string) {
 	}
 }
 
-func (l *Layout) ContentPattern() string {
-	if l.contentPattern != "" {
-		return l.contentPattern
+func (l *Layout) Content() Content {
+	if l.contentElm.Path != "" {
+		return l.contentElm
 	}
-	l.contentPattern = l.collectContents(l.Child)
+	c := l.collectContents(l.Child)
+	if c == nil {
+		log.Error("No content element found in layout")
+	}
+	l.contentElm = *c
 
-	return l.contentPattern
+	return l.contentElm
 }
 
-func (l Layout) collectContents(child Renderable) string {
-	var contentPattern string
+func (l Layout) collectContents(child Renderable) *Content {
 	switch v := child.(type) {
 	case *Content:
-		contentPattern = v.Path
+		return v
 	case *Flow:
 		for _, item := range v.Items {
-			if r := item.collectContents(); r != "" {
-				contentPattern = r
-				break
+			if r := item.collectContents(); r != nil {
+				return r
 			}
 		}
 	case *Grid:
 		for _, item := range v.Items {
-			contentPattern = item.collectContents()
+			if r := item.collectContents(); r != nil {
+				return r
+			}
 		}
 	}
 
-	return contentPattern
+	return nil
 }
 
-func (i Item) collectContents() string {
-	var contentPattern string
+func (i Item) collectContents() *Content {
 	if i.Children != nil {
 		for _, child := range i.Children {
 			switch v := child.(type) {
 			case *Flow:
 				for _, item := range v.Items {
-					if r := item.collectContents(); r != "" {
-						contentPattern = r
-						break
+					if r := item.collectContents(); r != nil {
+						return r
 					}
 				}
 			case *Grid:
 				for _, item := range v.Items {
-					if r := item.collectContents(); r != "" {
-						contentPattern = r
-						break
+					if r := item.collectContents(); r != nil {
+						return r
 					}
 				}
 			case *Content:
-				contentPattern = v.Path
+				return v
 			}
 		}
 	}
-	return contentPattern
+	return nil
 }
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -515,7 +529,19 @@ func (l Layout) Path() string {
 }
 
 func (l Layout) HasPart(part string) bool {
+	// TODO like collectContents, collectFragments
 	return false
+}
+
+func (l Layout) HasContent(path string) bool {
+	log.Infof("Matching %s with %s", l.contentElm.Path, path)
+	match, err := zglob.Match(l.contentElm.Path, path)
+	if err != nil {
+		log.Errorf("Error matching file: %v\n", err)
+		return false
+	}
+
+	return match
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml and should be relative to project path
@@ -525,5 +551,12 @@ func Parse(basePath string, cwd string, data []byte) (*Layout, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	c := layout.collectContents(layout.Child)
+	if c == nil {
+		log.Error("No content element found in layout")
+	}
+	layout.contentElm = *c
+
 	return layout, nil
 }

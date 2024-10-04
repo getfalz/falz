@@ -76,12 +76,10 @@ func (s *script) loadScript() string {
 		EntryPoints:   []string{scriptName},
 		AbsWorkingDir: dirName,
 		Outfile:       "out.js",
-		// Platform:    api.PlatformNode,
-		Format: api.FormatESModule,
-		// Format: api.FormatCommonJS,
-		Bundle:      true,
-		Write:       false,
-		TreeShaking: api.TreeShakingFalse,
+		Format:        api.FormatESModule,
+		Bundle:        true,
+		Write:         false,
+		TreeShaking:   api.TreeShakingFalse,
 	})
 	log.Infof("Build result: %+v", result)
 

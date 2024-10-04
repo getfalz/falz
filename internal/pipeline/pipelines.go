@@ -26,3 +26,7 @@ func New(path string) (*Pipeline, error) {
 		config: config,
 	}, nil
 }
+
+func (p *Pipeline) Config() PipelineConfig {
+	return *p.config
+}

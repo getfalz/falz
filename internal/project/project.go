@@ -151,9 +151,9 @@ func (p *Project) GetLayout(path string) (*layout.Layout, error) {
 	return lyt, nil
 }
 
-// BuildPage builds a single page from a given path
+// UpdatePath builds a single page from a given path
 // The path should be relative to the project source
-func (p *Project) BuildPage(path string) (string, error) {
+func (p *Project) UpdatePath(path string) (string, error) {
 	base := filepath.Dir(path)
 	fileName := filepath.Base(path)
 
@@ -161,38 +161,10 @@ func (p *Project) BuildPage(path string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	layoutTpl, err := lyt.Render(base)
-	if err != nil {
-		return "", err
-	}
-	// TODO return the whole Content object. so we can access to the pipeline name
-	contentPattern := lyt.ContentPattern()
 
 	var outputFile string
-	log.Infof("Matching %s with %s", contentPattern, fileName)
-	match, err := zglob.Match(contentPattern, fileName)
-	if err != nil {
-		log.Errorf("Error matching file: %v\n", err)
-		return "", err
-	}
-	if match {
-		var page *content.Content
-		if cached, ok := caches.contents.Load(path); ok {
-			page = cached.(*content.Content)
-			log.Infof("Got page cache: %+v", page)
-		} else {
-			pl, err := p.GetPipeline("uppercase")
-			if err != nil {
-				return "", err
-			}
-			if err := pl.Load(); err != nil {
-				return "", err
-			}
-			page = content.New(path, pl)
-		}
-
-		// page = content.New(path, "md")
-		results, err := page.Build(layoutTpl)
+	if lyt.HasContent(fileName) {
+		results, err := p.buildPageWithLayout(lyt, path)
 		if err != nil {
 			return "", err
 		}
@@ -217,10 +189,73 @@ func (p *Project) BuildPage(path string) (string, error) {
 	return outputFile, nil
 }
 
+func (p *Project) buildPageWithLayout(lyt *layout.Layout, path string) ([]content.ContentResult, error) {
+	var page *content.Content
+
+	if cached, ok := caches.contents.Load(path); ok {
+		page = cached.(*content.Content)
+		log.Infof("Got page cache: %+v", page)
+	} else {
+		ctn := lyt.Content()
+		pl, err := p.GetPipeline(ctn.Pipeline)
+		if err != nil {
+			return nil, err
+		}
+		if err := pl.Load(); err != nil {
+			return nil, err
+		}
+		page = content.New(path, pl)
+	}
+
+	base := filepath.Dir(path)
+	layoutTpl, err := lyt.Render(base)
+	if err != nil {
+		return nil, err
+	}
+
+	results, err := page.Build(layoutTpl)
+	if err != nil {
+		return nil, err
+	}
+	return results, nil
+}
+
+func (p *Project) indexPageWithLayout(lyt *layout.Layout, path string) (map[string]string, error) {
+	var page *content.Content
+	if cached, ok := caches.contents.Load(path); ok {
+		page = cached.(*content.Content)
+		log.Infof("Got page cache: %+v", page)
+	} else {
+		ctn := lyt.Content()
+		pl, err := p.GetPipeline(ctn.Pipeline)
+		if err != nil {
+			return nil, err
+		}
+		if err := pl.Load(); err != nil {
+			return nil, err
+		}
+		page = content.New(path, pl)
+	}
+
+	return nil, nil
+}
+
 func (p *Project) Build(isDev bool) {
+	// index
+	// p.walk(func(path string, d fs.DirEntry) error {
+	// 	if !d.IsDir() {
+	// 		_, err := p.BuildPage(path)
+	// 		if err != nil {
+	// 			return err
+	// 		}
+	// 	}
+	//
+	// 	return nil
+	// })
+
 	p.walk(func(path string, d fs.DirEntry) error {
 		if !d.IsDir() {
-			_, err := p.BuildPage(path)
+			_, err := p.UpdatePath(path)
 			if err != nil {
 				return err
 			}
