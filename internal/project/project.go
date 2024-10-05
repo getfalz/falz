@@ -162,49 +162,53 @@ func (p *Project) UpdatePath(path string) (string, error) {
 		return "", err
 	}
 
-	var outputFile string
-	if lyt.HasContent(fileName) {
+	var outputPath string
+	if lyt.MatchContent(fileName) {
+		if err := p.indexPageWithLayout(lyt, path); err != nil {
+			return "", err
+		}
+
 		results, err := p.buildPageWithLayout(lyt, path)
 		if err != nil {
 			return "", err
 		}
 
 		log.Debugf("-> Building page: %s\n", path)
-		targetDir := filepath.Join(p.Config.OutputDirectory, base)
-		if err := os.MkdirAll(targetDir, 0755); err != nil {
+		outputPath, err = p.writeContent(base, results)
+		if err != nil {
 			return "", err
 		}
 
-		for _, r := range results {
-			outputFile = filepath.Join(p.Config.OutputDirectory, r.Filename)
-			err = os.WriteFile(outputFile, []byte(r.Result), 0644)
-			if err != nil {
-				return "", err
-			}
-			log.Infof("Processed file: %s -> %s\n", path, outputFile)
-		}
 	}
 
 	// for multiple files, it returns the last one
-	return outputFile, nil
+	return outputPath, nil
 }
 
-func (p *Project) buildPageWithLayout(lyt *layout.Layout, path string) ([]content.ContentResult, error) {
-	var page *content.Content
+func (p Project) writeContent(base string, results []content.ContentResult) (string, error) {
+	var outputPath string
+	targetDir := filepath.Join(p.Config.OutputDirectory, base)
+	if err := os.MkdirAll(targetDir, 0755); err != nil {
+		return "", err
+	}
 
-	if cached, ok := caches.contents.Load(path); ok {
-		page = cached.(*content.Content)
-		log.Infof("Got page cache: %+v", page)
-	} else {
-		ctn := lyt.Content()
-		pl, err := p.GetPipeline(ctn.Pipeline)
+	for _, r := range results {
+		outputPath = filepath.Join(p.Config.OutputDirectory, r.Filename)
+		err := os.WriteFile(outputPath, []byte(r.Result), 0644)
 		if err != nil {
-			return nil, err
+			return "", err
 		}
-		if err := pl.Load(); err != nil {
-			return nil, err
-		}
-		page = content.New(path, pl)
+		log.Infof("Processed file: %s", outputPath)
+	}
+
+	return outputPath, nil
+}
+func (p *Project) buildPageWithLayout(lyt *layout.Layout, path string) ([]content.ContentResult, error) {
+
+	ctn := lyt.Content()
+	page, err := p.GetContent(path, ctn.Pipeline)
+	if err != nil {
+		return nil, err
 	}
 
 	base := filepath.Dir(path)
@@ -220,14 +224,24 @@ func (p *Project) buildPageWithLayout(lyt *layout.Layout, path string) ([]conten
 	return results, nil
 }
 
-func (p *Project) indexPageWithLayout(lyt *layout.Layout, path string) (map[string]string, error) {
+func (p *Project) indexPageWithLayout(lyt *layout.Layout, path string) error {
+
+	ctn := lyt.Content()
+	page, err := p.GetContent(path, ctn.Pipeline)
+	if err != nil {
+		return err
+	}
+
+	return page.LoadIndex()
+}
+
+func (p *Project) GetContent(path string, pipeline string) (*content.Content, error) {
 	var page *content.Content
 	if cached, ok := caches.contents.Load(path); ok {
 		page = cached.(*content.Content)
 		log.Infof("Got page cache: %+v", page)
 	} else {
-		ctn := lyt.Content()
-		pl, err := p.GetPipeline(ctn.Pipeline)
+		pl, err := p.GetPipeline(pipeline)
 		if err != nil {
 			return nil, err
 		}
@@ -237,7 +251,7 @@ func (p *Project) indexPageWithLayout(lyt *layout.Layout, path string) (map[stri
 		page = content.New(path, pl)
 	}
 
-	return nil, nil
+	return page, nil
 }
 
 func (p *Project) Build(isDev bool) {
@@ -253,11 +267,35 @@ func (p *Project) Build(isDev bool) {
 	// 	return nil
 	// })
 
+	var lastDir string
+	var lyt *layout.Layout
+	var err error
+
 	p.walk(func(path string, d fs.DirEntry) error {
-		if !d.IsDir() {
-			_, err := p.UpdatePath(path)
+		currentDir := filepath.Dir(path)
+		fileName := filepath.Base(path)
+		if d.IsDir() {
+			currentDir = filepath.Join(currentDir, d.Name())
+		}
+		if currentDir != lastDir {
+			lastDir = currentDir
+			lyt, err = p.GetLayout(currentDir)
 			if err != nil {
 				return err
+			}
+		}
+		if !d.IsDir() {
+
+			if lyt.MatchContent(fileName) {
+				results, err := p.buildPageWithLayout(lyt, path)
+				if err != nil {
+					return err
+				}
+
+				_, err = p.writeContent(currentDir, results)
+				if err != nil {
+					return err
+				}
 			}
 		}
 

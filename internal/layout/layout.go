@@ -533,8 +533,8 @@ func (l Layout) HasPart(part string) bool {
 	return false
 }
 
-func (l Layout) HasContent(path string) bool {
-	log.Infof("Matching %s with %s", l.contentElm.Path, path)
+func (l Layout) MatchContent(path string) bool {
+	log.Infof("===Matching %s with %s", l.contentElm.Path, path)
 	match, err := zglob.Match(l.contentElm.Path, path)
 	if err != nil {
 		log.Errorf("Error matching file: %v\n", err)

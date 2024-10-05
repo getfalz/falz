@@ -90,20 +90,38 @@ func (s *script) loadScript() string {
 	return string(result.OutputFiles[0].Contents)
 }
 
-func (s *script) getContext(vars map[string]any) goja.Value {
+func (s *script) getContext(vars map[string]string) goja.Value {
 	ctx := s.vm.NewObject()
-	for k, v := range vars {
-		ctx.Set(k, s.vm.ToValue(v))
-	}
+	ctx.Set("name", s.name)
+	ctx.Set("data", vars)
+
 	return ctx
 }
 
-func (s *script) Index(input string) {
+func (s *script) Index(input string, vars map[string]string) map[string]string {
+	index, ok := goja.AssertFunction(s.vm.Get("index"))
+	if !ok {
+		log.Infof("No index function in script %s", s.name)
+		return vars
+	}
 
+	ctx := s.getContext(vars)
+
+	result, err := index(ctx, s.vm.ToValue(input))
+	if err != nil {
+		log.Errorf("Index return error %s", err)
+	}
+
+	if objRaw, ok := result.(*goja.Object); ok {
+		if obj, ok := objRaw.Export().(map[string]string); ok {
+			return obj
+		}
+	}
+
+	return vars
 }
 
-func (s *script) Transform(input string, vars map[string]any) string {
-
+func (s *script) Transform(input string, vars map[string]string) []map[string]string {
 	transform, ok := goja.AssertFunction(s.vm.Get("transform"))
 	if !ok {
 		log.Errorf("No transform function in script %s", s.name)
@@ -111,10 +129,36 @@ func (s *script) Transform(input string, vars map[string]any) string {
 
 	ctx := s.getContext(vars)
 
-	res, err := transform(ctx, s.vm.ToValue(input))
+	result, err := transform(ctx, s.vm.ToValue(input))
 	if err != nil {
 		log.Errorf("Transform return error %s", err)
 	}
 
-	return res.String()
+	var results []map[string]string
+
+	if str, ok := result.Export().(string); ok {
+		results = append(results, map[string]string{
+			"filename": vars["target"],
+			"result":   str,
+		})
+	} else if obj, ok := result.Export().(map[string]interface{}); ok {
+		filename, _ := obj["filename"].(string)
+		result, _ := obj["result"].(string)
+		results = append(results, map[string]string{
+			"filename": filename,
+			"result":   result,
+		})
+	} else if arr, ok := result.Export().([]interface{}); ok {
+		for _, item := range arr {
+			if obj, ok := item.(map[string]interface{}); ok {
+				filename, _ := obj["filename"].(string)
+				result, _ := obj["result"].(string)
+				results = append(results, map[string]string{
+					"filename": filename,
+					"result":   result,
+				})
+			}
+		}
+	}
+	return results
 }
