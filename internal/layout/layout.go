@@ -218,7 +218,7 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 // Content struct loads Markdown, converts it to HTML, and renders it
 func (c Content) Render(ctx context.Context) (string, error) {
 	// TODO use config delimiters
-	return "{{.Content}}", nil
+	return "[[layout]]", nil
 }
 
 func getValue(ctx context.Context, key contextKey) string {

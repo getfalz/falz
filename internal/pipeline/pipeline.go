@@ -42,7 +42,6 @@ func NewScript(path string) (*script, error) {
 func (s *script) Load() error {
 	// TODO check if already loaded
 	code := s.loadScript()
-	log.Infof("Loaded script %s", code)
 
 	// Compile the JavaScript code
 	p, err := goja.Compile(s.name, code, false)
@@ -72,16 +71,22 @@ func (s *script) loadScript() string {
 	dirName := filepath.Dir(s.path)
 	log.Infof("Loading script %s from %s", scriptName, dirName)
 
+	// TODO minify syntax dont work, because the entry functions will be renamed
 	result := api.Build(api.BuildOptions{
-		EntryPoints:   []string{scriptName},
-		AbsWorkingDir: dirName,
-		Outfile:       "out.js",
-		Format:        api.FormatESModule,
-		Bundle:        true,
-		Write:         false,
-		TreeShaking:   api.TreeShakingFalse,
+		EntryPoints:      []string{scriptName},
+		AbsWorkingDir:    dirName,
+		Outfile:          "out.js",
+		Format:           api.FormatESModule,
+		Bundle:           true,
+		Write:            false,
+		TreeShaking:      api.TreeShakingFalse, // api.TreeShakingTrue
+		MinifyWhitespace: true,
+		// MinifyIdentifiers: true,
+		MinifySyntax: true,
+		Target:       api.ES2020, // api.ES5
+		Sourcemap:    api.SourceMapNone,
 	})
-	log.Infof("Build result: %+v", result)
+	// log.Infof("Build result: %+v", result)
 
 	if len(result.Errors) > 0 {
 		log.Errorf("[esbuid] cant load script: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", "))

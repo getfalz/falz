@@ -43,7 +43,7 @@ func New(path string, pipeline *pipeline.Pipeline) *Content {
 	}
 
 	// set some default values
-	outputFile := strings.TrimSuffix(path, pipeline.Config().Suffix) + ".html"
+	outputFile := strings.TrimSuffix(path, "."+pipeline.Config().Suffix) + ".html"
 	vars["target"] = outputFile
 
 	return &Content{
@@ -99,7 +99,8 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 		log.Error(err)
 	}
 
-	// content = mdToHTML(content)
+	// body = mdToHTML(body)
+	log.Infof("====layout tpl: %s", layoutTpl)
 
 	transformed := c.pipeline.Transform(string(body), c.vars)
 
