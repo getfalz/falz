@@ -1,13 +1,9 @@
 project_name: "My Craeft Project"
+theme: archie
 styles:
   sass_path: /home/juanolon/.bin/dart-sass/sass
-pipelines: /home/juanolon/.config/craeft/pipelines
 enabled_pipelines:
   - uppercase
-output_formats:
-  - html
-  - pdf
-  - latex
 output_directory: "./dist"
 server:
   host: "localhost"

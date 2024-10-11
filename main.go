@@ -27,7 +27,7 @@ func main() {
 			},
 			&cli.StringFlag{
 				Name:  "theme",
-				Usage: "Theme path",
+				Usage: "Theme name",
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -120,7 +120,6 @@ func main() {
 }
 
 func setLogLevel(verbosity int) {
-	// verbosity := strings.Count(v, "v")
 	switch verbosity {
 	case 0:
 		log.SetLevel(log.ErrorLevel)

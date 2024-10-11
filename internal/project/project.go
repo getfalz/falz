@@ -63,17 +63,13 @@ func New(base string) (*Project, error) {
 
 func (p *Project) loadPipelines() error {
 
-	// Check if the pipelines directory exists
-	if _, err := os.Stat(p.Config.PipelinesPath); os.IsNotExist(err) {
-		return fmt.Errorf("pipelines directory does not exist: %s", p.Config.PipelinesPath)
-	}
-
 	for _, pipelineName := range p.Config.Pipelines {
 		pipelinePath := filepath.Join(p.Config.PipelinesPath, pipelineName)
 		log.Infof("Loading pipeline %s from %s", pipelineName, pipelinePath)
 
 		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
-			return fmt.Errorf("pipeline directory does not exist or is not a directory: %s", pipelinePath)
+			log.Error("Pipeline directory does not exist or is not a directory: ", pipelinePath)
+			continue
 		}
 
 		pipeline, err := pipeline.New(pipelinePath)
@@ -385,7 +381,7 @@ func (p *Project) GetPipeline(name string) (*pipeline.Pipeline, error) {
 	if m, ok := p.pipelines[name]; ok {
 		return m, nil
 	}
-	return &m, fmt.Errorf("Can't find pipeline %s", name)
+	return &m, fmt.Errorf("Pipeline not defined in config", name)
 }
 
 func (p Project) Close() {

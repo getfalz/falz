@@ -2,10 +2,15 @@ package project
 
 import (
 	"os"
+	"path/filepath"
 
+	"github.com/adrg/xdg"
 	"github.com/creasty/defaults"
+	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
+
+const configFolder = "craeft"
 
 type ServerConfig struct {
 	Host string `yaml:"host"`
@@ -40,12 +45,13 @@ type CraeftConfig struct {
 	OutputDirectory string   `yaml:"output_directory"`
 	Ignore          []string `yaml:"ignore_files"`
 	Debug           bool     `yaml:"debug"`
-	EnableHotReload bool     `yaml:"enable_hot_reload"`
+	EnableHotReload bool     `yaml:"hot_reload"`
 
-	// TODO this paths will be in ~/.config/craeft
-	ThemePath     string   `yaml:"theme"`
-	PipelinesPath string   `yaml:"pipelines"`
-	Pipelines     []string `yaml:"enabled_pipelines"`
+	Theme     string   `yaml:"theme"`
+	Pipelines []string `yaml:"enabled_pipelines"`
+
+	ThemePath     string
+	PipelinesPath string
 
 	StylesConfig  StylesConfig  `yaml:"styles"`
 	ScriptsConfig ScriptsConfig `yaml:"scripts"`
@@ -71,6 +77,16 @@ func loadConfig(configFile string) (*CraeftConfig, error) {
 
 	if err := defaults.Set(&config); err != nil {
 		return nil, err
+	}
+
+	config.ThemePath, err = xdg.ConfigFile(filepath.Join(configFolder, "themes", config.Theme))
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	config.PipelinesPath, err = xdg.ConfigFile(filepath.Join(configFolder, "pipelines"))
+	if err != nil {
+		log.Fatal(err)
 	}
 
 	return &config, nil

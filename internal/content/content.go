@@ -100,7 +100,6 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	}
 
 	// body = mdToHTML(body)
-	log.Infof("====layout tpl: %s", layoutTpl)
 
 	transformed := c.pipeline.Transform(string(body), c.vars)
 

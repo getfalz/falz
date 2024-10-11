@@ -1,6 +1,9 @@
 package pipeline
 
-import "path/filepath"
+import (
+	"fmt"
+	"path/filepath"
+)
 
 type Pipeline struct {
 	*script
@@ -12,7 +15,7 @@ func New(path string) (*Pipeline, error) {
 	configPath := filepath.Join(path, "config.yaml")
 	config, err := loadConfig(configPath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("[pipeline]", err)
 	}
 
 	scriptPath := filepath.Join(path, config.EntryPoint)

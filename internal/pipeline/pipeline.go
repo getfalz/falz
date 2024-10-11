@@ -43,7 +43,6 @@ func (s *script) Load() error {
 	// TODO check if already loaded
 	code := s.loadScript()
 
-	// Compile the JavaScript code
 	p, err := goja.Compile(s.name, code, false)
 	if err != nil {
 		return err
@@ -57,7 +56,6 @@ func (s *script) Load() error {
 		return err
 	}
 
-	// Ensure the 'transform' function is available
 	if s.vm.GlobalObject().Get("transform") == goja.Undefined() {
 		return fmt.Errorf("no transform function in script %s", s.name)
 	}
