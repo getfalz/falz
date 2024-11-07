@@ -19,54 +19,45 @@ type PipelineScript interface {
 type script struct {
 	name   string
 	path   string
-	script string
-	vm     *goja.Runtime
-	prg    *goja.Program
+	config *JSConfig
+
+	env  *JsEnv
+	loop *EventLoop
+	vm   *goja.Runtime // TODO deprecate
 }
 
-func NewScript(path string) (*script, error) {
+// Script represents the script in a pipeline
+func NewScript(path string, config *JSConfig) (*script, error) {
 	name := filepath.Base(path)
 
-	vm := goja.New()
 	if _, err := os.Stat(path); os.IsNotExist(err) {
 		return nil, fmt.Errorf("pipeline entry point does not exist: %s", path)
 	}
 
-	return &script{
-		name: name,
-		path: path,
-		vm:   vm,
-	}, nil
+	code := loadScript(path)
+	env, err := NewJs(config, code)
+	if err != nil {
+		return nil, err
+	}
+
+	s := &script{
+		name:   name,
+		path:   path,
+		env:    env,
+		config: config,
+	}
+
+	if s.env.vm.GlobalObject().Get("transform") == goja.Undefined() {
+		return nil, fmt.Errorf("no transform function in script %s", s.name)
+	}
+
+	return s, nil
 }
 
-func (s *script) Load() error {
-	// TODO check if already loaded
-	code := s.loadScript()
-
-	p, err := goja.Compile(s.name, code, false)
-	if err != nil {
-		return err
-	}
-
-	// TODO maybe, we dont need to keep the program around
-	s.prg = p
-
-	_, err = s.vm.RunProgram(p)
-	if err != nil {
-		return err
-	}
-
-	if s.vm.GlobalObject().Get("transform") == goja.Undefined() {
-		return fmt.Errorf("no transform function in script %s", s.name)
-	}
-
-	return nil
-}
-
-func (s *script) loadScript() string {
+func loadScript(path string) string {
 	// TODO configure esbuild
-	scriptName := filepath.Base(s.path)
-	dirName := filepath.Dir(s.path)
+	scriptName := filepath.Base(path)
+	dirName := filepath.Dir(path)
 	log.Infof("Loading script %s from %s", scriptName, dirName)
 
 	// TODO minify syntax dont work, because the entry functions will be renamed
@@ -102,15 +93,9 @@ func (s *script) getContext(vars map[string]string) goja.Value {
 }
 
 func (s *script) Index(input string, vars map[string]string) map[string]string {
-	index, ok := goja.AssertFunction(s.vm.Get("index"))
-	if !ok {
-		log.Infof("No index function in script %s", s.name)
-		return vars
-	}
-
 	ctx := s.getContext(vars)
 
-	result, err := index(ctx, s.vm.ToValue(input))
+	result, err := s.env.CallFunc("index", ctx, s.vm.ToValue(input))
 	if err != nil {
 		log.Errorf("Index return error %s", err)
 	}
@@ -125,14 +110,9 @@ func (s *script) Index(input string, vars map[string]string) map[string]string {
 }
 
 func (s *script) Transform(input string, vars map[string]string) []map[string]string {
-	transform, ok := goja.AssertFunction(s.vm.Get("transform"))
-	if !ok {
-		log.Errorf("No transform function in script %s", s.name)
-	}
-
 	ctx := s.getContext(vars)
 
-	result, err := transform(ctx, s.vm.ToValue(input))
+	result, err := s.env.CallFunc("transform", ctx, s.vm.ToValue(input))
 	if err != nil {
 		log.Errorf("Transform return error %s", err)
 	}

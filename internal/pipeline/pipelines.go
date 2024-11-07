@@ -10,16 +10,16 @@ type Pipeline struct {
 	config *PipelineConfig
 }
 
-func New(path string) (*Pipeline, error) {
+func New(path string, jsconfig *JSConfig) (*Pipeline, error) {
 
 	configPath := filepath.Join(path, "config.yaml")
 	config, err := loadConfig(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("[pipeline]", err)
+		return nil, fmt.Errorf("[pipeline] %s", err)
 	}
 
 	scriptPath := filepath.Join(path, config.EntryPoint)
-	script, err := NewScript(scriptPath)
+	script, err := NewScript(scriptPath, jsconfig)
 	if err != nil {
 		return nil, err
 	}
