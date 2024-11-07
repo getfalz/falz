@@ -21,9 +21,7 @@ type script struct {
 	path   string
 	config *JSConfig
 
-	env  *JsEnv
-	loop *EventLoop
-	vm   *goja.Runtime // TODO deprecate
+	env *JsEnv
 }
 
 // Script represents the script in a pipeline
@@ -85,7 +83,7 @@ func loadScript(path string) string {
 }
 
 func (s *script) getContext(vars map[string]string) goja.Value {
-	ctx := s.vm.NewObject()
+	ctx := s.env.vm.NewObject()
 	ctx.Set("name", s.name)
 	ctx.Set("data", vars)
 
@@ -95,7 +93,7 @@ func (s *script) getContext(vars map[string]string) goja.Value {
 func (s *script) Index(input string, vars map[string]string) map[string]string {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("index", ctx, s.vm.ToValue(input))
+	result, err := s.env.CallFunc("index", ctx, s.env.vm.ToValue(input))
 	if err != nil {
 		log.Errorf("Index return error %s", err)
 	}
@@ -112,7 +110,7 @@ func (s *script) Index(input string, vars map[string]string) map[string]string {
 func (s *script) Transform(input string, vars map[string]string) []map[string]string {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("transform", ctx, s.vm.ToValue(input))
+	result, err := s.env.CallFunc("transform", ctx, s.env.vm.ToValue(input))
 	if err != nil {
 		log.Errorf("Transform return error %s", err)
 	}

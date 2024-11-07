@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"time"
@@ -12,8 +13,8 @@ import (
 
 type JsEnv struct {
 	vm     *goja.Runtime
-	config *JSConfig
 	loop   *EventLoop
+	config *JSConfig
 	prg    *goja.Program
 }
 
@@ -72,16 +73,15 @@ func setupRequire(vm *goja.Runtime, loop *EventLoop, config *JSConfig) {
 
 				go func() {
 					// Simulate async file read
-					time.Sleep(100 * time.Millisecond)
+					waitFor := rand.Intn(3) + 1
+					time.Sleep(time.Duration(waitFor) * time.Second)
 
 					data, err := os.ReadFile(path)
-					loop.RunOnLoop(func(vm *goja.Runtime) {
-						if err != nil {
-							reject(vm.ToValue(err.Error()))
-						} else {
-							resolve(vm.ToValue(string(data)))
-						}
-					})
+					if err != nil {
+						reject(vm.ToValue(err.Error()))
+					} else {
+						resolve(vm.ToValue(fmt.Sprintf("file: %s\nwaited for: %d\n%s", filename, waitFor, data)))
+					}
 				}()
 
 				return vm.ToValue(promise)
@@ -108,67 +108,60 @@ func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error
 }
 
 func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
-	resultChan := make(chan goja.Value)
-	errorChan := make(chan error, 1)
+	fn, ok := goja.AssertFunction(env.vm.Get(name))
+	if !ok {
+		return nil, fmt.Errorf("No %s function in script %s", name, env.config.Path)
+	}
+
+	var result goja.Value
+	var err error
+	done := make(chan struct{})
 
 	env.loop.Run(func(vm *goja.Runtime) {
-		fn, ok := goja.AssertFunction(env.vm.Get(name))
-		if !ok {
-			errorChan <- fmt.Errorf("No %s function in script %s", name, env.config.Path)
-			return
-		}
-
-		promise, err := fn(ctx, vars)
+		result, err := fn(ctx, vars)
 		if err != nil {
-			errorChan <- fmt.Errorf("%s return error %s", name, err)
+			err = fmt.Errorf("%s return error %s", name, err)
+			close(done)
 			return
 		}
 
-		var result any
-		if p, ok := promise.Export().(*goja.Promise); ok {
-			log.Infof("promise: %v", p.State())
-			for {
-				switch p.State() {
-				case goja.PromiseStateRejected:
-					errorChan <- fmt.Errorf("promise rejected: %s", p.Result().String())
-				case goja.PromiseStateFulfilled:
-					result = p.Result().Export()
-				case goja.PromiseStatePending:
-					continue
-				default:
-					panic("unexpected promise state pending")
+		go func() {
+			// if the return is indeed a promise, wait for it
+			if p, ok := result.Export().(*goja.Promise); ok {
+				log.Infof("promise: %v", p.State())
+				for {
+					time.Sleep(time.Millisecond * 100)
+					switch p.State() {
+					case goja.PromiseStateRejected:
+						err = fmt.Errorf("promise rejected: %s", p.Result().String())
+						env.loop.StopNoWait()
+						close(done)
+						return
+					case goja.PromiseStateFulfilled:
+						result = p.Result()
+						env.loop.StopNoWait()
+						close(done)
+						return
+					case goja.PromiseStatePending:
+						continue
+					default:
+						panic("unexpected promise state pending")
+					}
 				}
+			} else {
+				close(done)
 			}
-		}
-
-		log.Infof("result: %v", result)
-
-		// then, ok := goja.AssertFunction(promise.ToObject(vm).Get("then"))
-		// log.Infof("then: %v", then)
-		// if !ok {
-		// 	errorChan <- fmt.Errorf("No then function in promise")
-		// 	return
-		// }
-		//
-		// log.Infof("executing promise")
-		// _, err = then(promise, vm.ToValue(func(got goja.Value) {
-		// 	log.Infof("Result: %s\n", got.String())
-		// 	resultChan <- got
-		// }), vm.ToValue(func(err goja.Value) {
-		// 	log.Infof("Error: %s\n", err.String())
-		// 	errorChan <- fmt.Errorf("promise rejected: %s", err.String())
-		// }))
-		// if err != nil {
-		// 	errorChan <- fmt.Errorf("error setting up promise handlers: %v", err)
-		// }
+		}()
 	})
 
 	select {
-	case result := <-resultChan:
+	case <-done:
+		if err != nil {
+			return nil, err
+		}
 		return result, nil
-	case err := <-errorChan:
-		return nil, err
 	case <-time.After(5 * time.Second): // Add timeout
+		env.loop.StopNoWait()
 		return nil, fmt.Errorf("async operation timed out")
 	}
 }

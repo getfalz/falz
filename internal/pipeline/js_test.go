@@ -74,13 +74,39 @@ func TestAsyncCall(t *testing.T) {
 	const fs = require("fs");
 
 	async function test_async() {
-		const p1 = fs.readFile("test.md");
-		const p2 = fs.readFile("other.md");
+  		console.log("Start of async test");
 
-		const result1 = await p1;
-		const result2 = await p2;
+  		// Example 1: Basic async operation with Promise
+  		const promiseTest = new Promise((resolve) => {
+    		setTimeout(() => {
+      		console.log("Promise resolved after 2 seconds");
+      		resolve("Promise result");
+    		}, 2000); // 2-second delay
+  		});
 
-		return result1 + result2;
+  		console.log("Waiting for promise...");
+  		const result = await promiseTest;
+  		console.log("Received from promise:", result);
+
+  		// Example 2: Simulate concurrent async operations with Promise.all
+  		const asyncTask1 = new Promise((resolve) => setTimeout(() => resolve("Task 1 complete"), 1000));
+  		const asyncTask2 = new Promise((resolve) => setTimeout(() => resolve("Task 2 complete"), 1500));
+  		const asyncTask3 = new Promise((resolve) => setTimeout(() => resolve("Task 3 complete"), 500));
+
+  		console.log("Starting concurrent tasks...");
+  		const results = await Promise.all([asyncTask1, asyncTask2, asyncTask3]);
+  		console.log("All tasks completed:", results);
+
+  		// Example 3: Asynchronous loop
+  		console.log("Starting async loop...");
+  		for (let i = 0; i < 3; i++) {
+    		await new Promise((resolve) => setTimeout(() => {
+      		console.log('Loop iteration ${i + 1} completed');
+      		resolve();
+    		}, 1000));
+  		}
+
+  		console.log("End of async test");
 	}
     `
 
