@@ -1,15 +1,16 @@
 package project
 
 import (
-	"craeft/internal/content"
-	"craeft/internal/layout"
-	"craeft/internal/pipeline"
-	"craeft/internal/utils"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
+
+	"craeft/internal/content"
+	"craeft/internal/layout"
+	"craeft/internal/pipeline"
+	"craeft/internal/utils"
 
 	"github.com/mattn/go-zglob"
 	log "github.com/sirupsen/logrus"
@@ -72,7 +73,10 @@ func (p *Project) loadPipelines() error {
 			continue
 		}
 
-		pipeline, err := pipeline.New(pipelinePath)
+		config := &pipeline.JSConfig{
+			Root: p.Config.SourceDirectory,
+		}
+		pipeline, err := pipeline.New(pipelinePath, config)
 		if err != nil {
 			return fmt.Errorf("error loading pipeline %s: %v", pipelineName, err)
 		}
@@ -239,9 +243,6 @@ func (p *Project) GetContent(path string, pipeline string) (*content.Content, er
 	} else {
 		pl, err := p.GetPipeline(pipeline)
 		if err != nil {
-			return nil, err
-		}
-		if err := pl.Load(); err != nil {
 			return nil, err
 		}
 		page = content.New(path, pl)
