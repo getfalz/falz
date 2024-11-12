@@ -2,13 +2,12 @@ package pipeline
 
 import (
 	"fmt"
-	"math/rand"
-	"os"
 	"path/filepath"
 	"time"
 
+	"craeft/internal/pipeline/api"
+
 	"github.com/dop251/goja"
-	log "github.com/sirupsen/logrus"
 )
 
 type JsEnv struct {
@@ -21,7 +20,6 @@ type JsEnv struct {
 // NewJs returns a ready to use JavaScript environment,
 // with require() setup, and auxiliary functions like console.log
 func NewJs(config *JSConfig, code string) (*JsEnv, error) {
-	// vm := goja.New()
 	loop := NewEventLoop()
 
 	// setup js
@@ -54,40 +52,40 @@ func setupRequire(vm *goja.Runtime, loop *EventLoop, config *JSConfig) {
 		modName := call.Argument(0).String()
 
 		if modName == "fs" {
-			// fsAPI, err := api.NewFsApi(config.Root, loop)
-			// if err != nil {
-			// 	// TODO don't use panic
-			// 	panic(err)
-			// }
-			// return fsAPI.GetModule(vm)
-			exports := vm.NewObject()
+			fsAPI, err := api.NewFsApi(config.Root)
+			if err != nil {
+				// TODO don't use panic
+				panic(err)
+			}
+			return fsAPI.GetModule(vm)
+			// exports := vm.NewObject()
+			//
+			// // Implement readFile that returns a promise directly
+			// exports.Set("readFile", func(call goja.FunctionCall) goja.Value {
+			// 	filename := call.Argument(0).String()
+			// 	path := filepath.Join(config.Root, filename)
+			// 	log.Infof("filename: %s", path)
+			//
+			// 	// Create and return a new promise
+			// 	promise, resolve, reject := vm.NewPromise()
+			//
+			// 	go func() {
+			// 		// Simulate async file read
+			// 		waitFor := rand.Intn(3) + 1
+			// 		time.Sleep(time.Duration(waitFor) * time.Second)
+			//
+			// 		data, err := os.ReadFile(path)
+			// 		if err != nil {
+			// 			reject(vm.ToValue(err.Error()))
+			// 		} else {
+			// 			resolve(vm.ToValue(fmt.Sprintf("file: %s\nwaited for: %d\n%s", filename, waitFor, data)))
+			// 		}
+			// 	}()
+			//
+			// 	return vm.ToValue(promise)
+			// })
 
-			// Implement readFile that returns a promise directly
-			exports.Set("readFile", func(call goja.FunctionCall) goja.Value {
-				filename := call.Argument(0).String()
-				path := filepath.Join(config.Root, filename)
-				log.Infof("filename: %s", path)
-
-				// Create and return a new promise
-				promise, resolve, reject := vm.NewPromise()
-
-				go func() {
-					// Simulate async file read
-					waitFor := rand.Intn(3) + 1
-					time.Sleep(time.Duration(waitFor) * time.Second)
-
-					data, err := os.ReadFile(path)
-					if err != nil {
-						reject(vm.ToValue(err.Error()))
-					} else {
-						resolve(vm.ToValue(fmt.Sprintf("file: %s\nwaited for: %d\n%s", filename, waitFor, data)))
-					}
-				}()
-
-				return vm.ToValue(promise)
-			})
-
-			return exports
+			// return exports
 		}
 		return goja.Undefined()
 	})
@@ -96,7 +94,7 @@ func setupRequire(vm *goja.Runtime, loop *EventLoop, config *JSConfig) {
 func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
 	fn, ok := goja.AssertFunction(env.vm.Get(name))
 	if !ok {
-		return vars, fmt.Errorf("No %s function in script %s", name, env.config.Path)
+		return vars, fmt.Errorf("no %s function in script %s", name, env.config.Path)
 	}
 
 	result, err := fn(ctx, vars)
@@ -110,7 +108,7 @@ func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error
 func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
 	fn, ok := goja.AssertFunction(env.vm.Get(name))
 	if !ok {
-		return nil, fmt.Errorf("No %s function in script %s", name, env.config.Path)
+		return nil, fmt.Errorf("no %s function in script %s", name, env.config.Path)
 	}
 
 	var result goja.Value
@@ -118,17 +116,16 @@ func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, 
 	done := make(chan struct{})
 
 	env.loop.Run(func(vm *goja.Runtime) {
-		result, err := fn(ctx, vars)
-		if err != nil {
-			err = fmt.Errorf("%s return error %s", name, err)
+		promise, errr := fn(ctx, vars)
+		if errr != nil {
+			err = fmt.Errorf("%s return error %s", name, errr)
 			close(done)
 			return
 		}
 
 		go func() {
 			// if the return is indeed a promise, wait for it
-			if p, ok := result.Export().(*goja.Promise); ok {
-				log.Infof("promise: %v", p.State())
+			if p, ok := promise.Export().(*goja.Promise); ok {
 				for {
 					time.Sleep(time.Millisecond * 100)
 					switch p.State() {
@@ -160,9 +157,9 @@ func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, 
 			return nil, err
 		}
 		return result, nil
-	case <-time.After(5 * time.Second): // Add timeout
-		env.loop.StopNoWait()
-		return nil, fmt.Errorf("async operation timed out")
+		// case <-time.After(5 * time.Second):
+		// 	env.loop.StopNoWait()
+		// 	return nil, fmt.Errorf("async operation timed out")
 	}
 }
 
@@ -175,8 +172,9 @@ func createConsoleObject(vm *goja.Runtime) {
 
 	console.Set("log", func(call goja.FunctionCall) goja.Value {
 		for _, arg := range call.Arguments {
-			fmt.Println(arg.String())
+			fmt.Print(arg.String())
 		}
+		fmt.Print("\n")
 		return goja.Undefined()
 	})
 
