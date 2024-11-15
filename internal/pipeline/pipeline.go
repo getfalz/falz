@@ -45,7 +45,7 @@ func NewScript(path string, config *JSConfig) (*script, error) {
 		config: config,
 	}
 
-	if s.env.vm.GlobalObject().Get("transform") == goja.Undefined() {
+	if s.env.loop.vm.GlobalObject().Get("transform") == goja.Undefined() {
 		return nil, fmt.Errorf("no transform function in script %s", s.name)
 	}
 
@@ -82,18 +82,22 @@ func loadScript(path string) string {
 	return string(result.OutputFiles[0].Contents)
 }
 
-func (s *script) getContext(vars map[string]string) goja.Value {
-	ctx := s.env.vm.NewObject()
-	ctx.Set("name", s.name)
-	ctx.Set("data", vars)
+type PipelineCtx struct {
+	Name string
+	Data map[string]string
+}
 
-	return ctx
+func (s *script) getContext(vars map[string]string) *PipelineCtx {
+	return &PipelineCtx{
+		Name: s.name,
+		Data: vars,
+	}
 }
 
 func (s *script) Index(input string, vars map[string]string) map[string]string {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("index", ctx, s.env.vm.ToValue(input))
+	result, err := s.env.CallFunc("index", s.env.ToValue(ctx), s.env.ToValue(input))
 	if err != nil {
 		log.Errorf("Index return error %s", err)
 	}
@@ -110,7 +114,7 @@ func (s *script) Index(input string, vars map[string]string) map[string]string {
 func (s *script) Transform(input string, vars map[string]string) []map[string]string {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("transform", ctx, s.env.vm.ToValue(input))
+	result, err := s.env.CallFunc("transform", s.env.ToValue(ctx), s.env.ToValue(input))
 	if err != nil {
 		log.Errorf("Transform return error %s", err)
 	}

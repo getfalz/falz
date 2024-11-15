@@ -3,6 +3,7 @@ package pipeline
 import (
 	"fmt"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"craeft/internal/pipeline/api"
@@ -11,10 +12,12 @@ import (
 )
 
 type JsEnv struct {
-	vm     *goja.Runtime
 	loop   *EventLoop
 	config *JSConfig
 	prg    *goja.Program
+
+	resources []api.Closable
+	rm        sync.Mutex
 }
 
 // NewJs returns a ready to use JavaScript environment,
@@ -22,9 +25,7 @@ type JsEnv struct {
 func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 	loop := NewEventLoop()
 
-	// setup js
 	setupEnv(loop.vm)
-	setupRequire(loop.vm, loop, config)
 
 	name := filepath.Base(config.Path)
 
@@ -38,61 +39,50 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 		return nil, err
 	}
 
-	return &JsEnv{vm: loop.vm, config: config, loop: loop, prg: p}, nil
+	env := &JsEnv{config: config, loop: loop, prg: p}
+	env.setupRequire()
+
+	return env, nil
+}
+
+func (env *JsEnv) ToValue(val any) goja.Value {
+	return env.loop.vm.ToValue(val)
 }
 
 // JSConfig is a configuration for the JavaScripts environment
 type JSConfig struct {
-	Path string
-	Root string
+	Path   string
+	Root   string
+	DBPath string
 }
 
-func setupRequire(vm *goja.Runtime, loop *EventLoop, config *JSConfig) {
-	vm.Set("require", func(call goja.FunctionCall) goja.Value {
+func (env *JsEnv) setupRequire() {
+	env.loop.vm.Set("require", func(call goja.FunctionCall) goja.Value {
 		modName := call.Argument(0).String()
 
-		if modName == "fs" {
-			fsAPI, err := api.NewFsApi(config.Root)
+		switch modName {
+		case "kv":
+			kvApi, err := api.NewKVStore(env.config.DBPath)
 			if err != nil {
 				// TODO don't use panic
 				panic(err)
 			}
-			return fsAPI.GetModule(vm)
-			// exports := vm.NewObject()
-			//
-			// // Implement readFile that returns a promise directly
-			// exports.Set("readFile", func(call goja.FunctionCall) goja.Value {
-			// 	filename := call.Argument(0).String()
-			// 	path := filepath.Join(config.Root, filename)
-			// 	log.Infof("filename: %s", path)
-			//
-			// 	// Create and return a new promise
-			// 	promise, resolve, reject := vm.NewPromise()
-			//
-			// 	go func() {
-			// 		// Simulate async file read
-			// 		waitFor := rand.Intn(3) + 1
-			// 		time.Sleep(time.Duration(waitFor) * time.Second)
-			//
-			// 		data, err := os.ReadFile(path)
-			// 		if err != nil {
-			// 			reject(vm.ToValue(err.Error()))
-			// 		} else {
-			// 			resolve(vm.ToValue(fmt.Sprintf("file: %s\nwaited for: %d\n%s", filename, waitFor, data)))
-			// 		}
-			// 	}()
-			//
-			// 	return vm.ToValue(promise)
-			// })
-
-			// return exports
+			env.addClosable(kvApi)
+			return kvApi.GetModule(env.loop.vm)
+		case "fs":
+			fsAPI, err := api.NewFsApi(env.config.Root)
+			if err != nil {
+				// TODO don't use panic
+				panic(err)
+			}
+			return fsAPI.GetModule(env.loop.vm)
 		}
 		return goja.Undefined()
 	})
 }
 
 func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
-	fn, ok := goja.AssertFunction(env.vm.Get(name))
+	fn, ok := goja.AssertFunction(env.loop.vm.Get(name))
 	if !ok {
 		return vars, fmt.Errorf("no %s function in script %s", name, env.config.Path)
 	}
@@ -106,7 +96,7 @@ func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error
 }
 
 func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
-	fn, ok := goja.AssertFunction(env.vm.Get(name))
+	fn, ok := goja.AssertFunction(env.loop.vm.Get(name))
 	if !ok {
 		return nil, fmt.Errorf("no %s function in script %s", name, env.config.Path)
 	}
@@ -179,4 +169,19 @@ func createConsoleObject(vm *goja.Runtime) {
 	})
 
 	vm.Set("console", console)
+}
+
+func (env *JsEnv) addClosable(resource api.Closable) {
+	env.rm.Lock()
+	defer env.rm.Unlock()
+	env.resources = append(env.resources, resource)
+}
+
+func (env *JsEnv) Close() {
+	env.rm.Lock()
+	defer env.rm.Unlock()
+	for _, resource := range env.resources {
+		_ = resource.Close()
+	}
+	env.resources = nil
 }

@@ -206,7 +206,12 @@ func (fs *FsApi) readFile(call goja.FunctionCall, vm *goja.Runtime, asText bool)
 			resolve(vm.ToValue(string(data)))
 		} else {
 			arrayBuffer := vm.NewArrayBuffer(data)
-			resolve(arrayBuffer)
+			uintArray, err := vm.New(vm.Get("Uint8Array"), vm.ToValue(arrayBuffer))
+			if err == nil {
+				resolve(uintArray)
+			} else {
+				reject(err)
+			}
 		}
 	}()
 

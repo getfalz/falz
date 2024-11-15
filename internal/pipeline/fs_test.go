@@ -12,8 +12,9 @@ import (
 
 func getEnv(source string, t *testing.T) *JsEnv {
 	config := &JSConfig{
-		Root: "testdata",
-		Path: "test_sync.js",
+		Root:   "testdata",
+		Path:   "test_sync.js",
+		DBPath: "testdata/test.db",
 	}
 
 	env, err := NewJs(config, source)
@@ -24,8 +25,8 @@ func getEnv(source string, t *testing.T) *JsEnv {
 	return env
 }
 
-func TestBytes(t *testing.T) {
-	testData := []byte("one line")
+func TestFsBytes(t *testing.T) {
+	testData := []byte("one line\n")
 
 	jsFunction := `
         async function testBytes() {
@@ -34,6 +35,7 @@ func TestBytes(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testBytes", nil, nil)
 	if err != nil {
@@ -50,7 +52,7 @@ func TestBytes(t *testing.T) {
 	}
 }
 
-func TestWrite(t *testing.T) {
+func TestFsWrite(t *testing.T) {
 	jsFunction := `
         async function testWrite() {
             const fs = require("fs");
@@ -60,6 +62,7 @@ func TestWrite(t *testing.T) {
     `
 
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err := env.CallAsyncFunc("testWrite", nil, nil)
 	if err != nil {
@@ -79,7 +82,7 @@ func TestWrite(t *testing.T) {
 	}
 }
 
-func TestAppend(t *testing.T) {
+func TestFsAppend(t *testing.T) {
 	testFilePath := filepath.Join("testdata", "testfile.txt")
 	initialData := []byte("hello")
 	err := os.WriteFile(testFilePath, initialData, 0644)
@@ -96,6 +99,7 @@ func TestAppend(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err = env.CallAsyncFunc("testAppend", nil, nil)
 	if err != nil {
@@ -113,7 +117,7 @@ func TestAppend(t *testing.T) {
 	}
 }
 
-func TestIsFile(t *testing.T) {
+func TestFsIsFile(t *testing.T) {
 	jsFunction := `
         async function testIsFile() {
             const fs = require("fs");
@@ -121,6 +125,7 @@ func TestIsFile(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testIsFile", nil, nil)
 	if err != nil {
@@ -137,7 +142,7 @@ func TestIsFile(t *testing.T) {
 	}
 }
 
-func TestIsDirectory(t *testing.T) {
+func TestFsIsDirectory(t *testing.T) {
 	jsFunction := `
         async function testIsDirectory() {
             const fs = require("fs");
@@ -145,6 +150,7 @@ func TestIsDirectory(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testIsDirectory", nil, nil)
 	if err != nil {
@@ -161,7 +167,7 @@ func TestIsDirectory(t *testing.T) {
 	}
 }
 
-func TestCreateDirectory(t *testing.T) {
+func TestFsCreateDirectory(t *testing.T) {
 	jsFunction := `
         async function testCreateDirectory() {
             const fs = require("fs");
@@ -169,6 +175,7 @@ func TestCreateDirectory(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err := env.CallAsyncFunc("testCreateDirectory", nil, nil)
 	if err != nil {
@@ -186,7 +193,7 @@ func TestCreateDirectory(t *testing.T) {
 	}
 }
 
-func TestDelete(t *testing.T) {
+func TestFsDelete(t *testing.T) {
 	testFilePath := filepath.Join("testdata", "testfile.txt")
 	err := os.WriteFile(testFilePath, []byte("test"), 0644)
 	if err != nil {
@@ -200,6 +207,7 @@ func TestDelete(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testDelete", nil, nil)
 	if err != nil {
@@ -221,7 +229,7 @@ func TestDelete(t *testing.T) {
 	}
 }
 
-func TestDeleteAll(t *testing.T) {
+func TestFsDeleteAll(t *testing.T) {
 	testDirPath := filepath.Join("testdata", "testdel")
 	err := os.Mkdir(testDirPath, 0755)
 	if err != nil {
@@ -244,6 +252,7 @@ func TestDeleteAll(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testDeleteAll", nil, nil)
 	if err != nil {
@@ -265,7 +274,7 @@ func TestDeleteAll(t *testing.T) {
 	}
 }
 
-func TestList(t *testing.T) {
+func TestFsList(t *testing.T) {
 	files := []string{"file1.txt", "file2.txt", "file3.txt"}
 	jsFunction := `
         async function testList() {
@@ -285,6 +294,7 @@ func TestList(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testList", nil, nil)
 	if err != nil {
@@ -317,7 +327,7 @@ func TestList(t *testing.T) {
 	}
 }
 
-func TestSize(t *testing.T) {
+func TestFsSize(t *testing.T) {
 	testData := []byte("one line\n")
 	jsFunction := `
         async function testSize() {
@@ -326,6 +336,7 @@ func TestSize(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testSize", nil, nil)
 	if err != nil {
@@ -342,7 +353,7 @@ func TestSize(t *testing.T) {
 	}
 }
 
-func TestLastModified(t *testing.T) {
+func TestFsLastModified(t *testing.T) {
 	testFilePath := filepath.Join("testdata", "testfile.txt")
 	testData := []byte("hello world")
 	err := os.WriteFile(testFilePath, testData, 0644)
@@ -365,6 +376,7 @@ func TestLastModified(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testLastModified", nil, nil)
 	if err != nil {
@@ -381,7 +393,7 @@ func TestLastModified(t *testing.T) {
 	}
 }
 
-func TestCopy(t *testing.T) {
+func TestFsCopy(t *testing.T) {
 	sourceData := []byte("one line\n")
 
 	jsFunction := `
@@ -391,6 +403,7 @@ func TestCopy(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err := env.CallAsyncFunc("testCopy", nil, nil)
 	if err != nil {
@@ -409,7 +422,7 @@ func TestCopy(t *testing.T) {
 	}
 }
 
-func TestCopyAll(t *testing.T) {
+func TestFsCopyAll(t *testing.T) {
 	files := []string{"file1.txt", "file2.txt", "file3.txt"}
 
 	jsFunction := `
@@ -419,6 +432,7 @@ func TestCopyAll(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err := env.CallAsyncFunc("testCopyAll", nil, nil)
 	if err != nil {
@@ -436,8 +450,8 @@ func TestCopyAll(t *testing.T) {
 	}
 }
 
-func TestMove(t *testing.T) {
-	sourceFilePath := filepath.Join("..", "..", "example", "source.txt")
+func TestFsMove(t *testing.T) {
+	sourceFilePath := filepath.Join("testdata", "source.txt")
 	sourceData := []byte("hello world")
 	err := os.WriteFile(sourceFilePath, sourceData, 0644)
 	if err != nil {
@@ -451,19 +465,20 @@ func TestMove(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err = env.CallAsyncFunc("testMove", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer os.Remove(filepath.Join("..", "..", "example", "dest.txt"))
+	defer os.Remove(filepath.Join("testdata", "dest.txt"))
 
 	_, err = os.Stat(sourceFilePath)
 	if !os.IsNotExist(err) {
 		t.Errorf("Expected source file to be moved")
 	}
 
-	destFilePath := filepath.Join("..", "..", "example", "dest.txt")
+	destFilePath := filepath.Join("testdata", "dest.txt")
 	destData, err := os.ReadFile(destFilePath)
 	if err != nil {
 		t.Fatal(err)
@@ -474,7 +489,7 @@ func TestMove(t *testing.T) {
 	}
 }
 
-func TestMoveAll(t *testing.T) {
+func TestFsMoveAll(t *testing.T) {
 	sourceDirPath := filepath.Join("testdata", "sourcedir")
 	err := os.Mkdir(sourceDirPath, 0755)
 	if err != nil {
@@ -498,6 +513,7 @@ func TestMoveAll(t *testing.T) {
     `
 
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	_, err = env.CallAsyncFunc("testMoveAll", nil, nil)
 	if err != nil {
@@ -520,7 +536,7 @@ func TestMoveAll(t *testing.T) {
 	}
 }
 
-func TestText(t *testing.T) {
+func TestFsText(t *testing.T) {
 	testContent := "one line\n"
 	jsFunction := `
         async function testText() {
@@ -530,6 +546,7 @@ func TestText(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testText", nil, nil)
 	if err != nil {
@@ -546,7 +563,7 @@ func TestText(t *testing.T) {
 	}
 }
 
-func TestJSON(t *testing.T) {
+func TestFsJSON(t *testing.T) {
 	testData := map[string]interface{}{
 		"key":    "value",
 		"number": 42,
@@ -563,6 +580,7 @@ func TestJSON(t *testing.T) {
         }
     `
 	env := getEnv(jsFunction, t)
+	defer env.Close()
 
 	result, err := env.CallAsyncFunc("testJSON", nil, nil)
 	if err != nil {

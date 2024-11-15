@@ -28,12 +28,12 @@ func TestScript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := env.CallFunc("index", nil, env.vm.ToValue("Hello"))
+	result, err := env.CallFunc("index", nil, env.ToValue("Hello"))
 	if err != nil {
 		log.Errorf("CallFunc test return error: '%s'", err)
 	}
 
-	result2, err := env.CallFunc("index", nil, env.vm.ToValue("World"))
+	result2, err := env.CallFunc("index", nil, env.ToValue("World"))
 	if err != nil {
 		log.Errorf("CallFunc test return error: '%s'", err)
 	}
@@ -143,15 +143,15 @@ func TestAsyncGoFunc(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env.vm.Set("wait", func(call goja.FunctionCall) goja.Value {
-		promise, resolve, _ := env.vm.NewPromise()
+	env.loop.vm.Set("wait", func(call goja.FunctionCall) goja.Value {
+		promise, resolve, _ := env.loop.vm.NewPromise()
 
 		go func() {
 			time.Sleep(time.Duration(1) * time.Second)
-			resolve(env.vm.ToValue("done"))
+			resolve(env.loop.vm.ToValue("done"))
 		}()
 
-		return env.vm.ToValue(promise)
+		return env.loop.vm.ToValue(promise)
 	})
 
 	startTime := time.Now()
@@ -194,15 +194,15 @@ func TestSyncGoFunc(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	env.vm.Set("wait", func(call goja.FunctionCall) goja.Value {
-		promise, resolve, _ := env.vm.NewPromise()
+	env.loop.vm.Set("wait", func(call goja.FunctionCall) goja.Value {
+		promise, resolve, _ := env.loop.vm.NewPromise()
 
 		go func() {
 			time.Sleep(time.Duration(1) * time.Second)
-			resolve(env.vm.ToValue("done"))
+			resolve(env.ToValue("done"))
 		}()
 
-		return env.vm.ToValue(promise)
+		return env.ToValue(promise)
 	})
 	startTime := time.Now()
 	result, err := env.CallAsyncFunc("test_sync", nil, nil)
