@@ -25,6 +25,8 @@ type JsEnv struct {
 func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 	loop := NewEventLoop()
 
+	loop.vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
+
 	setupEnv(loop.vm)
 
 	name := filepath.Base(config.Path)
@@ -76,6 +78,9 @@ func (env *JsEnv) setupRequire() {
 				panic(err)
 			}
 			return fsAPI.GetModule(env.loop.vm)
+		case "http":
+			httpAPI := api.HttpApi{}
+			return httpAPI.GetModule(env.loop.vm)
 		}
 		return goja.Undefined()
 	})
