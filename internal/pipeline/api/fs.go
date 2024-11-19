@@ -128,7 +128,11 @@ func (fs *FsApi) getByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 		}
 	}
 
-	return nil, fmt.Errorf("data must be a Uint8Array or ArrayBuffer")
+	if str, ok := arg.Export().(string); ok {
+		return []byte(str), nil
+	}
+
+	return nil, fmt.Errorf("data must be a Uint8Array, ArrayBuffer or string")
 }
 
 func (fs *FsApi) bytes(call goja.FunctionCall, vm *goja.Runtime) goja.Value {

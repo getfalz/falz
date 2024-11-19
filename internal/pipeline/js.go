@@ -81,6 +81,8 @@ func (env *JsEnv) setupRequire() {
 		case "http":
 			httpAPI := api.HttpApi{}
 			return httpAPI.GetModule(env.loop.vm)
+		case "md":
+			return api.GetMdModule(env.loop.vm)
 		}
 		return goja.Undefined()
 	})
