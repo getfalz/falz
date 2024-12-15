@@ -83,6 +83,8 @@ func (env *JsEnv) setupRequire() {
 			return httpAPI.GetModule(env.loop.vm)
 		case "md":
 			return api.GetMdModule(env.loop.vm)
+		case "tpl":
+			return api.GetTplModule(env.loop.vm)
 		}
 		return goja.Undefined()
 	})

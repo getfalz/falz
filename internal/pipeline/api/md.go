@@ -240,7 +240,6 @@ func (m *MdApi) getByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 		}
 	}
 
-	// If it's a string, return its bytes
 	if str, ok := arg.Export().(string); ok {
 		return []byte(str), nil
 	}
