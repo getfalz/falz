@@ -1,5 +1,12 @@
 project_name: "My Craeft Project"
 theme: archie
+layouts: _*.xml
+assets:
+  - css:
+    - compressed: true
+  - js:
+  - image:
+
 styles:
   sass_path: /home/juanolon/.bin/dart-sass/sass
 enabled_pipelines:

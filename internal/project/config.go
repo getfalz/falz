@@ -47,6 +47,8 @@ type CraeftConfig struct {
 	Debug           bool     `yaml:"debug"`
 	EnableHotReload bool     `yaml:"hot_reload"`
 
+	Layout string `yaml:"layout"`
+
 	Theme     string   `yaml:"theme"`
 	Pipelines []string `yaml:"enabled_pipelines"`
 

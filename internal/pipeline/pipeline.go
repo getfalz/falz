@@ -11,11 +11,6 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-type PipelineScript interface {
-	Index(string)
-	Transform(input string, vars map[string]any) string
-}
-
 type script struct {
 	name   string
 	path   string
@@ -24,6 +19,7 @@ type script struct {
 	env *JsEnv
 }
 
+// TODO rename file to script.go
 // Script represents the script in a pipeline
 func NewScript(path string, config *JSConfig) (*script, error) {
 	name := filepath.Base(path)

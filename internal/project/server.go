@@ -98,7 +98,7 @@ func (s *Server) WatchFiles() {
 				continue
 			}
 
-			newPath, err := s.project.UpdatePath(relPath)
+			newPath, err := s.project.BuildPath(relPath)
 			if err != nil {
 				log.Error("Can't resolve relative path", "error", err)
 				continue
@@ -123,7 +123,7 @@ func (s *Server) HotReload() error {
 	s.routing.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := s.upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Errorf("Upgrade error:", err)
+			log.Errorf("Upgrade error: %s", err)
 		}
 
 		// keep connection open

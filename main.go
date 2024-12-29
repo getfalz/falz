@@ -50,10 +50,6 @@ func main() {
 			p.Config.SourceDirectory = currentPath
 			p.Config.OutputDirectory = c.String("outputPath")
 
-			if p.Config.ThemePath == "" {
-				p.Config.ThemePath = currentPath
-			}
-
 			setLogLevel(verbosity)
 
 			c.App.Metadata["project"] = p

@@ -3,7 +3,6 @@ package content
 import (
 	"bytes"
 	"os"
-	"strings"
 
 	"craeft/internal/pipeline"
 
@@ -25,26 +24,27 @@ type Content struct {
 
 type ContentResult struct {
 	Filename string
-	Result   string
+	Result   string // TODO: make it []byte
 }
 
 func New(path string, pipeline *pipeline.Pipeline) *Content {
 	vars := make(map[string]string)
 
-	file, err := os.Open(path)
-	if err != nil {
-		log.Fatalf("Failed to read content file: %s", err)
-	}
-	defer file.Close()
-
-	_, err = frontmatter.Parse(file, &vars)
-	if err != nil {
-		log.Error(err)
-	}
-
-	// set some default values
-	outputFile := strings.TrimSuffix(path, "."+pipeline.Config().Suffix) + ".html"
-	vars["target"] = outputFile
+	// file, err := os.Open(path)
+	// if err != nil {
+	// 	log.Fatalf("Failed to read content file: %s", err)
+	// }
+	// defer file.Close()
+	//
+	// // TODO: fork frontmatter to only read the vars and ignore the contents
+	// _, err = frontmatter.Parse(file, &vars)
+	// if err != nil {
+	// 	log.Error(err)
+	// }
+	//
+	// // set some default values
+	// outputFile := strings.TrimSuffix(path, "."+pipeline.Config().Suffix) + ".html"
+	// vars["target"] = outputFile
 
 	return &Content{
 		path:     path,
@@ -82,6 +82,7 @@ func varsToInterface(input map[string]string) map[string]interface{} {
 	}
 	return output
 }
+
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	if len(c.output) > 0 {
 		return c.output, nil
@@ -116,29 +117,6 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	}
 
 	return results, nil
-
-	// tmpl, err := template.New("contentTemplate").Parse(layoutTpl)
-	// if err != nil {
-	// 	return []ContentResult{}, fmt.Errorf("failed to parse template: %v", err)
-	// }
-	//
-	// var result strings.Builder
-	// // TODO add content variables
-	// data := struct {
-	// 	Content string
-	// }{
-	// 	Content: string(newContent),
-	// }
-	//
-	// err = tmpl.Execute(&result, data)
-	// if err != nil {
-	// 	return []ContentResult{}, fmt.Errorf("failed to apply content to template: %v", err)
-	// }
-
-	// res := []ContentResult{
-	// 	{Filename: outputFile, Result: result.String()},
-	// }
-	// return res, nil
 }
 
 func mdToHTML(md []byte) []byte {

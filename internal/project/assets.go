@@ -12,6 +12,7 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// TODO deprecate. see content.Asset
 type Assets struct {
 	config  *CraeftConfig
 	trp     *godartsass.Transpiler

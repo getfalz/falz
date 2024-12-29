@@ -156,9 +156,9 @@ func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, 
 			return nil, err
 		}
 		return result, nil
-		// case <-time.After(5 * time.Second):
-		// 	env.loop.StopNoWait()
-		// 	return nil, fmt.Errorf("async operation timed out")
+	case <-time.After(5 * time.Second):
+		env.loop.StopNoWait()
+		return nil, fmt.Errorf("async operation timed out")
 	}
 }
 
