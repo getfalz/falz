@@ -114,6 +114,7 @@ func (c Content) Render(ctx context.Context) (string, error) {
 func (a Asset) Render(ctx context.Context) (string, error) {
 	basePath := getValue(ctx, ctxBasePath)
 
+	// TODO a.Source can be a pattern (eg. *.css) so we need to handle that
 	target, err := utils.NormalizePath(basePath, a.Source)
 	if err != nil {
 		return "", err
@@ -136,37 +137,39 @@ func (a Asset) Render(ctx context.Context) (string, error) {
 	return string(result), nil
 }
 
-func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.XMLName = start.Name
-	for _, attr := range start.Attr {
-		switch attr.Name.Local {
-		case "path":
-			c.Path = attr.Value
-		case "pipeline":
-			c.Pipeline = attr.Value
-		}
-	}
-
-	// Check for self-closing tag
-	for {
-		tok, _ := d.Token()
-		switch t := tok.(type) {
-		case xml.EndElement:
-			if t.Name == start.Name {
-				// Explicitly closed empty element
-				return nil
-			}
-		case xml.StartElement:
-			if t.Name.Local == "Variable" {
-				var v Variable
-				if err := d.DecodeElement(&v, &t); err != nil {
-					return err
-				}
-				c.Variables = append(c.Variables, v)
-			}
-		}
-	}
-}
+// func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+// 	c.XMLName = start.Name
+// 	for _, attr := range start.Attr {
+// 		switch attr.Name.Local {
+// 		case "name":
+// 			c.Path = attr.Value
+// 		case "path":
+// 			c.Path = attr.Value
+// 		case "pipeline":
+// 			c.Pipeline = attr.Value
+// 		}
+// 	}
+//
+// 	// Check for self-closing tag
+// 	for {
+// 		tok, _ := d.Token()
+// 		switch t := tok.(type) {
+// 		case xml.EndElement:
+// 			if t.Name == start.Name {
+// 				// Explicitly closed empty element
+// 				return nil
+// 			}
+// 		case xml.StartElement:
+// 			if t.Name.Local == "Variable" {
+// 				var v Variable
+// 				if err := d.DecodeElement(&v, &t); err != nil {
+// 					return err
+// 				}
+// 				c.Variables = append(c.Variables, v)
+// 			}
+// 		}
+// 	}
+// }
 
 // Render layout. The fragments will be searched first in the given base path
 func (l *Layout) Render(path string) (string, error) {
@@ -175,7 +178,7 @@ func (l *Layout) Render(path string) (string, error) {
 
 	tplPath, err := utils.FindFile(l.basePath, path, l.Tpl)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("Can't find layout template: %w", err)
 	}
 
 	var tmpl []byte
@@ -191,7 +194,7 @@ func (l *Layout) Render(path string) (string, error) {
 	ctx = context.WithValue(ctx, ctxRenderPath, path)
 	ctx = context.WithValue(ctx, ctxLayoutPath, l.path)
 
-	var tplVariables map[string]any
+	tplVariables := make(map[string]any)
 	for _, asset := range l.assets {
 		output, err := asset.Render(ctx)
 		if err != nil {
@@ -214,6 +217,7 @@ func (l *Layout) Render(path string) (string, error) {
 		tplVariables[f.Name] = output
 	}
 
+	log.Infof("Rendering layout %s with variables: %v", l.Tpl, tplVariables)
 	result := parseTpl(string(tmpl), tplVariables)
 
 	return result, nil

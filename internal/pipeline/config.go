@@ -9,7 +9,8 @@ import (
 type PipelineConfig struct {
 	PipelineName string `yaml:"name"`
 	EntryPoint   string `yaml:"entry_point"`
-	Suffix       string `yaml:"suffix"`
+	SourceSuffix string `yaml:"source_suffix"`
+	TargetSuffix string `yaml:"target_suffix"`
 }
 
 func loadConfig(configFile string) (*PipelineConfig, error) {

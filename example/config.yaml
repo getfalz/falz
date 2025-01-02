@@ -1,6 +1,6 @@
 project_name: "My Craeft Project"
 theme: archie
-layouts: _*.xml
+layout: "*.xml"
 assets:
   - css:
     - compressed: true

@@ -3,21 +3,13 @@
     css="styles.scss"
     js="main.js"
     >
-    <Flow direction="row" align="center" wrap="true">
-        <Item width="200px" height="200px">
-            <Fragment src="main.header"
-                pipeline="header"
-                />
-        </Item>
-        <Item width="200px" height="200px">
-            <Content path="*.md"
-                pipeline="uppercase"
-                >
-            <Variable name="title" />
-            </Content>
-        </Item>
-        <Item width="200px" height="200px">
-                <Fragment src="footer" />
-        </Item>
-    </Flow>
+    <Fragment src="main.header"
+        pipeline="header"
+        />
+    <Content path="*.md"
+        pipeline="uppercase"
+        >
+        <Variable name="title" />
+    </Content>
+    <Fragment src="footer" />
 </Layout>

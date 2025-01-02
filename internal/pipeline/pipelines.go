@@ -9,8 +9,9 @@ import (
 )
 
 type PipelineScript interface {
-	Index(string)
-	Transform(input string, vars map[string]any) string
+	Index(input string, vars map[string]string) map[string]string
+	Transform(input string, vars map[string]string) []map[string]string
+	Config() PipelineConfig
 }
 
 type Pipeline struct {
@@ -84,9 +85,37 @@ func (r *Registry) LoadPipelines() error {
 	return nil
 }
 
-func (r *Registry) Get(name string) (*Pipeline, error) {
+type DefaultPipeline struct {
+}
+
+func (d DefaultPipeline) Config() PipelineConfig {
+	return PipelineConfig{
+		PipelineName: "default",
+		EntryPoint:   "",
+		SourceSuffix: "",
+		TargetSuffix: "",
+	}
+}
+func (d DefaultPipeline) Index(input string, vars map[string]string) map[string]string {
+	return vars
+}
+func (d DefaultPipeline) Transform(input string, vars map[string]string) []map[string]string {
+	results := []map[string]string{
+		{
+			"filename": vars["target"],
+			"result":   input,
+		},
+	}
+	return results
+}
+
+func (r *Registry) Get(name string, useDefault bool) (PipelineScript, error) {
 	pipeline, ok := r.pipelines[name]
+
 	if !ok {
+		if useDefault {
+			return &DefaultPipeline{}, nil
+		}
 		return nil, fmt.Errorf("Pipeline not found: %s", name)
 	}
 	return pipeline, nil

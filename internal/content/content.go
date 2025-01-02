@@ -3,20 +3,19 @@ package content
 import (
 	"bytes"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"craeft/internal/pipeline"
 
 	"github.com/adrg/frontmatter"
-	"github.com/gomarkdown/markdown"
-	"github.com/gomarkdown/markdown/html"
-	"github.com/gomarkdown/markdown/parser"
 	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fasttemplate"
 )
 
 type Content struct {
 	path     string
-	pipeline *pipeline.Pipeline
+	pipeline pipeline.PipelineScript
 	output   []ContentResult
 	// TODO make vars all types. see core/params
 	vars map[string]string
@@ -27,24 +26,14 @@ type ContentResult struct {
 	Result   string // TODO: make it []byte
 }
 
-func New(path string, pipeline *pipeline.Pipeline) *Content {
+// New creates a new content object with an absolute path and a pipeline
+func New(path string, pipeline pipeline.PipelineScript) *Content {
 	vars := make(map[string]string)
 
-	// file, err := os.Open(path)
-	// if err != nil {
-	// 	log.Fatalf("Failed to read content file: %s", err)
-	// }
-	// defer file.Close()
-	//
-	// // TODO: fork frontmatter to only read the vars and ignore the contents
-	// _, err = frontmatter.Parse(file, &vars)
-	// if err != nil {
-	// 	log.Error(err)
-	// }
-	//
-	// // set some default values
-	// outputFile := strings.TrimSuffix(path, "."+pipeline.Config().Suffix) + ".html"
-	// vars["target"] = outputFile
+	// set some default values
+	fileName := filepath.Base(path)
+	outputFile := strings.TrimSuffix(fileName, pipeline.Config().SourceSuffix) + pipeline.Config().TargetSuffix
+	vars["target"] = outputFile
 
 	return &Content{
 		path:     path,
@@ -100,8 +89,6 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 		log.Error(err)
 	}
 
-	// body = mdToHTML(body)
-
 	transformed := c.pipeline.Transform(string(body), c.vars)
 
 	var results []ContentResult
@@ -117,18 +104,4 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	}
 
 	return results, nil
-}
-
-func mdToHTML(md []byte) []byte {
-	// create markdown parser with extensions
-	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock | parser.Autolink | parser.MathJax
-	p := parser.NewWithExtensions(extensions)
-	doc := p.Parse(md)
-
-	// create HTML renderer with extensions
-	htmlFlags := html.CommonFlags | html.HrefTargetBlank
-	opts := html.RendererOptions{Flags: htmlFlags}
-	renderer := html.NewRenderer(opts)
-
-	return markdown.Render(doc, renderer)
 }

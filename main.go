@@ -118,13 +118,13 @@ func main() {
 func setLogLevel(verbosity int) {
 	switch verbosity {
 	case 0:
-		log.SetLevel(log.ErrorLevel)
-	case 1:
 		log.SetLevel(log.WarnLevel)
-	case 2:
+	case 1:
 		log.SetLevel(log.InfoLevel)
-	case 3:
+	case 2:
 		log.SetLevel(log.DebugLevel)
+	case 3:
+		log.SetLevel(log.TraceLevel)
 	default:
 		log.SetLevel(log.TraceLevel)
 	}

@@ -2,14 +2,8 @@
     template="main.tpl"
     css="styles.scss"
     >
-    <Flow direction="row" >
-        <Item width="500px" height="500px">
-            <Fragment src="main.header" />
-        </Item>
-        <Item width="500px" height="500px">
-            <Content path="*.md"
-                pipeline="uppercase"
-                />
-        </Item>
-    </Flow>
+    <Fragment src="main.header" />
+    <Content path="*.md"
+        pipeline="uppercase"
+        />
 </Layout>
