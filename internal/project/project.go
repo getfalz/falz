@@ -116,6 +116,7 @@ func (p *Project) Build(isDev bool) error {
 				// Build
 				log.Info("++ Building")
 				for _, contentPath := range contents {
+					log.Infof("== Building content: %s", contentPath)
 					page, err := p.getContent(contentPath, contentConf.Pipeline)
 					if err != nil {
 						log.Infof("== got content err: %s", err)
@@ -128,6 +129,7 @@ func (p *Project) Build(isDev bool) error {
 						return err
 					}
 
+					log.Infof("== Writing results current dir: %s, results: %v", currentDir, results)
 					_, err = p.writeResults(currentDir, results)
 					if err != nil {
 						log.Infof("== got page write err: %s", err)
@@ -247,7 +249,7 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 		}
 
 		// layout should know where is the project base folder, for later fragment lookup
-		layout, err := layout.Parse(p.Config.ThemePath, filepath.Dir(path), layoutFile)
+		layout, err := layout.Parse(p.Config.ThemePath, filepath.Dir(path), layoutFile, p.pipelines)
 		if err != nil {
 			return nil, fmt.Errorf("can't parse layout file: %w", err)
 		}
@@ -301,18 +303,18 @@ func (p *Project) getContent(path string, pipeline string) (*content.Content, er
 func (p *Project) BuildAssets() {
 	var assets = make(map[string]string)
 
-	p.walk(func(path string, d fs.DirEntry) error {
-		// err := filepath.WalkDir(p.Config.ThemePath, func(path string, d fs.DirEntry, err error) error {
+	// p.walk(func(path string, d fs.DirEntry) error {
+	err := filepath.WalkDir(p.Config.ThemePath, func(path string, d fs.DirEntry, err error) error {
 		// if err != nil {
 		// 	return err
 		// }
 
 		if d.IsDir() {
-			// rel, err := filepath.Rel(p.Config.ThemePath, path)
-			// if err != nil {
-			// 	return err
-			// }
-			log.Infof("Walking through %s", path)
+			path, err := filepath.Rel(p.Config.ThemePath, path)
+			if err != nil {
+				return err
+			}
+			log.Infof("BuildAssets: Walking through %s", path)
 			currentDir := filepath.Dir(path)
 
 			layouts, err := p.getLayouts(currentDir)
@@ -322,10 +324,9 @@ func (p *Project) BuildAssets() {
 
 			for _, lyt := range layouts {
 				for _, asset := range lyt.Assets() {
-					npath, err := utils.NormalizePath(lyt.Path(), asset.Source)
-					if err != nil {
-						return err
-					}
+					log.Infof("visiting asset %s", asset.Source)
+					npath := filepath.Join(p.Config.ThemePath, lyt.Path(), asset.Source)
+					log.Infof("normalized path: %s, with err: %s", npath, err)
 
 					assets[npath] = asset.AssetType
 
@@ -337,12 +338,19 @@ func (p *Project) BuildAssets() {
 		return nil
 	})
 
-	// if err != nil {
-	// 	log.Error(err)
-	// }
+	if err != nil {
+		log.Error(err)
+	}
+
+	log.Infof("Building assets: %+v", assets)
 
 	for path, atype := range assets {
-		base := filepath.Dir(path)
+		base, err := filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+
 		asset, err := p.getAsset(path, atype)
 		if err != nil {
 			log.Error(err)
@@ -357,6 +365,7 @@ func (p *Project) BuildAssets() {
 		_, err = p.writeResults(base, results)
 		if err != nil {
 			log.Error(err)
+			continue
 		}
 	}
 }

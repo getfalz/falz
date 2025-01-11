@@ -49,6 +49,7 @@ func FindFile(basePath, targetPath, pattern string) (map[string]string, error) {
 
 // NormalizePath returns an absolute path relative to the given basePath
 func NormalizePath(basePath string, path string) (string, error) {
+	log.Infof("normalizing path %s with base path %s", path, basePath)
 	clean := filepath.Clean(path)
 
 	if filepath.IsAbs(clean) {

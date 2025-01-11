@@ -38,6 +38,10 @@ type ScriptsConfig struct {
 	SourceMap  bool   `yaml:"sourcemap"`
 }
 
+type TemplateConfig struct {
+	Type string `yaml:"type" default:"simple"`
+}
+
 // TODO set defaults
 type CraeftConfig struct {
 	ProjectName     string `yaml:"project_name" default:"Default Project"`
@@ -49,8 +53,9 @@ type CraeftConfig struct {
 
 	Layout string `yaml:"layout" default:"layout.xml"`
 
-	Theme     string   `yaml:"theme"`
-	Pipelines []string `yaml:"enabled_pipelines"`
+	Theme          string         `yaml:"theme"`
+	Pipelines      []string       `yaml:"enabled_pipelines"`
+	TemplateConfig TemplateConfig `yaml:"template_config"`
 
 	ThemePath     string
 	PipelinesPath string

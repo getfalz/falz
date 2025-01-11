@@ -3,6 +3,7 @@ package content
 import (
 	"craeft/internal/pipeline"
 	"os"
+	"path/filepath"
 	"strings"
 
 	log "github.com/sirupsen/logrus"
@@ -27,10 +28,10 @@ func (a *Asset) Build() ([]ContentResult, error) {
 	}
 
 	vars := make(map[string]string)
-	outputFile := strings.TrimSuffix(a.path, a.pipeline.Config().SourceSuffix) + a.pipeline.Config().TargetSuffix
+	outputFile := strings.TrimSuffix(filepath.Base(a.path), a.pipeline.Config().SourceSuffix) + a.pipeline.Config().TargetSuffix
 	vars["target"] = outputFile
 
-	transformed := a.pipeline.Transform(string(file), nil)
+	transformed := a.pipeline.Transform(string(file), vars)
 
 	var results []ContentResult
 	for _, r := range transformed {

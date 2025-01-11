@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 
+	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
 	"github.com/mattn/go-zglob"
@@ -25,11 +27,12 @@ const (
 	ctxOutputPath
 )
 
-// TODO make structs private?
+// TODO make xml structs private?
 type Layout struct {
-	XMLName  xml.Name `xml:"Layout"`
-	basePath string
-	path     string
+	XMLName   xml.Name `xml:"Layout"`
+	basePath  string
+	path      string
+	pipelines *pipeline.Registry
 
 	// Children
 	fragments []Fragment
@@ -40,6 +43,8 @@ type Layout struct {
 }
 
 type Fragment struct {
+	pipeline pipeline.PipelineScript
+
 	XMLName  xml.Name `xml:"Fragment"`
 	Name     string   `xml:"name,attr"`
 	Source   string   `xml:"src,attr"`
@@ -60,6 +65,8 @@ type Variable struct {
 }
 
 type Asset struct {
+	pipeline pipeline.PipelineScript
+
 	XMLName   xml.Name `xml:"Asset"`
 	Name      string   `xml:"name,attr"`
 	Source    string   `xml:"src,attr"`
@@ -88,13 +95,24 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 
 	var content []byte
 	for _, path := range files {
-		// TODO parse fragment contents using a pipeline
 		content, err = os.ReadFile(path)
 		if err != nil {
 			return "", err
 		}
+		break
 	}
-	return string(content), nil
+
+	// TODO should we pass any vars to the pipeline?
+	result := f.pipeline.Transform(string(content), nil)
+
+	if len(result) == 0 {
+		return "", fmt.Errorf("Fragments pipeline %s returned no result", f.pipeline.Config().PipelineName)
+	}
+	if len(result) > 1 {
+		log.Warnf("Fragments pipeline %s returned more than one result. Using the first one", f.pipeline.Config().PipelineName)
+	}
+
+	return result[0]["result"], nil
 }
 
 func getValue(ctx context.Context, key contextKey) string {
@@ -115,10 +133,7 @@ func (a Asset) Render(ctx context.Context) (string, error) {
 	basePath := getValue(ctx, ctxBasePath)
 
 	// TODO a.Source can be a pattern (eg. *.css) so we need to handle that
-	target, err := utils.NormalizePath(basePath, a.Source)
-	if err != nil {
-		return "", err
-	}
+	target := filepath.Join(basePath, a.Source)
 
 	var tmpl string
 	switch a.AssetType {
@@ -136,40 +151,6 @@ func (a Asset) Render(ctx context.Context) (string, error) {
 
 	return string(result), nil
 }
-
-// func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-// 	c.XMLName = start.Name
-// 	for _, attr := range start.Attr {
-// 		switch attr.Name.Local {
-// 		case "name":
-// 			c.Path = attr.Value
-// 		case "path":
-// 			c.Path = attr.Value
-// 		case "pipeline":
-// 			c.Pipeline = attr.Value
-// 		}
-// 	}
-//
-// 	// Check for self-closing tag
-// 	for {
-// 		tok, _ := d.Token()
-// 		switch t := tok.(type) {
-// 		case xml.EndElement:
-// 			if t.Name == start.Name {
-// 				// Explicitly closed empty element
-// 				return nil
-// 			}
-// 		case xml.StartElement:
-// 			if t.Name.Local == "Variable" {
-// 				var v Variable
-// 				if err := d.DecodeElement(&v, &t); err != nil {
-// 					return err
-// 				}
-// 				c.Variables = append(c.Variables, v)
-// 			}
-// 		}
-// 	}
-// }
 
 // Render layout. The fragments will be searched first in the given base path
 func (l *Layout) Render(path string) (string, error) {
@@ -267,11 +248,19 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := d.DecodeElement(&v, &se); err != nil {
 					return err
 				}
+				v.pipeline, err = l.pipelines.Get(v.AssetType, true)
+				if err != nil {
+					log.Warnf("pipeline '%s' not found for asset %s: %v. Using default", v.AssetType, v.Name, err)
+				}
 				l.assets = append(l.assets, v)
 			case "Fragment":
 				var v Fragment
 				if err := d.DecodeElement(&v, &se); err != nil {
 					return err
+				}
+				v.pipeline, err = l.pipelines.Get(v.Pipeline, true)
+				if err != nil {
+					log.Warnf("pipeline '%s' not found for Fragment %s: %v. Using default", v.Pipeline, v.Name, err)
 				}
 				l.fragments = append(l.fragments, v)
 			case "Content":
@@ -308,8 +297,8 @@ func (l Layout) MatchContent(path string) bool {
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml and should be relative to project path
-func Parse(basePath string, cwd string, data []byte) (*Layout, error) {
-	layout := &Layout{basePath: basePath, path: cwd}
+func Parse(basePath string, cwd string, data []byte, pipeReg *pipeline.Registry) (*Layout, error) {
+	layout := &Layout{basePath: basePath, path: cwd, pipelines: pipeReg}
 	err := xml.Unmarshal(data, layout)
 	if err != nil {
 		return nil, err
