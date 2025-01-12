@@ -21,18 +21,34 @@ require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/adrg/frontmatter v0.2.0 // indirect
 	github.com/adrg/xdg v0.5.0 // indirect
+	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/cli/safeexec v1.0.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/dop251/goja v0.0.0-20240927123429-241b342198c2 // indirect
+	github.com/fatih/structs v1.1.0 // indirect
 	github.com/go-sourcemap/sourcemap v2.1.3+incompatible // indirect
+	github.com/gobuffalo/flect v1.0.3 // indirect
+	github.com/gobuffalo/github_flavored_markdown v1.1.4 // indirect
+	github.com/gobuffalo/helpers v0.6.7 // indirect
+	github.com/gobuffalo/plush v3.8.3+incompatible // indirect
+	github.com/gobuffalo/tags/v3 v3.1.4 // indirect
+	github.com/gobuffalo/validate/v3 v3.3.3 // indirect
+	github.com/gofrs/uuid v4.4.0+incompatible // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
+	github.com/gorilla/css v1.0.1 // indirect
+	github.com/microcosm-cc/bluemonday v1.0.27 // indirect
+	github.com/pkg/errors v0.9.1 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
+	github.com/sergi/go-diff v1.3.1 // indirect
+	github.com/sourcegraph/annotate v0.0.0-20160123013949-f4cad6c6324d // indirect
+	github.com/sourcegraph/syntaxhighlight v0.0.0-20170531221838-bd320f5d308e // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	go.etcd.io/bbolt v1.3.11 // indirect
-	golang.org/x/sys v0.25.0 // indirect
-	golang.org/x/text v0.3.8 // indirect
+	golang.org/x/net v0.34.0 // indirect
+	golang.org/x/sys v0.29.0 // indirect
+	golang.org/x/text v0.21.0 // indirect
 	google.golang.org/protobuf v1.30.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 )
