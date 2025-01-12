@@ -9,19 +9,17 @@ import (
 	"github.com/dop251/goja"
 )
 
-type HttpApi struct{}
-
-func (h *HttpApi) GetModule(vm *goja.Runtime) *goja.Object {
+func GetFetchModule(vm *goja.Runtime) *goja.Object {
 	module := vm.NewObject()
 	module.Set("Headers", NewHeadersConstructor(vm))
 	module.Set("Request", NewRequestConstructor(vm))
 	module.Set("Response", NewResponseConstructor(vm))
 
-	module.Set("fetch", h.fetch(vm))
+	module.Set("fetch", fetch(vm))
 	return module
 }
 
-func (h *HttpApi) fetch(vm *goja.Runtime) func(call goja.FunctionCall) goja.Value {
+func fetch(vm *goja.Runtime) func(call goja.FunctionCall) goja.Value {
 	return func(call goja.FunctionCall) goja.Value {
 		if len(call.Arguments) < 1 {
 			panic(vm.NewTypeError("fetch requires at least one argument"))

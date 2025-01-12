@@ -5,25 +5,33 @@ import (
 	"testing"
 )
 
+func normalize(input string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(input, " ", ""), "\t", ""), "\n", "")
+}
+
 func TestTplRender(t *testing.T) {
 	jsFunction := `
-        async function testTemplate() {
-            const { Template } = require("tpl");
-            
-            const templateInstance = new Template({
-                startTag: '{{',
-                endTag: '}}'
-            });
+async function testTemplate() {
+    const { render } = require("tpl");
 
-            templateInstance.use("Hello, {{user}}! Current time is {{time}}. Unknown: {{unknown}}.");
+	html = ` + "`" + `<html>
+	<%= if (names && len(names) > 0) { %>
+		<ul>
+			<%= for (n) in names { %>
+				<li><%= capitalize(n) %></li>
+			<% } %>
+		</ul>
+	<% } else { %>
+		<h1>Sorry, no names. :(</h1>
+	<% } %>
+	</html>` + "`" + `
 
-            templateInstance.setParameters({
-                user: "Alice",
-                time: () => new Date().toLocaleTimeString()
-            });
+	vars = {
+		names: ["john", "paul", "george", "ringo"],
+	}
 
-            return await templateInstance.render();
-        }
+    return await render(html, vars);
+}
     `
 
 	env := getEnv(jsFunction, t)
@@ -39,25 +47,17 @@ func TestTplRender(t *testing.T) {
 		t.Fatalf("Expected string, got %T", result.Export())
 	}
 
-	// Define expected values
-	staticUser := "Alice"
-	// timePlaceholder := "<time-placeholder>" // Adjust this based on expected dynamic values
-	// expectedTemplate := "Hello, Alice! Current time is " + timePlaceholder + ". Unknown: }}unknown."
+	expected := `<html>
+		<ul>
+			<li>John</li>
+			<li>Paul</li>
+			<li>George</li>
+			<li>Ringo</li>
+		</ul>
+	</html>`
 
-	// Check for static part
-	if !strings.Contains(renderedResult, staticUser) {
-		t.Errorf("Expected template to contain %v, got %v", staticUser, renderedResult)
-	}
-
-	// Check for unknown variable placeholder
-	if !strings.Contains(renderedResult, "{{unknown}}") {
-		t.Errorf("Expected unknown variable placeholder }}unknown, got %v", renderedResult)
-	}
-
-	// Additional time validation (optional): Ensure a time value is present
-	// You could parse and validate the time if necessary
-	if !strings.Contains(renderedResult, ":") {
-		t.Errorf("Expected time to be included, got %v", renderedResult)
+	if normalize(expected) != normalize(renderedResult) {
+		t.Errorf("Expected template to contain\n %v\n, got\n %v\n", expected, renderedResult)
 	}
 
 	t.Logf("Rendered template: %v", renderedResult)

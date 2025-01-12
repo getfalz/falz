@@ -79,10 +79,11 @@ func (env *JsEnv) setupRequire() {
 			}
 			return fsAPI.GetModule(env.loop.vm)
 		case "http":
-			httpAPI := api.HttpApi{}
-			return httpAPI.GetModule(env.loop.vm)
+			return api.GetFetchModule(env.loop.vm)
 		case "md":
 			return api.GetMdModule(env.loop.vm)
+		case "fasttpl":
+			return api.GetFastTplModule(env.loop.vm)
 		case "tpl":
 			return api.GetTplModule(env.loop.vm)
 		}
