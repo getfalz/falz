@@ -2,9 +2,10 @@ package content
 
 import (
 	"craeft/internal/pipeline"
+	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -27,11 +28,15 @@ func (a *Asset) Build() ([]ContentResult, error) {
 		log.Fatalf("Failed to read asset file: %s", err)
 	}
 
-	vars := make(map[string]string)
-	outputFile := strings.TrimSuffix(filepath.Base(a.path), a.pipeline.Config().SourceSuffix) + a.pipeline.Config().TargetSuffix
-	vars["target"] = outputFile
+	re, err := regexp.Compile(fmt.Sprintf(`\.(%s)\b`, a.pipeline.Config().SourceSuffix))
+	if err != nil {
+		return nil, fmt.Errorf("failed to compile source_suffix pattern: %s", err)
+	}
 
-	transformed := a.pipeline.Transform(string(file), vars)
+	target := re.ReplaceAllString(filepath.Base(a.path), "."+a.pipeline.Config().TargetSuffix)
+	vars := pipeline.NewVars(target)
+
+	transformed := a.pipeline.Transform(file, vars)
 
 	var results []ContentResult
 	for _, r := range transformed {

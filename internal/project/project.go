@@ -106,6 +106,7 @@ func (p *Project) Build(isDev bool) error {
 				log.Info("++ Index")
 				for _, contentPath := range contents {
 					page, err := p.getContent(contentPath, contentConf.Pipeline)
+					log.Infof("++== got content: %v, err: %s", page, err)
 					if err != nil {
 						log.Infof("== got content err: %s", err)
 						return err
@@ -237,7 +238,8 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 	}
 
 	log.Infof("getLayouts: got layouts: %v", layoutPaths)
-	for path := range layoutPaths {
+	for i := range layoutPaths {
+		path := layoutPaths[i]
 		if cached, ok := caches.layouts.Load(path); ok {
 			results[path] = cached.(*layout.Layout)
 			continue
@@ -283,18 +285,23 @@ func (p Project) writeResults(base string, results []content.ContentResult) (str
 }
 
 func (p *Project) getContent(path string, pipeline string) (*content.Content, error) {
-	var page *content.Content
-	if cached, ok := caches.contents.Load(path); ok {
-		page = cached.(*content.Content)
-		log.Infof("[del] Got page cache: %+v", page)
-	} else {
-		pl, err := p.pipelines.Get(pipeline, false)
-		if err != nil {
-			return nil, err
-		}
-		page = content.New(path, pl)
-		caches.contents.Store(path, page)
+	// var page *content.Content
+	// if cached, ok := caches.contents.Load(path); ok {
+	// 	page = cached.(*content.Content)
+	// 	log.Infof("[del] Got page cache: %+v", page)
+	// } else {
+	pl, err := p.pipelines.Get(pipeline)
+	log.Infof("pipeline: %v, err: %s", pl, err)
+	if err != nil {
+		log.Warnf("no pipeline %s found for content %s: %s", pipeline, path, err)
 	}
+	page, err := content.New(path, pl)
+	log.Infof("page: %v, err: %s", page, err)
+	if err != nil {
+		return nil, err
+	}
+	caches.contents.Store(path, page)
+	// }
 
 	return page, nil
 }
@@ -395,15 +402,16 @@ func (p *Project) BuildAsset(path string, assetType string) error {
 	return nil
 }
 
+// TODO remove err return
 func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error) {
 	var asset *content.Asset
 	// if cached, ok := caches.contents.Load(path); ok {
 	// 	page = cached.(*content.Content)
 	// 	log.Infof("[del] Got page cache: %+v", page)
 	// } else {
-	pl, err := p.pipelines.Get(pipeline, true)
+	pl, err := p.pipelines.Get(pipeline)
 	if err != nil {
-		return nil, err
+		log.Warnf("no pipeline %s found for asset %s: %w", pipeline, path, err)
 	}
 	asset = content.NewAsset(path, pl)
 	// caches.contents.Store(path, page)

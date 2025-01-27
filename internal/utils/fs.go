@@ -10,22 +10,26 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// FindFile searches a file fileName by consuming the targetPath and going up the directory hierarchy until reaching the basePath. Then it returns a map of fileName to the full path of the file.
-func FindFile(basePath, targetPath, pattern string) (map[string]string, error) {
-	result := make(map[string]string)
+// FindFile searches a file fileName by consuming the targetPath and going up the directory hierarchy until reaching the basePath. Then it returns a map of fileName to the relative path of the file with the basePath.
+func FindFile(basePath, targetPath, pattern string) ([]string, error) {
+	var results []string
+	uniqueResult := make(map[string]bool)
 	currentPath := filepath.Join(basePath, targetPath)
 
+	log.Infof("finding file %s in %s up to %s", pattern, targetPath, basePath)
 	for {
 		log.Infof("globing in %s", filepath.Join(currentPath, pattern))
 		matches, err := zglob.Glob(filepath.Join(currentPath, pattern))
+		log.Infof("found %d matches", len(matches))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
 			return nil, fmt.Errorf("findFile can't glob '%s' in '%s': %w", pattern, currentPath, err)
 		}
 
 		for _, match := range matches {
-			fileName := filepath.Base(match)
-			if _, ok := result[fileName]; !ok {
-				result[fileName] = match
+			fileName, _ := filepath.Rel(basePath, match)
+			if _, ok := uniqueResult[fileName]; !ok {
+				results = append(results, fileName)
+				uniqueResult[fileName] = true
 			}
 		}
 
@@ -40,11 +44,12 @@ func FindFile(basePath, targetPath, pattern string) (map[string]string, error) {
 		currentPath = parentPath
 	}
 
-	if len(result) == 0 {
+	if len(results) == 0 {
 		return nil, fmt.Errorf("no files matching pattern %s found from %s up to %s", pattern, targetPath, basePath)
 	}
 
-	return result, nil
+	log.Infof("found %v files", results)
+	return results, nil
 }
 
 // NormalizePath returns an absolute path relative to the given basePath

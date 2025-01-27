@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"craeft/internal/pipeline"
 
@@ -17,8 +16,7 @@ type Content struct {
 	path     string
 	pipeline pipeline.PipelineScript
 	output   []ContentResult
-	// TODO make vars all types. see core/params
-	vars map[string]string
+	vars     pipeline.Vars
 }
 
 type ContentResult struct {
@@ -27,25 +25,27 @@ type ContentResult struct {
 }
 
 // New creates a new content object with an absolute path and a pipeline
-func New(path string, pipeline pipeline.PipelineScript) *Content {
-	vars := make(map[string]string)
+func New(path string, pl pipeline.PipelineScript) (*Content, error) {
 
 	// set some default values
 	fileName := filepath.Base(path)
-	outputFile := strings.TrimSuffix(fileName, pipeline.Config().SourceSuffix) + pipeline.Config().TargetSuffix
-	vars["target"] = outputFile
+	log.Infof("pipeline: %v, filename: %s", pl, fileName)
+	target := pl.Config().SourceSuffixRe.ReplaceAllString(fileName, "."+pl.Config().TargetSuffix)
+	log.Infof("got target: %v", target)
 
+	vars := pipeline.NewVars(target)
 	return &Content{
 		path:     path,
-		pipeline: pipeline,
+		pipeline: pl,
 		vars:     vars,
-	}
+	}, nil
 }
 
 func (c *Content) LoadIndex() error {
 	var vars map[string]string
 
 	// TODO frontmatter is already loaded. Here, we should just strip the frontmatter from the contents, and pass the contents to Index
+	log.Infof("loading index for %v", c)
 	file, err := os.Open(c.path)
 	if err != nil {
 		return err
@@ -57,20 +57,20 @@ func (c *Content) LoadIndex() error {
 		return err
 	}
 
-	jsVars := c.pipeline.Index(string(content), c.vars)
+	jsVars := c.pipeline.Index(content, c.vars)
 
 	c.vars = jsVars
 
 	return nil
 }
 
-func varsToInterface(input map[string]string) map[string]interface{} {
-	output := make(map[string]interface{}, len(input))
-	for key, value := range input {
-		output[key] = value
-	}
-	return output
-}
+// func varsToInterface(input map[string]string) map[string]interface{} {
+// 	output := make(map[string]interface{}, len(input))
+// 	for key, value := range input {
+// 		output[key] = value
+// 	}
+// 	return output
+// }
 
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	if len(c.output) > 0 {
@@ -89,16 +89,16 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 		log.Error(err)
 	}
 
-	transformed := c.pipeline.Transform(string(body), c.vars)
+	transformed := c.pipeline.Transform(body, c.vars)
 
 	var results []ContentResult
 	t := fasttemplate.New(layoutTpl, "[[", "]]")
-	data := varsToInterface(c.vars)
-	log.Infof("using data: %v", data)
+	// data := varsToInterface(c.vars)
+	log.Infof("using data: %v", c.vars)
 
 	for _, r := range transformed {
-		data["layout"] = r["result"]
-		tplResult := t.ExecuteString(data)
+		c.vars["layout"] = r["result"]
+		tplResult := t.ExecuteString(c.vars)
 
 		results = append(results, ContentResult{Filename: r["filename"], Result: tplResult})
 	}

@@ -9,8 +9,8 @@ import (
 )
 
 type PipelineScript interface {
-	Index(input string, vars map[string]string) map[string]string
-	Transform(input string, vars map[string]string) []map[string]string
+	Index(input []byte, vars Vars) Vars
+	Transform(input []byte, vars Vars) []map[string]string
 	Config() PipelineConfig
 }
 
@@ -52,12 +52,18 @@ type RegistryConfig struct {
 type Registry struct {
 	pipelines map[string]*Pipeline
 	config    *RegistryConfig
+	defaults  map[string]PipelineScript
 }
 
 func NewRegistry(config *RegistryConfig) *Registry {
 	return &Registry{
 		pipelines: make(map[string]*Pipeline),
 		config:    config,
+		defaults: map[string]PipelineScript{
+			"tpl": &TplPipeline{},
+			"md":  &MdPipeline{},
+			"nop": &NopPipeline{},
+		},
 	}
 }
 
@@ -85,38 +91,14 @@ func (r *Registry) LoadPipelines() error {
 	return nil
 }
 
-type DefaultPipeline struct {
-}
-
-func (d DefaultPipeline) Config() PipelineConfig {
-	return PipelineConfig{
-		PipelineName: "default",
-		EntryPoint:   "",
-		SourceSuffix: "",
-		TargetSuffix: "",
+func (r *Registry) Get(name string) (PipelineScript, error) {
+	if pipeline, ok := r.pipelines[name]; ok {
+		return pipeline, nil
 	}
-}
-func (d DefaultPipeline) Index(input string, vars map[string]string) map[string]string {
-	return vars
-}
-func (d DefaultPipeline) Transform(input string, vars map[string]string) []map[string]string {
-	results := []map[string]string{
-		{
-			"filename": vars["target"],
-			"result":   input,
-		},
-	}
-	return results
-}
 
-func (r *Registry) Get(name string, useDefault bool) (PipelineScript, error) {
-	pipeline, ok := r.pipelines[name]
-
-	if !ok {
-		if useDefault {
-			return &DefaultPipeline{}, nil
-		}
-		return nil, fmt.Errorf("Pipeline not found: %s", name)
+	if defaultPipeline, ok := r.defaults[name]; ok {
+		return defaultPipeline, nil
 	}
-	return pipeline, nil
+
+	return r.defaults["nop"], fmt.Errorf("pipeline %s not found. using default", name)
 }

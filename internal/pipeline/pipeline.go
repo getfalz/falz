@@ -80,17 +80,17 @@ func loadScript(path string) string {
 
 type PipelineCtx struct {
 	Name string
-	Data map[string]string
+	Data map[string]any
 }
 
-func (s *script) getContext(vars map[string]string) *PipelineCtx {
+func (s *script) getContext(vars map[string]any) *PipelineCtx {
 	return &PipelineCtx{
 		Name: s.name,
 		Data: vars,
 	}
 }
 
-func (s *script) Index(input string, vars map[string]string) map[string]string {
+func (s *script) Index(input []byte, vars Vars) Vars {
 	ctx := s.getContext(vars)
 
 	result, err := s.env.CallFunc("index", s.env.ToValue(ctx), s.env.ToValue(input))
@@ -99,7 +99,7 @@ func (s *script) Index(input string, vars map[string]string) map[string]string {
 	}
 
 	if objRaw, ok := result.(*goja.Object); ok {
-		if obj, ok := objRaw.Export().(map[string]string); ok {
+		if obj, ok := objRaw.Export().(map[string]any); ok {
 			return obj
 		}
 	}
@@ -107,10 +107,10 @@ func (s *script) Index(input string, vars map[string]string) map[string]string {
 	return vars
 }
 
-func (s *script) Transform(input string, vars map[string]string) []map[string]string {
+func (s *script) Transform(input []byte, vars Vars) []map[string]string {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("transform", s.env.ToValue(ctx), s.env.ToValue(input))
+	result, err := s.env.CallFunc("transform", s.env.ToValue(ctx), s.env.ToValue(string(input)))
 	if err != nil {
 		log.Errorf("Transform return error %s", err)
 	}
@@ -119,10 +119,11 @@ func (s *script) Transform(input string, vars map[string]string) []map[string]st
 
 	if str, ok := result.Export().(string); ok {
 		results = append(results, map[string]string{
-			"filename": vars["target"],
+			"filename": vars["target"].(string),
 			"result":   str,
 		})
 	} else if obj, ok := result.Export().(map[string]interface{}); ok {
+		// TODO this could explode. ensure that the keys are present
 		filename, _ := obj["filename"].(string)
 		result, _ := obj["result"].(string)
 		results = append(results, map[string]string{

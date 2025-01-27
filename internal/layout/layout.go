@@ -94,16 +94,13 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 	}
 
 	var content []byte
-	for _, path := range files {
-		content, err = os.ReadFile(path)
-		if err != nil {
-			return "", err
-		}
-		break
+	content, err = os.ReadFile(filepath.Join(basePath, files[0]))
+	if err != nil {
+		return "", err
 	}
 
-	// TODO should we pass any vars to the pipeline?
-	result := f.pipeline.Transform(string(content), nil)
+	vars := pipeline.NewVars("")
+	result := f.pipeline.Transform(content, vars)
 
 	if len(result) == 0 {
 		return "", fmt.Errorf("Fragments pipeline %s returned no result", f.pipeline.Config().PipelineName)
@@ -157,18 +154,15 @@ func (l *Layout) Render(path string) (string, error) {
 	// TODO render websocket script only when the development flag is set
 	// but find a way to define the variables placeholders. maybe use fasttemplate?
 
-	tplPath, err := utils.FindFile(l.basePath, path, l.Tpl)
+	tplPaths, err := utils.FindFile(l.basePath, path, l.Tpl)
 	if err != nil {
 		return "", fmt.Errorf("Can't find layout template: %w", err)
 	}
 
 	var tmpl []byte
-	for _, tplPath := range tplPath {
-		tmpl, err = os.ReadFile(tplPath)
-		if err != nil {
-			return "", err
-		}
-		break
+	tmpl, err = os.ReadFile(filepath.Join(l.basePath, tplPaths[0]))
+	if err != nil {
+		return "", err
 	}
 
 	ctx := context.WithValue(context.Background(), ctxBasePath, l.basePath)
@@ -248,9 +242,9 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := d.DecodeElement(&v, &se); err != nil {
 					return err
 				}
-				v.pipeline, err = l.pipelines.Get(v.AssetType, true)
+				v.pipeline, err = l.pipelines.Get(v.AssetType)
 				if err != nil {
-					log.Warnf("pipeline '%s' not found for asset %s: %v. Using default", v.AssetType, v.Name, err)
+					log.Warnf("no pipeline %s found for asset %s: %s", v.AssetType, v.Name, err)
 				}
 				l.assets = append(l.assets, v)
 			case "Fragment":
@@ -258,9 +252,9 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := d.DecodeElement(&v, &se); err != nil {
 					return err
 				}
-				v.pipeline, err = l.pipelines.Get(v.Pipeline, true)
+				v.pipeline, err = l.pipelines.Get(v.Pipeline)
 				if err != nil {
-					log.Warnf("pipeline '%s' not found for Fragment %s: %v. Using default", v.Pipeline, v.Name, err)
+					log.Warnf("no pipeline %s found for fragment %s: %s", v.Pipeline, v.Name, err)
 				}
 				l.fragments = append(l.fragments, v)
 			case "Content":

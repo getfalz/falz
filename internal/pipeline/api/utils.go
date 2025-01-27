@@ -6,6 +6,7 @@ import (
 	"github.com/dop251/goja"
 )
 
+// TODO rename to argMustString
 func getStringArg(arg goja.Value) (string, error) {
 	if arg == nil || goja.IsUndefined(arg) {
 		return "", fmt.Errorf("argument is required")
