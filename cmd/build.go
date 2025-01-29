@@ -15,8 +15,6 @@ func Build(c *cli.Context) error {
 		log.Fatal("Project not found in context.")
 	}
 
-	log.Infof("Building project from %s to %s\n", p.Config.SourceDirectory, p.Config.OutputDirectory)
-
 	// TODO Build could be done parallel. First check for cache access
 	if err := p.Build(false); err != nil {
 		log.Fatal("Can't build project: ", err)

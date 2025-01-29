@@ -25,7 +25,7 @@ func New(path string, jsconfig *JSConfig) (*Pipeline, error) {
 	configPath := filepath.Join(path, "config.yaml")
 	config, err := loadConfig(configPath)
 	if err != nil {
-		return nil, fmt.Errorf("[pipeline] %s", err)
+		return nil, fmt.Errorf("can't load pipeline config %s", err)
 	}
 
 	scriptPath := filepath.Join(path, config.EntryPoint)
@@ -72,7 +72,7 @@ func (r *Registry) LoadPipelines() error {
 		pipelinePath := filepath.Join(r.config.PipelinesPath, pipelineName)
 
 		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
-			log.Warn("Pipeline directory does not exist or is not a directory: ", pipelinePath)
+			log.Warnf("Pipeline directory does not exist or is not a directory: %s", pipelinePath)
 			continue
 		}
 
@@ -81,10 +81,11 @@ func (r *Registry) LoadPipelines() error {
 		}
 		pipeline, err := New(pipelinePath, config)
 		if err != nil {
-			return fmt.Errorf("error loading pipeline %s: %v", pipelineName, err)
+			log.Warnf("Error loading pipeline %s: %v", pipelineName, err)
+			continue
 		}
 
-		log.Tracef("Loaded pipeline %s from %s", pipelineName, pipelinePath)
+		log.Tracef("Pipeline loaded %s from %s", pipelineName, pipelinePath)
 		r.pipelines[pipelineName] = pipeline
 	}
 

@@ -50,6 +50,7 @@ type CraeftConfig struct {
 	Ignore          []string `yaml:"ignore_files"`
 	Debug           bool     `yaml:"debug"`
 	EnableHotReload bool     `yaml:"hot_reload"`
+	EnableIndexing  bool     `yaml:"use_index"`
 
 	Layout string `yaml:"layout" default:"layout.xml"`
 

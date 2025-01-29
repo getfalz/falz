@@ -52,7 +52,7 @@ func loadScript(path string) string {
 	// TODO configure esbuild
 	scriptName := filepath.Base(path)
 	dirName := filepath.Dir(path)
-	log.Infof("Loading script %s from %s", scriptName, dirName)
+	log.Infof("DEL Loading script %s from %s", scriptName, dirName)
 
 	// TODO minify syntax dont work, because the entry functions will be renamed
 	result := api.Build(api.BuildOptions{
@@ -69,10 +69,10 @@ func loadScript(path string) string {
 		Target:       api.ES2020, // api.ES5
 		Sourcemap:    api.SourceMapNone,
 	})
-	// log.Infof("Build result: %+v", result)
 
 	if len(result.Errors) > 0 {
-		log.Errorf("[esbuid] cant load script: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", "))
+		log.Errorf("esbuid can't load script: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", "))
+		return ""
 	}
 
 	return string(result.OutputFiles[0].Contents)

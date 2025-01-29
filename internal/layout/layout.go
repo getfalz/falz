@@ -192,7 +192,7 @@ func (l *Layout) Render(path string) (string, error) {
 		tplVariables[f.Name] = output
 	}
 
-	log.Infof("Rendering layout %s with variables: %v", l.Tpl, tplVariables)
+	log.Tracef("Rendering layout %s with variables: %v", l.Tpl, tplVariables)
 	result := parseTpl(string(tmpl), tplVariables)
 
 	return result, nil

@@ -27,11 +27,9 @@ type ContentResult struct {
 // New creates a new content object with an absolute path and a pipeline
 func New(path string, pl pipeline.PipelineScript) (*Content, error) {
 
-	// set some default values
 	fileName := filepath.Base(path)
-	log.Infof("pipeline: %v, filename: %s", pl, fileName)
+	log.Tracef("New content %s with pipeline %v", fileName, pl)
 	target := pl.Config().SourceSuffixRe.ReplaceAllString(fileName, "."+pl.Config().TargetSuffix)
-	log.Infof("got target: %v", target)
 
 	vars := pipeline.NewVars(target)
 	return &Content{
@@ -42,10 +40,9 @@ func New(path string, pl pipeline.PipelineScript) (*Content, error) {
 }
 
 func (c *Content) LoadIndex() error {
-	var vars map[string]string
+	var vars map[string]any
 
 	// TODO frontmatter is already loaded. Here, we should just strip the frontmatter from the contents, and pass the contents to Index
-	log.Infof("loading index for %v", c)
 	file, err := os.Open(c.path)
 	if err != nil {
 		return err
@@ -56,6 +53,11 @@ func (c *Content) LoadIndex() error {
 	if err != nil {
 		return err
 	}
+
+	for k, v := range vars {
+		c.vars[k] = v
+	}
+	log.Debugf("using data: %v", c.vars)
 
 	jsVars := c.pipeline.Index(content, c.vars)
 
