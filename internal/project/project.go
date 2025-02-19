@@ -313,7 +313,7 @@ func (p *Project) BuildAssets() {
 			log.Infof("path: %s, currentDir: %s", path, currentDir)
 
 			// TODO(assets): currentDir is always "."?
-			layouts, err := p.getLayouts(currentDir)
+			layouts, err := p.getLayouts(path)
 			if err != nil {
 				return err
 			}
