@@ -14,7 +14,7 @@ func TestKvPutAndGet(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testPutAndGet", nil, nil)
+	result, err := env.Call("testPutAndGet", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -48,7 +48,7 @@ func TestKvDelete(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testDelete", nil, nil)
+	result, err := env.Call("testDelete", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -74,7 +74,7 @@ func TestKvNestedBuckets(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testNestedBuckets", nil, nil)
+	result, err := env.Call("testNestedBuckets", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ func TestHttpFetchGet(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testFetch", nil, nil)
+	result, err := env.Call("testFetch", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestHttpHeadersMethods(t *testing.T) {
 	defer env.Close()
 
 	// Execute the JavaScript function
-	result, err := env.CallAsyncFunc("testHeaders", nil, nil)
+	result, err := env.Call("testHeaders", nil, nil)
 	if err != nil {
 		t.Fatal("Error calling testHeaders:", err)
 	}
@@ -133,7 +133,7 @@ func TestHttpRequestObject(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testRequest", nil, nil)
+	result, err := env.Call("testRequest", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -183,7 +183,7 @@ func TestHttpResponseObject(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testResponse", nil, nil)
+	result, err := env.Call("testResponse", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestHttpFetchPost(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testFetchPost", nil, nil)
+	result, err := env.Call("testFetchPost", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

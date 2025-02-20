@@ -29,7 +29,7 @@ func TestMdParse(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testAsyncParse", nil, nil)
+	result, err := env.Call("testAsyncParse", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

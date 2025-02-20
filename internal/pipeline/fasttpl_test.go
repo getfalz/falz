@@ -29,7 +29,7 @@ func TestFastTplRender(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testTemplate", nil, nil)
+	result, err := env.Call("testTemplate", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

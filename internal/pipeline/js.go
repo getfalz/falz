@@ -91,12 +91,27 @@ func (env *JsEnv) setupRequire() {
 	})
 }
 
-func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
-	fn, ok := goja.AssertFunction(env.loop.vm.Get(name))
+func (env *JsEnv) Call(name string, ctx, vars goja.Value) (goja.Value, error) {
+	v := env.loop.vm.Get(name)
+	fn, ok := goja.AssertFunction(v)
 	if !ok {
 		return vars, fmt.Errorf("no %s function in script %s", name, env.config.Path)
 	}
 
+	o := v.ToObject(env.loop.vm)
+	p := o.Get("constructor").ToObject(env.loop.vm)
+
+	switch p.Get("name").String() {
+	case "Function":
+		return env.callFunc(fn, name, ctx, vars)
+	case "AsyncFunction":
+		return env.callAsyncFunc(fn, name, ctx, vars)
+	default:
+		return nil, fmt.Errorf("unsupported function type %s", p.Get("name").String())
+	}
+}
+
+func (env *JsEnv) callFunc(fn goja.Callable, name string, ctx, vars goja.Value) (goja.Value, error) {
 	result, err := fn(ctx, vars)
 	if err != nil {
 		return vars, fmt.Errorf("%s return error %s", name, err)
@@ -105,12 +120,7 @@ func (env *JsEnv) CallFunc(name string, ctx, vars goja.Value) (goja.Value, error
 	return result, nil
 }
 
-func (env *JsEnv) CallAsyncFunc(name string, ctx, vars goja.Value) (goja.Value, error) {
-	fn, ok := goja.AssertFunction(env.loop.vm.Get(name))
-	if !ok {
-		return nil, fmt.Errorf("no %s function in script %s", name, env.config.Path)
-	}
-
+func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Value) (goja.Value, error) {
 	var result goja.Value
 	var err error
 	done := make(chan struct{})

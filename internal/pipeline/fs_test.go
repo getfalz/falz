@@ -37,7 +37,7 @@ func TestFsBytes(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testBytes", nil, nil)
+	result, err := env.Call("testBytes", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestFsWrite(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err := env.CallAsyncFunc("testWrite", nil, nil)
+	_, err := env.Call("testWrite", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +101,7 @@ func TestFsAppend(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err = env.CallAsyncFunc("testAppend", nil, nil)
+	_, err = env.Call("testAppend", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -127,7 +127,7 @@ func TestFsIsFile(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testIsFile", nil, nil)
+	result, err := env.Call("testIsFile", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +152,7 @@ func TestFsIsDirectory(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testIsDirectory", nil, nil)
+	result, err := env.Call("testIsDirectory", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestFsCreateDirectory(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err := env.CallAsyncFunc("testCreateDirectory", nil, nil)
+	_, err := env.Call("testCreateDirectory", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestFsDelete(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testDelete", nil, nil)
+	result, err := env.Call("testDelete", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func TestFsDeleteAll(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testDeleteAll", nil, nil)
+	result, err := env.Call("testDeleteAll", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -296,7 +296,7 @@ func TestFsList(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testList", nil, nil)
+	result, err := env.Call("testList", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func TestFsSize(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testSize", nil, nil)
+	result, err := env.Call("testSize", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,7 +378,7 @@ func TestFsLastModified(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testLastModified", nil, nil)
+	result, err := env.Call("testLastModified", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -405,7 +405,7 @@ func TestFsCopy(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err := env.CallAsyncFunc("testCopy", nil, nil)
+	_, err := env.Call("testCopy", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -434,7 +434,7 @@ func TestFsCopyAll(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err := env.CallAsyncFunc("testCopyAll", nil, nil)
+	_, err := env.Call("testCopyAll", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -467,7 +467,7 @@ func TestFsMove(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err = env.CallAsyncFunc("testMove", nil, nil)
+	_, err = env.Call("testMove", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -515,7 +515,7 @@ func TestFsMoveAll(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	_, err = env.CallAsyncFunc("testMoveAll", nil, nil)
+	_, err = env.Call("testMoveAll", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,7 +548,7 @@ func TestFsText(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testText", nil, nil)
+	result, err := env.Call("testText", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -582,7 +582,7 @@ func TestFsJSON(t *testing.T) {
 	env := getEnv(jsFunction, t)
 	defer env.Close()
 
-	result, err := env.CallAsyncFunc("testJSON", nil, nil)
+	result, err := env.Call("testJSON", nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

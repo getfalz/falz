@@ -93,7 +93,7 @@ func (s *script) getContext(vars map[string]any) *PipelineCtx {
 func (s *script) Index(input []byte, vars Vars) Vars {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("index", s.env.ToValue(ctx), s.env.ToValue(input))
+	result, err := s.env.Call("index", s.env.ToValue(ctx), s.env.ToValue(input))
 	if err != nil {
 		log.Errorf("Index return error %s", err)
 	}
@@ -110,7 +110,7 @@ func (s *script) Index(input []byte, vars Vars) Vars {
 func (s *script) Transform(input []byte, vars Vars) []map[string]string {
 	ctx := s.getContext(vars)
 
-	result, err := s.env.CallFunc("transform", s.env.ToValue(ctx), s.env.ToValue(string(input)))
+	result, err := s.env.Call("transform", s.env.ToValue(ctx), s.env.ToValue(string(input)))
 	if err != nil {
 		log.Errorf("Transform return error %s", err)
 	}

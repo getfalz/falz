@@ -28,14 +28,14 @@ func TestScript(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := env.CallFunc("index", nil, env.ToValue("Hello"))
+	result, err := env.Call("index", nil, env.ToValue("Hello"))
 	if err != nil {
-		log.Errorf("CallFunc test return error: '%s'", err)
+		log.Errorf("Call test return error: '%s'", err)
 	}
 
-	result2, err := env.CallFunc("index", nil, env.ToValue("World"))
+	result2, err := env.Call("index", nil, env.ToValue("World"))
 	if err != nil {
-		log.Errorf("CallFunc test return error: '%s'", err)
+		log.Errorf("Call test return error: '%s'", err)
 	}
 
 	t.Logf("Result: %s %s", result, result2)
@@ -59,9 +59,9 @@ func TestRequire(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	result, err := env.CallFunc("test_require", nil, nil)
+	result, err := env.Call("test_require", nil, nil)
 	if err != nil {
-		log.Errorf("CallFunc test_require return error: '%s'", err)
+		log.Errorf("Call test_require return error: '%s'", err)
 	}
 
 	t.Logf("Result: %s", result)
@@ -116,9 +116,9 @@ func TestAsyncCall(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, err = env.CallAsyncFunc("test_async", nil, nil)
+	_, err = env.Call("test_async", nil, nil)
 	if err != nil {
-		log.Errorf("CallFunc test_require return error: '%s'", err)
+		log.Errorf("Call test_require return error: '%s'", err)
 	}
 
 }
@@ -155,7 +155,7 @@ func TestAsyncGoFunc(t *testing.T) {
 	})
 
 	startTime := time.Now()
-	result, err := env.CallAsyncFunc("test_async", nil, nil)
+	result, err := env.Call("test_async", nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to run code_async wait test: %v", err)
 	}
@@ -205,7 +205,7 @@ func TestSyncGoFunc(t *testing.T) {
 		return env.ToValue(promise)
 	})
 	startTime := time.Now()
-	result, err := env.CallAsyncFunc("test_sync", nil, nil)
+	result, err := env.Call("test_sync", nil, nil)
 	if err != nil {
 		t.Fatalf("Failed to run code_sync wait test: %v", err)
 	}
