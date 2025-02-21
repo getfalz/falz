@@ -54,7 +54,7 @@ func Debug(msg string, tags ...Tag) {
 }
 
 func Info(msg string, tags ...Tag) {
-	event := logger.Debug()
+	event := logger.Info()
 	applyTags(event, tags...).Msg(msg)
 }
 
