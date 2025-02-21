@@ -4,11 +4,12 @@ import (
 	"fmt"
 	"regexp"
 
+	"craeft/internal/log"
+
 	"github.com/gobuffalo/plush"
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
-	log "github.com/sirupsen/logrus"
 )
 
 type NopPipeline struct {
@@ -98,7 +99,7 @@ func (t TplPipeline) Transform(input []byte, vars Vars) []map[string]string {
 	ctx := plush.NewContextWith(vars)
 	result, err := plush.Render(string(input), ctx)
 	if err != nil {
-		log.Errorf("Error transforming template %s: %s", vars["target"], err)
+		log.Error(fmt.Errorf("error transforming template %s: %s", vars["target"], err))
 		result = string(input)
 	}
 

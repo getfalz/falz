@@ -2,13 +2,15 @@ package content
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 
 	"craeft/internal/pipeline"
 
+	"craeft/internal/log"
+
 	"github.com/adrg/frontmatter"
-	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fasttemplate"
 )
 
@@ -28,7 +30,7 @@ type ContentResult struct {
 func New(path string, pl pipeline.PipelineScript) (*Content, error) {
 
 	fileName := filepath.Base(path)
-	log.Tracef("New content %s with pipeline %v", fileName, pl)
+	log.Trace(fmt.Sprintf("New content %s with pipeline %v", fileName, pl))
 	target := pl.Config().SourceSuffixRe.ReplaceAllString(fileName, "."+pl.Config().TargetSuffix)
 
 	vars := pipeline.NewVars(target)
@@ -57,7 +59,7 @@ func (c *Content) LoadIndex() error {
 	for k, v := range vars {
 		c.vars[k] = v
 	}
-	log.Debugf("using data: %v", c.vars)
+	log.Debug(fmt.Sprintf("using data: %v", c.vars))
 
 	jsVars := c.pipeline.Index(content, c.vars)
 
@@ -81,7 +83,7 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 
 	file, err := os.ReadFile(c.path)
 	if err != nil {
-		log.Fatalf("Failed to read content file: %s", err)
+		log.Fatal(fmt.Sprintf("Failed to read content file: %s", err))
 	}
 
 	// TODO frontmatter is already loaded. Here, we should just strip the frontmatter from the contents, and pass the contents to Index
@@ -96,7 +98,7 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	var results []ContentResult
 	t := fasttemplate.New(layoutTpl, "[[", "]]")
 	// data := varsToInterface(c.vars)
-	log.Infof("using data: %v", c.vars)
+	log.Info(fmt.Sprintf("using data: %v", c.vars))
 
 	for _, r := range transformed {
 		c.vars["layout"] = r["result"]

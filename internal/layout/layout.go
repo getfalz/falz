@@ -8,11 +8,11 @@ import (
 	"os"
 	"path/filepath"
 
+	"craeft/internal/log"
 	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
 	"github.com/mattn/go-zglob"
-	log "github.com/sirupsen/logrus"
 	"github.com/valyala/fasttemplate"
 )
 
@@ -31,6 +31,7 @@ const (
 type Layout struct {
 	XMLName   xml.Name `xml:"Layout"`
 	basePath  string
+	name      string
 	path      string
 	pipelines *pipeline.Registry
 
@@ -90,7 +91,7 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 	}
 
 	if len(files) == 0 {
-		return "", fmt.Errorf("No files found for fragment %s", f.Source)
+		return "", fmt.Errorf("no files found for fragment %s", f.Source)
 	}
 
 	var content []byte
@@ -103,10 +104,10 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 	result := f.pipeline.Transform(content, vars)
 
 	if len(result) == 0 {
-		return "", fmt.Errorf("Fragments pipeline %s returned no result", f.pipeline.Config().PipelineName)
+		return "", fmt.Errorf("pipeline '%s' for fragment '%s' returned an empty result", f.pipeline.Config().PipelineName, f.Name)
 	}
 	if len(result) > 1 {
-		log.Warnf("Fragments pipeline %s returned more than one result. Using the first one", f.pipeline.Config().PipelineName)
+		log.Warn(fmt.Sprintf("Fragments pipeline %s returned more than one result. Using the first one", f.pipeline.Config().PipelineName), log.Tag{Key: log.PipelineTag, Value: f.Name})
 	}
 
 	return result[0]["result"], nil
@@ -192,7 +193,7 @@ func (l *Layout) Render(path string) (string, error) {
 		tplVariables[f.Name] = output
 	}
 
-	log.Tracef("Rendering layout %s with variables: %v", l.Tpl, tplVariables)
+	log.Trace(fmt.Sprintf("Rendering layout %s with variables: %v", l.Tpl, tplVariables))
 	result := parseTpl(string(tmpl), tplVariables)
 
 	return result, nil
@@ -244,7 +245,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				v.pipeline, err = l.pipelines.Get(v.AssetType)
 				if err != nil {
-					log.Warnf("no pipeline %s found for asset %s: %s", v.AssetType, v.Name, err)
+					log.Warn(fmt.Sprintf("no pipeline %s found for asset %s: %s", v.AssetType, v.Name, err))
 				}
 				l.assets = append(l.assets, v)
 			case "Fragment":
@@ -254,7 +255,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				v.pipeline, err = l.pipelines.Get(v.Pipeline)
 				if err != nil {
-					log.Warnf("no pipeline %s found for fragment %s: %s", v.Pipeline, v.Name, err)
+					log.Warn(fmt.Sprintf("no pipeline %s found for fragment %s: %s", v.Pipeline, v.Name, err))
 				}
 				l.fragments = append(l.fragments, v)
 			case "Content":
@@ -273,6 +274,9 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 func (l Layout) Path() string {
 	return l.path
 }
+func (l Layout) Name() string {
+	return l.name
+}
 
 func (l Layout) HasPart(part string) bool {
 	// TODO like collectContents, collectFragments
@@ -283,16 +287,16 @@ func (l Layout) HasPart(part string) bool {
 func (l Layout) MatchContent(path string) bool {
 	match, err := zglob.Match(l.content.Path, path)
 	if err != nil {
-		log.Errorf("Error matching layout with path %s: %v\n", path, err)
+		log.Error(fmt.Errorf("error matching layout with path %s: %v", path, err))
 		return false
 	}
 
 	return match
 }
 
-// Parse parses a layout.xml file. The basePath is the root of the project, and cwd is the path of the layout.xml and should be relative to project path
-func Parse(basePath string, cwd string, data []byte, pipeReg *pipeline.Registry) (*Layout, error) {
-	layout := &Layout{basePath: basePath, path: cwd, pipelines: pipeReg}
+// Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
+func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry) (*Layout, error) {
+	layout := &Layout{basePath: basePath, path: filepath.Dir(path), pipelines: pipeReg, name: filepath.Base(path)}
 	err := xml.Unmarshal(data, layout)
 	if err != nil {
 		return nil, err

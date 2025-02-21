@@ -6,9 +6,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"craeft/internal/log"
+
 	"github.com/dop251/goja"
 	"github.com/evanw/esbuild/pkg/api"
-	log "github.com/sirupsen/logrus"
 )
 
 type script struct {
@@ -52,7 +53,6 @@ func loadScript(path string) string {
 	// TODO configure esbuild
 	scriptName := filepath.Base(path)
 	dirName := filepath.Dir(path)
-	log.Infof("DEL Loading script %s from %s", scriptName, dirName)
 
 	// TODO minify syntax dont work, because the entry functions will be renamed
 	result := api.Build(api.BuildOptions{
@@ -71,7 +71,7 @@ func loadScript(path string) string {
 	})
 
 	if len(result.Errors) > 0 {
-		log.Errorf("esbuid can't load script: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", "))
+		log.Error(fmt.Errorf("esbuid can't load script: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", ")))
 		return ""
 	}
 
@@ -95,7 +95,7 @@ func (s *script) Index(input []byte, vars Vars) Vars {
 
 	result, err := s.env.Call("index", s.env.ToValue(ctx), s.env.ToValue(input))
 	if err != nil {
-		log.Errorf("Index return error %s", err)
+		log.Error(fmt.Errorf("Index return error %s", err))
 	}
 
 	if objRaw, ok := result.(*goja.Object); ok {
@@ -112,7 +112,7 @@ func (s *script) Transform(input []byte, vars Vars) []map[string]string {
 
 	result, err := s.env.Call("transform", s.env.ToValue(ctx), s.env.ToValue(string(input)))
 	if err != nil {
-		log.Errorf("Transform return error %s", err)
+		log.Error(fmt.Errorf("Transform return error %s", err))
 	}
 
 	var results []map[string]string

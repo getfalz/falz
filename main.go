@@ -5,21 +5,12 @@ import (
 	"os"
 
 	"craeft/cmd"
+	"craeft/internal/log"
 	"craeft/internal/project"
-	"craeft/internal/utils"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/rs/zerolog"
 	"github.com/urfave/cli/v2"
 )
-
-func init() {
-	log.SetFormatter(&utils.CraeftFormatter{
-		TextFormatter: log.TextFormatter{
-			ForceColors: true,
-		},
-	})
-	log.SetOutput(os.Stdout)
-}
 
 var (
 	Name        = "craeft"
@@ -56,21 +47,27 @@ func main() {
 				Aliases: []string{"v"},
 				Count:   &verbosity,
 			},
+			&cli.BoolFlag{
+				Name:  "silence",
+				Usage: "Disable output",
+				Value: false,
+			},
 		},
 		Metadata: make(map[string]interface{}),
 		Before: func(c *cli.Context) error {
-			setLogLevel(verbosity)
+			setLogLevel(verbosity, c.Bool("silence"))
 
+			// TODO starting point is the current dir. craeft could search for the root folder
 			currentPath, err := os.Getwd()
 			if err != nil {
-				log.Fatalf("Error getting current path: %v", err)
+				log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
 			}
 
-			printWelcome(c)
+			printWelcome(c, currentPath)
 
 			p, err := project.New(currentPath)
 			if err != nil {
-				log.Fatalf("Error loading config: %v", err)
+				log.Fatal(fmt.Sprintf("Error loading config: %v", err))
 			}
 
 			p.Config.SourceDirectory = currentPath
@@ -107,7 +104,7 @@ func main() {
 						p.Config.Server.Port = c.Int("port")
 					}
 					p.Config.EnableHotReload = c.Bool("hotreload")
-					log.Infof("Using theme path: %s", p.Config.ThemePath)
+					log.Fatal(fmt.Sprintf("Using theme path: %s", p.Config.ThemePath))
 
 					return nil
 				},
@@ -137,11 +134,12 @@ func main() {
 	}
 
 	if err := app.Run(os.Args); err != nil {
-		log.Fatal(err)
+		log.Fatal(err.Error())
 	}
 }
-func printWelcome(cli *cli.Context) {
+func printWelcome(cli *cli.Context, base string) {
 	fmt.Printf("⚒ %s %s\n", cli.App.Name, cli.App.Version)
+	fmt.Printf("➤ Building folder %s\n", base)
 	fmt.Printf("")
 	if cli.Int("port") != 0 {
 		fmt.Printf("Server running on port: %d\n", cli.Int("port"))
@@ -149,17 +147,22 @@ func printWelcome(cli *cli.Context) {
 	fmt.Printf("──────────────────────────────\n")
 }
 
-func setLogLevel(verbosity int) {
+func setLogLevel(verbosity int, silence bool) {
+	if silence {
+		zerolog.SetGlobalLevel(zerolog.Disabled)
+		return
+	}
+
 	switch verbosity {
 	case -1:
-		log.SetLevel(log.WarnLevel)
+		zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	case 1:
-		log.SetLevel(log.InfoLevel)
+		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	case 2:
-		log.SetLevel(log.DebugLevel)
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
 	case 3:
-		log.SetLevel(log.TraceLevel)
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	default:
-		log.SetLevel(log.TraceLevel)
+		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	}
 }

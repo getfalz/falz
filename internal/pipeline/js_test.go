@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
+	"craeft/internal/log"
+
 	"github.com/dop251/goja"
-	log "github.com/sirupsen/logrus"
 )
 
 func TestScript(t *testing.T) {
@@ -30,12 +31,12 @@ func TestScript(t *testing.T) {
 
 	result, err := env.Call("index", nil, env.ToValue("Hello"))
 	if err != nil {
-		log.Errorf("Call test return error: '%s'", err)
+		log.Error(err)
 	}
 
 	result2, err := env.Call("index", nil, env.ToValue("World"))
 	if err != nil {
-		log.Errorf("Call test return error: '%s'", err)
+		log.Error(err)
 	}
 
 	t.Logf("Result: %s %s", result, result2)
@@ -61,7 +62,7 @@ func TestRequire(t *testing.T) {
 
 	result, err := env.Call("test_require", nil, nil)
 	if err != nil {
-		log.Errorf("Call test_require return error: '%s'", err)
+		log.Error(err)
 	}
 
 	t.Logf("Result: %s", result)
@@ -118,7 +119,7 @@ func TestAsyncCall(t *testing.T) {
 
 	_, err = env.Call("test_async", nil, nil)
 	if err != nil {
-		log.Errorf("Call test_require return error: '%s'", err)
+		log.Error(err)
 	}
 
 }

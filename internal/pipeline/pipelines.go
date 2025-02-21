@@ -5,7 +5,7 @@ import (
 	"os"
 	"path/filepath"
 
-	log "github.com/sirupsen/logrus"
+	"craeft/internal/log"
 )
 
 type PipelineScript interface {
@@ -72,20 +72,21 @@ func (r *Registry) LoadPipelines() error {
 		pipelinePath := filepath.Join(r.config.PipelinesPath, pipelineName)
 
 		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
-			log.Warnf("Pipeline directory does not exist or is not a directory: %s", pipelinePath)
+			log.Warn(fmt.Sprintf("Pipeline directory does not exist or is not a directory: %s", pipelinePath))
 			continue
 		}
 
 		config := &JSConfig{
+			Name: pipelineName,
 			Root: r.config.SourceDirectory,
 		}
 		pipeline, err := New(pipelinePath, config)
 		if err != nil {
-			log.Warnf("Error loading pipeline %s: %v", pipelineName, err)
+			log.Warn(fmt.Sprintf("Error loading pipeline %s: %v", pipelineName, err))
 			continue
 		}
 
-		log.Tracef("Pipeline loaded %s from %s", pipelineName, pipelinePath)
+		log.Trace(fmt.Sprintf("Pipeline loaded %s from %s", pipelineName, pipelinePath))
 		r.pipelines[pipelineName] = pipeline
 	}
 

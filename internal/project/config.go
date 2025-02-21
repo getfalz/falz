@@ -4,9 +4,10 @@ import (
 	"os"
 	"path/filepath"
 
+	"craeft/internal/log"
+
 	"github.com/adrg/xdg"
 	"github.com/creasty/defaults"
-	log "github.com/sirupsen/logrus"
 	"gopkg.in/yaml.v3"
 )
 
@@ -89,12 +90,12 @@ func loadConfig(configFile string) (*CraeftConfig, error) {
 
 	config.ThemePath, err = xdg.ConfigFile(filepath.Join(configFolder, "themes", config.Theme))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err.Error())
 	}
 
 	config.PipelinesPath, err = xdg.ConfigFile(filepath.Join(configFolder, "pipelines"))
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err.Error())
 	}
 
 	return &config, nil

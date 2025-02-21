@@ -10,10 +10,10 @@ import (
 	"time"
 
 	"craeft/assets"
+	"craeft/internal/log"
 
 	"github.com/gorilla/websocket"
 	"github.com/rjeczalik/notify"
-	log "github.com/sirupsen/logrus"
 )
 
 type Server struct {
@@ -43,7 +43,7 @@ func (s *Server) ServeFiles() {
 
 	s.routing.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets.EmbedFiles))))
 	s.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Infof("Requested: %s", r.URL.Path)
+		log.Info(fmt.Sprintf("Requested: %s", r.URL.Path))
 
 		if _, err := os.Stat(s.config.OutputDirectory + r.URL.Path); os.IsNotExist(err) {
 			http.NotFound(w, r)
@@ -65,9 +65,9 @@ func (s *Server) ServeFiles() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	log.Infof("Server started at port %d\n", s.config.Server.Port)
+	log.Info(fmt.Sprintf("Server started at port %d\n", s.config.Server.Port))
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("Error starting server: %v", err)
+		log.Fatal(fmt.Sprintf("Error starting server: %v", err))
 	}
 }
 
@@ -76,11 +76,11 @@ func (s *Server) WatchFiles() {
 
 	absPath, err := filepath.Abs(s.config.SourceDirectory)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatal(err.Error())
 	}
 
 	if err := notify.Watch(absPath+"/...", events, notify.All); err != nil {
-		log.Fatalf("Can't watch files for change: %v", err)
+		log.Fatal(fmt.Sprintf("Can't watch files for change: %v", err))
 	}
 	defer notify.Stop(events)
 
@@ -89,10 +89,10 @@ func (s *Server) WatchFiles() {
 		case notify.Write:
 			relPath, err := filepath.Rel(absPath, ei.Path())
 			if err != nil {
-				log.Error("Can't resolve relative path", "error", err)
+				log.Warn(fmt.Sprintf("Can't resolve relative path: %s", err))
 				continue
 			}
-			log.Infof("File changed. UPDATE: %s", relPath)
+			log.Info(fmt.Sprintf("File changed. UPDATE: %s", relPath))
 
 			if s.project.ignoreFile(relPath) {
 				continue
@@ -100,21 +100,21 @@ func (s *Server) WatchFiles() {
 
 			newPath, err := s.project.BuildPath(relPath)
 			if err != nil {
-				log.Error("Can't resolve relative path", "error", err)
+				log.Warn(fmt.Sprintf("Can't resolve relative path: %s", err))
 				continue
 			}
 
 			// TODO only change of source files. dist may be on the same folder
 			newUrl, err := filepath.Rel(s.config.OutputDirectory, newPath)
 			if err != nil {
-				log.Error("Can't resolve absolute path", "error", err)
+				log.Warn(fmt.Sprintf("Can't resolve absolute path: %s", err))
 				continue
 			}
 			s.notifyPageChange(newUrl)
 
 			// Handle the file change (e.g., rebuild, refresh, etc.)
 		case notify.Remove, notify.Rename:
-			log.Infof("TODO remove/rename builded file")
+			log.Info("TODO remove/rename builded file")
 		}
 	}
 }
@@ -123,7 +123,7 @@ func (s *Server) HotReload() error {
 	s.routing.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := s.upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Errorf("Upgrade error: %s", err)
+			log.Warn(fmt.Sprintf("Upgrade error: %s", err))
 		}
 
 		// keep connection open
@@ -157,7 +157,7 @@ func (s *Server) notifyPageChange(path string) error {
 	s.wsclientsMutex.Lock()
 	defer s.wsclientsMutex.Unlock()
 
-	log.Infof("Notifying clients about page change: %s", path)
+	log.Info(fmt.Sprintf("Notifying clients about page change: %s", path))
 	for client := range s.wsclients {
 		err := client.WriteJSON(message)
 		if err != nil {
@@ -173,7 +173,7 @@ func (s *Server) Shutdown() {
 	defer cancel()
 
 	if err := s.httpServer.Shutdown(ctx); err != nil {
-		log.Fatalf("Server Shutdown Failed:%+v", err)
+		log.Fatal(fmt.Sprintf("Server Shutdown Failed:%+v", err))
 	}
-	log.Println("Server exited gracefully")
+	log.Print("Server exited gracefully")
 }

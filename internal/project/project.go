@@ -9,11 +9,11 @@ import (
 
 	"craeft/internal/content"
 	"craeft/internal/layout"
+	"craeft/internal/log"
 	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
 	"github.com/mattn/go-zglob"
-	log "github.com/sirupsen/logrus"
 )
 
 var (
@@ -25,7 +25,6 @@ var (
 type Project struct {
 	Server *Server
 	Config *CraeftConfig
-	assets *Assets
 
 	pipelines *pipeline.Registry
 }
@@ -33,13 +32,10 @@ type Project struct {
 type Caches struct {
 	layouts  sync.Map
 	contents sync.Map
-	assets   sync.Map
 }
 
 func New(base string) (*Project, error) {
 	configPath := filepath.Join(base, "config.yaml")
-
-	log.Info("Starting project with ", configPath)
 
 	config, err := loadConfig(configPath)
 	if err != nil {
@@ -56,7 +52,6 @@ func New(base string) (*Project, error) {
 	}
 	p := &Project{
 		Config:    config,
-		assets:    &Assets{config: config},
 		pipelines: pipeline.NewRegistry(rconfig),
 	}
 
@@ -71,11 +66,11 @@ func New(base string) (*Project, error) {
 
 func (p *Project) Build(isDev bool) error {
 
-	utils.Print("Building project: %s -> %s\n", p.Config.SourceDirectory, p.Config.OutputDirectory)
+	log.Print("Building project: %s -> %s\n", p.Config.SourceDirectory, p.Config.OutputDirectory)
 
 	return p.walk(func(path string, d fs.DirEntry) error {
 		if d.IsDir() {
-			log.Tracef("Building folder %s\n", path)
+			log.Trace(fmt.Sprintf("Building folder %s", path), log.Tag{Key: log.SrcTag, Value: "layout"})
 			currentDir := path
 
 			layouts, err := p.getLayouts(currentDir)
@@ -87,7 +82,8 @@ func (p *Project) Build(isDev bool) error {
 			for _, lyt := range layouts {
 				contentConf := lyt.Content()
 
-				log.Infof("- Rendering layout in %s", lyt.Path())
+				log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "layout"})
+
 				layoutTpl, err := lyt.Render(currentDir)
 				if err != nil {
 					// TODO(err) continue execution instead of returning error
@@ -95,7 +91,7 @@ func (p *Project) Build(isDev bool) error {
 				}
 
 				cpath := filepath.Join(p.Config.SourceDirectory, currentDir, contentConf.Path)
-				log.Infof("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path))
+				log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
 				contents, err := zglob.Glob(cpath)
 				if err != nil {
 					return err
@@ -103,9 +99,6 @@ func (p *Project) Build(isDev bool) error {
 
 				var contentBuffer = make(map[string]*content.Content)
 
-				// if p.Config.EnableIndexing {
-				// Index
-				log.Info("- Indexing")
 				for _, contentPath := range contents {
 					path, err := filepath.Rel(p.Config.SourceDirectory, contentPath)
 					if err != nil {
@@ -115,19 +108,19 @@ func (p *Project) Build(isDev bool) error {
 					if err != nil {
 						return err
 					}
+					log.Debug(fmt.Sprintf("Indexing %s", path))
+
 					page.LoadIndex()
 					contentBuffer[path] = page
 				}
 				// }
 
-				// Build
-				log.Info("- Building")
 				for _, contentPath := range contents {
 					path, err := filepath.Rel(p.Config.SourceDirectory, contentPath)
 					if err != nil {
 						return err
 					}
-					log.Infof("-- Building content: %s", path)
+					log.Debug(fmt.Sprintf("Building %s", path))
 					// page, err := p.getContent(contentPath, contentConf.Pipeline)
 					// if err != nil {
 					// 	return err
@@ -226,7 +219,6 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 		return nil, err
 	}
 
-	log.Tracef("getting layouts %v for path %s", layoutPaths, path)
 	for i := range layoutPaths {
 		path := layoutPaths[i]
 		if cached, ok := caches.layouts.Load(path); ok {
@@ -240,11 +232,12 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 		}
 
 		// layout should know where is the project base folder, for later fragment lookup
-		layout, err := layout.Parse(p.Config.ThemePath, filepath.Dir(path), layoutFile, p.pipelines)
+		layout, err := layout.Parse(p.Config.ThemePath, path, layoutFile, p.pipelines)
 		if err != nil {
 			return nil, fmt.Errorf("can't parse layout file: %w", err)
 		}
 
+		log.Trace(fmt.Sprintf("found layout %s", path))
 		caches.layouts.Store(path, layout)
 		results[path] = layout
 	}
@@ -265,7 +258,7 @@ func (p Project) writeResults(base string, results []content.ContentResult) (str
 		if err != nil {
 			return "", err
 		}
-		log.Tracef("Content %s written to: %s", r.Filename, outputPath)
+		log.Trace(fmt.Sprintf("content %s succesfuly written to: %s", r.Filename, outputPath))
 	}
 
 	return outputPath, nil
@@ -279,7 +272,7 @@ func (p *Project) getContent(path string, pipeline string) (*content.Content, er
 	// } else {
 	pl, err := p.pipelines.Get(pipeline)
 	if err != nil {
-		log.Warnf("no pipeline '%s' found for content '%s': %s", pipeline, path, err)
+		log.Warn(fmt.Sprintf("pipeline '%s' not found for content '%s': %s", pipeline, path, err))
 	}
 	page, err := content.New(path, pl)
 	if err != nil {
@@ -295,7 +288,7 @@ func (p *Project) getContent(path string, pipeline string) (*content.Content, er
 func (p *Project) BuildAssets() {
 	var assets = make(map[string]string)
 
-	utils.Print("Building project assets")
+	log.Print("Building project assets")
 
 	// p.walk(func(path string, d fs.DirEntry) error {
 	err := filepath.WalkDir(p.Config.ThemePath, func(path string, d fs.DirEntry, err error) error {
@@ -304,13 +297,13 @@ func (p *Project) BuildAssets() {
 		// }
 
 		if d.IsDir() {
-			log.Tracef("Looking for assets in folder %s\n", path)
+			log.Trace(fmt.Sprintf("Looking for assets in folder %s\n", path))
 			path, err := filepath.Rel(p.Config.ThemePath, path)
 			if err != nil {
 				return err
 			}
 			currentDir := filepath.Dir(path)
-			log.Infof("path: %s, currentDir: %s", path, currentDir)
+			log.Info(fmt.Sprintf("path: %s, currentDir: %s", path, currentDir))
 
 			// TODO(assets): currentDir is always "."?
 			layouts, err := p.getLayouts(path)
@@ -334,7 +327,7 @@ func (p *Project) BuildAssets() {
 		log.Error(err)
 	}
 
-	log.Infof("Building assets: %+v", assets)
+	log.Info(fmt.Sprintf("Building assets: %+v", assets))
 
 	for path, atype := range assets {
 		base, err := filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
@@ -396,7 +389,7 @@ func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error)
 	// } else {
 	pl, err := p.pipelines.Get(pipeline)
 	if err != nil {
-		log.Warnf("no pipeline %s found for asset %s: %w", pipeline, path, err)
+		log.Warn(fmt.Sprintf("pipeline %s not found for asset %s: %w", pipeline, path, err))
 	}
 	asset = content.NewAsset(path, pl)
 	// caches.contents.Store(path, page)
@@ -408,9 +401,6 @@ func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error)
 // walk walks the project source directory and calls the callback for each file
 func (p *Project) walk(callback func(path string, d fs.DirEntry) error) error {
 	return filepath.WalkDir(p.Config.SourceDirectory, func(path string, d fs.DirEntry, err error) error {
-		// if err != nil {
-		// 	return err
-		// }
 
 		rel, err := filepath.Rel(p.Config.SourceDirectory, path)
 		if err != nil {
@@ -418,7 +408,6 @@ func (p *Project) walk(callback func(path string, d fs.DirEntry) error) error {
 		}
 
 		if p.ignoreFile(rel) {
-			log.Infof("Skipping folder %s", rel)
 			if d.IsDir() {
 				return fs.SkipDir
 			} else {
@@ -439,5 +428,5 @@ func (p Project) Close() {
 	// * close server
 	// * clear caches
 	// * close sass server
-	p.assets.Close()
+	// p.assets.Close()
 }

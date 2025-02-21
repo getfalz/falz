@@ -1,13 +1,12 @@
 package content
 
 import (
+	"craeft/internal/log"
 	"craeft/internal/pipeline"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
-
-	log "github.com/sirupsen/logrus"
 )
 
 type Asset struct {
@@ -25,7 +24,7 @@ func NewAsset(path string, pipeline pipeline.PipelineScript) *Asset {
 func (a *Asset) Build() ([]ContentResult, error) {
 	file, err := os.ReadFile(a.path)
 	if err != nil {
-		log.Fatalf("Failed to read asset file: %s", err)
+		log.Fatal(fmt.Sprintf("Failed to read asset file: %s", err))
 	}
 
 	re, err := regexp.Compile(fmt.Sprintf(`\.(%s)\b`, a.pipeline.Config().SourceSuffix))

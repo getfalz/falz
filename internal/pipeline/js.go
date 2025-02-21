@@ -1,11 +1,13 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
 
+	"craeft/internal/log"
 	"craeft/internal/pipeline/api"
 
 	"github.com/dop251/goja"
@@ -27,9 +29,9 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 
 	loop.vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
 
-	setupEnv(loop.vm)
-
 	name := filepath.Base(config.Path)
+
+	setupEnv(loop.vm, config.Name)
 
 	p, err := goja.Compile(name, code, false)
 	if err != nil {
@@ -53,6 +55,7 @@ func (env *JsEnv) ToValue(val any) goja.Value {
 
 // JSConfig is a configuration for the JavaScripts environment
 type JSConfig struct {
+	Name   string
 	Path   string
 	Root   string
 	DBPath string
@@ -173,19 +176,39 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 	}
 }
 
-func setupEnv(vm *goja.Runtime) {
-	createConsoleObject(vm)
+func setupEnv(vm *goja.Runtime, pipelineName string) {
+	createConsoleObject(vm, pipelineName)
 }
 
-func createConsoleObject(vm *goja.Runtime) {
+func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 	console := vm.NewObject()
 
-	console.Set("log", func(call goja.FunctionCall) goja.Value {
-		for _, arg := range call.Arguments {
-			fmt.Print(arg.String())
+	tags := []log.Tag{
+		{Key: log.SrcTag, Value: "js"},
+		{Key: log.PipelineTag, Value: pipelineName},
+	}
+
+	logFn := func(logFunc func(string, ...log.Tag), call goja.FunctionCall) goja.Value {
+		args := make([]interface{}, len(call.Arguments))
+		for i, arg := range call.Arguments {
+			args[i] = arg.Export()
 		}
-		fmt.Print("\n")
+		msg := fmt.Sprint(args...)
+		logFunc(msg, tags...)
 		return goja.Undefined()
+	}
+
+	console.Set("log", func(call goja.FunctionCall) goja.Value {
+		return logFn(log.Info, call)
+	})
+	console.Set("info", func(call goja.FunctionCall) goja.Value {
+		return logFn(log.Info, call)
+	})
+	console.Set("warn", func(call goja.FunctionCall) goja.Value {
+		return logFn(log.Warn, call)
+	})
+	console.Set("error", func(call goja.FunctionCall) goja.Value {
+		return logFn(func(msg string, _ ...log.Tag) { log.Error(errors.New(msg), tags...) }, call)
 	})
 
 	vm.Set("console", console)

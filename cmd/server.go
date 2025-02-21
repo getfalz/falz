@@ -1,9 +1,9 @@
 package cmd
 
 import (
+	"craeft/internal/log"
 	"craeft/internal/project"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/urfave/cli/v2"
 )
 

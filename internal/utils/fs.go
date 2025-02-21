@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/mattn/go-zglob"
-	log "github.com/sirupsen/logrus"
 )
 
 // FindFile searches a file fileName by consuming the targetPath and going up the directory hierarchy until reaching the basePath. Then it returns a map of fileName to the relative path of the file with the basePath.
@@ -50,7 +49,6 @@ func FindFile(basePath, targetPath, pattern string) ([]string, error) {
 
 // NormalizePath returns an absolute path relative to the given basePath
 func NormalizePath(basePath string, path string) (string, error) {
-	log.Infof("normalizing path %s with base path %s", path, basePath)
 	clean := filepath.Clean(path)
 
 	if filepath.IsAbs(clean) {
