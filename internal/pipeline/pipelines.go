@@ -98,9 +98,12 @@ func (r *Registry) Get(name string) (PipelineScript, error) {
 		return pipeline, nil
 	}
 
+	if name == "" {
+		return r.defaults["nop"], nil
+	}
 	if defaultPipeline, ok := r.defaults[name]; ok {
 		return defaultPipeline, nil
 	}
 
-	return r.defaults["nop"], fmt.Errorf("pipeline %s not found. using default", name)
+	return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found. using default", name)
 }

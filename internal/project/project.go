@@ -1,6 +1,7 @@
 package project
 
 import (
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -74,9 +75,10 @@ func (p *Project) Build(isDev bool) error {
 			currentDir := path
 
 			layouts, err := p.getLayouts(currentDir)
+			// TODO(err) continue execution instead of returning error
 			if err != nil {
-				// TODO(err) continue execution instead of returning error
-				return err
+				log.Error(err)
+				return SkipFile
 			}
 
 			for _, lyt := range layouts {
@@ -87,14 +89,17 @@ func (p *Project) Build(isDev bool) error {
 				layoutTpl, err := lyt.Render(currentDir)
 				if err != nil {
 					// TODO(err) continue execution instead of returning error
-					return err
+					log.Error(err)
+					return SkipFile
 				}
 
+				// TODO(content): move this to content struct? see asset. content.Build(), content.Index()
 				cpath := filepath.Join(p.Config.SourceDirectory, currentDir, contentConf.Path)
 				log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
 				contents, err := zglob.Glob(cpath)
 				if err != nil {
-					return err
+					log.Error(err)
+					return SkipFile
 				}
 
 				var contentBuffer = make(map[string]*content.Content)
@@ -102,11 +107,13 @@ func (p *Project) Build(isDev bool) error {
 				for _, contentPath := range contents {
 					path, err := filepath.Rel(p.Config.SourceDirectory, contentPath)
 					if err != nil {
-						return err
+						log.Error(err)
+						return SkipFile
 					}
 					page, err := p.getContent(path, contentConf.Pipeline)
 					if err != nil {
-						return err
+						log.Error(err)
+						return SkipFile
 					}
 					log.Debug(fmt.Sprintf("Indexing %s", path))
 
@@ -118,23 +125,26 @@ func (p *Project) Build(isDev bool) error {
 				for _, contentPath := range contents {
 					path, err := filepath.Rel(p.Config.SourceDirectory, contentPath)
 					if err != nil {
-						return err
+						log.Error(err)
+						return SkipFile
 					}
-					log.Debug(fmt.Sprintf("Building %s", path))
 					// page, err := p.getContent(contentPath, contentConf.Pipeline)
 					// if err != nil {
 					// 	return err
 					// }
 					page := contentBuffer[path]
 
+					log.Debug(fmt.Sprintf("Building %s", path))
 					results, err := page.Build(layoutTpl)
 					if err != nil {
-						return err
+						log.Error(err)
+						return SkipFile
 					}
 
 					_, err = p.writeResults(currentDir, results)
 					if err != nil {
-						return err
+						log.Error(err)
+						return SkipFile
 					}
 				}
 			}
@@ -284,20 +294,20 @@ func (p *Project) getContent(path string, pipeline string) (*content.Content, er
 	return page, nil
 }
 
+type assetData struct {
+	path     string
+	from     string
+	pipeline string
+}
+
 // BuildAssets builds all assets from the theme
 func (p *Project) BuildAssets() {
-	var assets = make(map[string]string)
+	var assetslist = make(map[string]assetData)
 
 	log.Print("Building project assets")
 
-	// p.walk(func(path string, d fs.DirEntry) error {
 	err := filepath.WalkDir(p.Config.ThemePath, func(path string, d fs.DirEntry, err error) error {
-		// if err != nil {
-		// 	return err
-		// }
-
 		if d.IsDir() {
-			log.Trace(fmt.Sprintf("Looking for assets in folder %s\n", path))
 			path, err := filepath.Rel(p.Config.ThemePath, path)
 			if err != nil {
 				return err
@@ -312,10 +322,20 @@ func (p *Project) BuildAssets() {
 			}
 
 			for _, lyt := range layouts {
+				log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "assets"})
+				// assets path should be absolute!
 				for _, asset := range lyt.Assets() {
-					npath := filepath.Join(p.Config.ThemePath, lyt.Path(), asset.Source)
+					npath := filepath.Join(p.Config.ThemePath, asset.Source)
 
-					assets[npath] = asset.AssetType
+					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
+					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
+				}
+
+				for _, asset := range lyt.Content().Assets {
+					npath := filepath.Join(p.Config.SourceDirectory, asset.Source)
+
+					log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
+					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
 				}
 			}
 
@@ -327,20 +347,27 @@ func (p *Project) BuildAssets() {
 		log.Error(err)
 	}
 
-	log.Info(fmt.Sprintf("Building assets: %+v", assets))
+	log.Info(fmt.Sprintf("Building assets -> %+v", assetslist))
 
-	for path, atype := range assets {
-		base, err := filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
+	for path, atype := range assetslist {
+		var base string
+		if atype.from == "theme" {
+			base, err = filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
+		} else {
+			base, err = filepath.Rel(p.Config.SourceDirectory, filepath.Dir(path))
+		}
 		if err != nil {
 			log.Error(err)
 			continue
 		}
 
-		asset, err := p.getAsset(path, atype)
+		asset, err := p.getAsset(atype.path, atype.pipeline)
 		if err != nil {
 			log.Error(err)
+			continue
 		}
 
+		log.Debug(fmt.Sprintf("Building asset %s", atype.path))
 		results, err := asset.Build()
 		if err != nil {
 			log.Error(err)
@@ -399,6 +426,8 @@ func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error)
 }
 
 // walk walks the project source directory and calls the callback for each file
+var SkipFile = errors.New("skip this file")
+
 func (p *Project) walk(callback func(path string, d fs.DirEntry) error) error {
 	return filepath.WalkDir(p.Config.SourceDirectory, func(path string, d fs.DirEntry, err error) error {
 
@@ -416,6 +445,9 @@ func (p *Project) walk(callback func(path string, d fs.DirEntry) error) error {
 		}
 
 		if err := callback(rel, d); err != nil {
+			if err == SkipFile {
+				return nil
+			}
 			return err
 		}
 

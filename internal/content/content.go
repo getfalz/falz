@@ -17,7 +17,6 @@ import (
 type Content struct {
 	path     string
 	pipeline pipeline.PipelineScript
-	output   []ContentResult
 	vars     pipeline.Vars
 }
 
@@ -68,19 +67,7 @@ func (c *Content) LoadIndex() error {
 	return nil
 }
 
-// func varsToInterface(input map[string]string) map[string]interface{} {
-// 	output := make(map[string]interface{}, len(input))
-// 	for key, value := range input {
-// 		output[key] = value
-// 	}
-// 	return output
-// }
-
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
-	if len(c.output) > 0 {
-		return c.output, nil
-	}
-
 	file, err := os.ReadFile(c.path)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Failed to read content file: %s", err))
@@ -97,7 +84,6 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 
 	var results []ContentResult
 	t := fasttemplate.New(layoutTpl, "[[", "]]")
-	// data := varsToInterface(c.vars)
 	log.Info(fmt.Sprintf("using data: %v", c.vars))
 
 	for _, r := range transformed {

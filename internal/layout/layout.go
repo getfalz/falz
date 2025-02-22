@@ -53,16 +53,11 @@ type Fragment struct {
 }
 
 type Content struct {
-	XMLName   xml.Name   `xml:"Content"`
-	Name      string     `xml:"name,attr"`
-	Path      string     `xml:"path,attr"`
-	Pipeline  string     `xml:"pipeline,attr"`
-	Variables []Variable `xml:"Variable"`
-}
-
-type Variable struct {
-	XMLName xml.Name `xml:"Variable"`
-	Name    string   `xml:"name,attr"`
+	XMLName  xml.Name `xml:"Content"`
+	Name     string   `xml:"name,attr"`
+	Path     string   `xml:"path,attr"`
+	Pipeline string   `xml:"pipeline,attr"`
+	Assets   []Asset  `xml:"Assets"`
 }
 
 type Asset struct {
@@ -217,6 +212,48 @@ func (l Layout) Assets() []Asset {
 	return l.assets
 }
 
+func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
+	c.XMLName = start.Name
+	for _, attr := range start.Attr {
+		switch attr.Name.Local {
+		case "name":
+			c.Name = attr.Value
+		case "path":
+			c.Path = attr.Value
+		case "pipeline":
+			c.Pipeline = attr.Value
+		}
+	}
+
+	for {
+		tok, err := d.Token()
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return err
+		}
+
+		switch t := tok.(type) {
+		case xml.EndElement:
+			if t.Name == start.Name {
+				return nil
+			}
+		case xml.StartElement:
+			if t.Name.Local == "Asset" {
+				var v Asset
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				// pipelines are set on layout.UnmarshalXML
+				c.Assets = append(c.Assets, v)
+			}
+		}
+	}
+	return nil
+}
+
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	l.XMLName = start.Name
 	for _, attr := range start.Attr {
@@ -245,7 +282,10 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				v.pipeline, err = l.pipelines.Get(v.AssetType)
 				if err != nil {
-					log.Warn(fmt.Sprintf("no pipeline %s found for asset %s: %s", v.AssetType, v.Name, err))
+					log.Warn(
+						fmt.Sprintf("pipeline '%s' not found for asset %s: %s", v.AssetType, v.Name, err),
+						log.Tag{Key: log.SrcTag, Value: "layout"},
+					)
 				}
 				l.assets = append(l.assets, v)
 			case "Fragment":
@@ -255,13 +295,25 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				v.pipeline, err = l.pipelines.Get(v.Pipeline)
 				if err != nil {
-					log.Warn(fmt.Sprintf("no pipeline %s found for fragment %s: %s", v.Pipeline, v.Name, err))
+					log.Warn(
+						fmt.Sprintf("pipeline '%s' not found for fragment %s, err: %s", v.Pipeline, v.Name, err),
+						log.Tag{Key: log.SrcTag, Value: "layout"},
+					)
 				}
 				l.fragments = append(l.fragments, v)
 			case "Content":
 				var child Content
 				if err := d.DecodeElement(&child, &se); err != nil {
 					return err
+				}
+				for i, a := range child.Assets {
+					child.Assets[i].pipeline, err = l.pipelines.Get(a.AssetType)
+					if err != nil {
+						log.Warn(
+							fmt.Sprintf("pipeline '%s' not found for content asset %s, err: %s", a.AssetType, a.Name, err),
+							log.Tag{Key: log.SrcTag, Value: "layout"},
+						)
+					}
 				}
 				l.content = &child
 			}

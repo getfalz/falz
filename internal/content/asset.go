@@ -1,45 +1,57 @@
 package content
 
 import (
-	"craeft/internal/log"
-	"craeft/internal/pipeline"
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
+
+	"github.com/mattn/go-zglob"
+
+	"craeft/internal/log"
+	"craeft/internal/pipeline"
 )
 
 type Asset struct {
 	path     string
 	pipeline pipeline.PipelineScript
+	vars     pipeline.Vars
 }
 
-func NewAsset(path string, pipeline pipeline.PipelineScript) *Asset {
+func NewAsset(path string, pl pipeline.PipelineScript) *Asset {
+	fileName := filepath.Base(path)
+
+	log.Trace(fmt.Sprintf("New asset %s with pipeline %v", fileName, pl))
+	target := pl.Config().SourceSuffixRe.ReplaceAllString(fileName, "."+pl.Config().TargetSuffix)
+
+	vars := pipeline.NewVars(target)
+
 	return &Asset{
 		path:     path,
-		pipeline: pipeline,
+		pipeline: pl,
+		vars:     vars,
 	}
 }
 
 func (a *Asset) Build() ([]ContentResult, error) {
-	file, err := os.ReadFile(a.path)
+	matches, err := zglob.Glob(a.path)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Failed to read asset file: %s", err))
+		return nil, fmt.Errorf("failed building asset with path %s: %v", a.path, err)
 	}
-
-	re, err := regexp.Compile(fmt.Sprintf(`\.(%s)\b`, a.pipeline.Config().SourceSuffix))
-	if err != nil {
-		return nil, fmt.Errorf("failed to compile source_suffix pattern: %s", err)
-	}
-
-	target := re.ReplaceAllString(filepath.Base(a.path), "."+a.pipeline.Config().TargetSuffix)
-	vars := pipeline.NewVars(target)
-
-	transformed := a.pipeline.Transform(file, vars)
 
 	var results []ContentResult
-	for _, r := range transformed {
-		results = append(results, ContentResult{Filename: r["filename"], Result: r["result"]})
+	for _, match := range matches {
+		file, err := os.ReadFile(match)
+		if err != nil {
+			log.Error(fmt.Errorf("failed to read asset file: %s", err))
+			continue
+		}
+
+		log.Debug(fmt.Sprintf("Transforming asset: %s with %+v", match, a.pipeline))
+		transformed := a.pipeline.Transform(file, a.vars)
+
+		for _, r := range transformed {
+			results = append(results, ContentResult{Filename: r["filename"], Result: r["result"]})
+		}
 	}
 
 	return results, nil
