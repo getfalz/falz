@@ -65,17 +65,17 @@ func New(base string) (*Project, error) {
 	return p, nil
 }
 
-func (p *Project) Build(isDev bool) error {
+func (p *Project) Build() error {
 
 	log.Print("Building project: %s -> %s\n", p.Config.SourceDirectory, p.Config.OutputDirectory)
+	var assetslist = make(map[string]assetData)
 
-	return p.walk(func(path string, d fs.DirEntry) error {
+	err := p.walk(func(path string, d fs.DirEntry) error {
 		if d.IsDir() {
 			log.Trace(fmt.Sprintf("Building folder %s", path), log.Tag{Key: log.SrcTag, Value: "layout"})
 			currentDir := path
 
 			layouts, err := p.getLayouts(currentDir)
-			// TODO(err) continue execution instead of returning error
 			if err != nil {
 				log.Error(err)
 				return SkipFile
@@ -88,7 +88,6 @@ func (p *Project) Build(isDev bool) error {
 
 				layoutTpl, err := lyt.Render(currentDir)
 				if err != nil {
-					// TODO(err) continue execution instead of returning error
 					log.Error(err)
 					return SkipFile
 				}
@@ -147,11 +146,63 @@ func (p *Project) Build(isDev bool) error {
 						return SkipFile
 					}
 				}
+
+				// assets path should be absolute!
+				for _, asset := range lyt.Assets() {
+					npath := filepath.Join(p.Config.ThemePath, asset.Source)
+
+					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
+					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
+				}
+
+				for _, asset := range lyt.Content().Assets {
+					npath := filepath.Join(p.Config.SourceDirectory, asset.Source)
+
+					log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
+					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
+				}
+
 			}
 		}
 
 		return nil
 	})
+
+	log.Info(fmt.Sprintf("Building assets -> %+v", assetslist))
+
+	for path, atype := range assetslist {
+		var base string
+		if atype.from == "theme" {
+			base, err = filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
+		} else {
+			base, err = filepath.Rel(p.Config.SourceDirectory, filepath.Dir(path))
+		}
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+
+		asset, err := p.getAsset(atype.path, atype.pipeline)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+
+		log.Debug(fmt.Sprintf("Building asset %s", atype.path))
+		results, err := asset.Build()
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+
+		_, err = p.writeResults(base, results)
+		if err != nil {
+			log.Error(err)
+			continue
+		}
+	}
+
+	return err
 }
 
 // BuildPath builds a single page from a given path
@@ -203,6 +254,27 @@ func (p *Project) BuildPath(path string) (string, error) {
 
 	// For multiple files, it returns the last one
 	return outputPath, nil
+}
+
+// TODO rewrite BuildAsset to use esbuild ctx.Rebuild. for sass handling, write a esbuild plugin which parses sass.
+func (p *Project) BuildAsset(path string, assetType string) error {
+	base := filepath.Dir(path)
+
+	asset, err := p.getAsset(path, assetType)
+	if err != nil {
+		return err
+	}
+	results, err := asset.Build()
+	if err != nil {
+		return err
+	}
+
+	_, err = p.writeResults(base, results)
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (p *Project) ignoreFile(path string) bool {
@@ -301,111 +373,86 @@ type assetData struct {
 }
 
 // BuildAssets builds all assets from the theme
-func (p *Project) BuildAssets() {
-	var assetslist = make(map[string]assetData)
-
-	log.Print("Building project assets")
-
-	err := filepath.WalkDir(p.Config.ThemePath, func(path string, d fs.DirEntry, err error) error {
-		if d.IsDir() {
-			path, err := filepath.Rel(p.Config.ThemePath, path)
-			if err != nil {
-				return err
-			}
-			currentDir := filepath.Dir(path)
-			log.Info(fmt.Sprintf("path: %s, currentDir: %s", path, currentDir))
-
-			// TODO(assets): currentDir is always "."?
-			layouts, err := p.getLayouts(path)
-			if err != nil {
-				return err
-			}
-
-			for _, lyt := range layouts {
-				log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "assets"})
-				// assets path should be absolute!
-				for _, asset := range lyt.Assets() {
-					npath := filepath.Join(p.Config.ThemePath, asset.Source)
-
-					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
-					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
-				}
-
-				for _, asset := range lyt.Content().Assets {
-					npath := filepath.Join(p.Config.SourceDirectory, asset.Source)
-
-					log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
-					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
-				}
-			}
-
-		}
-		return nil
-	})
-
-	if err != nil {
-		log.Error(err)
-	}
-
-	log.Info(fmt.Sprintf("Building assets -> %+v", assetslist))
-
-	for path, atype := range assetslist {
-		var base string
-		if atype.from == "theme" {
-			base, err = filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
-		} else {
-			base, err = filepath.Rel(p.Config.SourceDirectory, filepath.Dir(path))
-		}
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-
-		asset, err := p.getAsset(atype.path, atype.pipeline)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-
-		log.Debug(fmt.Sprintf("Building asset %s", atype.path))
-		results, err := asset.Build()
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-
-		_, err = p.writeResults(base, results)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
-	}
-}
-
-// TODO rewrite BuildAsset to use esbuild ctx.Rebuild. for sass handling, write a esbuild plugin which parses sass.
-func (p *Project) BuildAsset(path string, assetType string) error {
-	base := filepath.Dir(path)
-	targetDir := filepath.Join(p.Config.OutputDirectory, base)
-	if err := os.MkdirAll(targetDir, 0755); err != nil {
-		return err
-	}
-
-	asset, err := p.getAsset(path, assetType)
-	if err != nil {
-		return err
-	}
-	results, err := asset.Build()
-	if err != nil {
-		return err
-	}
-
-	_, err = p.writeResults(base, results)
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
+// func (p *Project) BuildAssets() {
+// 	var assetslist = make(map[string]assetData)
+//
+// 	log.Print("Building project assets")
+//
+// 	err := filepath.WalkDir(p.Config.ThemePath, func(path string, d fs.DirEntry, err error) error {
+// 		if d.IsDir() {
+// 			path, err := filepath.Rel(p.Config.ThemePath, path)
+// 			if err != nil {
+// 				return err
+// 			}
+// 			currentDir := filepath.Dir(path)
+// 			log.Info(fmt.Sprintf("path: %s, currentDir: %s", path, currentDir))
+//
+// 			// TODO(assets): currentDir is always "."?
+// 			layouts, err := p.getLayouts(path)
+// 			if err != nil {
+// 				return err
+// 			}
+//
+// 			for _, lyt := range layouts {
+// 				log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "assets"})
+// 				// assets path should be absolute!
+// 				for _, asset := range lyt.Assets() {
+// 					npath := filepath.Join(p.Config.ThemePath, asset.Source)
+//
+// 					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
+// 					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
+// 				}
+//
+// 				for _, asset := range lyt.Content().Assets {
+// 					npath := filepath.Join(p.Config.SourceDirectory, asset.Source)
+//
+// 					log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
+// 					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
+// 				}
+// 			}
+//
+// 		}
+// 		return nil
+// 	})
+//
+// 	if err != nil {
+// 		log.Error(err)
+// 	}
+//
+// 	log.Info(fmt.Sprintf("Building assets -> %+v", assetslist))
+//
+// 	for path, atype := range assetslist {
+// 		var base string
+// 		if atype.from == "theme" {
+// 			base, err = filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
+// 		} else {
+// 			base, err = filepath.Rel(p.Config.SourceDirectory, filepath.Dir(path))
+// 		}
+// 		if err != nil {
+// 			log.Error(err)
+// 			continue
+// 		}
+//
+// 		asset, err := p.getAsset(atype.path, atype.pipeline)
+// 		if err != nil {
+// 			log.Error(err)
+// 			continue
+// 		}
+//
+// 		log.Debug(fmt.Sprintf("Building asset %s", atype.path))
+// 		results, err := asset.Build()
+// 		if err != nil {
+// 			log.Error(err)
+// 			continue
+// 		}
+//
+// 		_, err = p.writeResults(base, results)
+// 		if err != nil {
+// 			log.Error(err)
+// 			continue
+// 		}
+// 	}
+// }
 
 // TODO remove err return
 func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error) {
