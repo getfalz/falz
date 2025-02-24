@@ -13,21 +13,20 @@ func Server(c *cli.Context) error {
 		log.Fatal("Project not found in context.")
 	}
 
-	// 1) compile files
 	p.Build()
 
-	// 4) start file watcher
-	go p.Server.WatchFiles()
+	if p.Config.FsWatcher.Content {
+		go p.Server.WatchFiles()
+	}
 
-	if p.Config.EnableThemeHotReload {
+	if p.Config.FsWatcher.Theme {
 		go p.Server.WatchTheme()
 	}
 
-	// 2) start websocket?
-	if p.Config.EnableHotReload {
+	if p.Config.FsWatcher.HotReload {
 		p.Server.HotReload()
 	}
-	// 3) start server
+
 	p.Server.ServeFiles()
 
 	return nil

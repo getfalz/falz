@@ -123,7 +123,7 @@ func (s *Server) WatchFiles() {
 				continue
 			}
 
-			if s.config.EnableHotReload {
+			if s.config.FsWatcher.HotReload {
 				message := map[string]string{"url": fmt.Sprintf("/%s", newUrl)}
 				s.sendToClient(message)
 			}
@@ -169,7 +169,7 @@ func (s *Server) WatchTheme() {
 			atomic.StoreInt32(&s.ignoreWrite, 0)
 		}
 
-		if s.config.EnableHotReload {
+		if s.config.FsWatcher.HotReload {
 			s.reloadPage()
 		}
 	}

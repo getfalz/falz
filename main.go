@@ -88,12 +88,17 @@ func main() {
 					},
 					&cli.BoolFlag{
 						Name:  "watch-content",
-						Usage: "Enable hot-reload on the Content folder",
+						Usage: "Enable file watcher on content folder",
 						Value: true,
 					},
 					&cli.BoolFlag{
 						Name:  "watch-theme",
-						Usage: "Enable hot-reload on the Theme folder",
+						Usage: "Enable file watcher on theme folder",
+						Value: false,
+					},
+					&cli.BoolFlag{
+						Name:  "hot-reload",
+						Usage: "Enable hot-reload. Onlu works if watch-content or watch-theme is enabled",
 						Value: false,
 					},
 				},
@@ -106,8 +111,9 @@ func main() {
 					if c.Int("port") != 0 {
 						p.Config.Server.Port = c.Int("port")
 					}
-					p.Config.EnableHotReload = c.Bool("watch-content")
-					p.Config.EnableThemeHotReload = c.Bool("watch-theme")
+					p.Config.FsWatcher.Content = c.Bool("watch-content")
+					p.Config.FsWatcher.Theme = c.Bool("watch-theme")
+					p.Config.FsWatcher.HotReload = (c.Bool("watch-content") || c.Bool("watch-theme")) && c.Bool("hot-reload")
 
 					return nil
 				},

@@ -14,45 +14,39 @@ import (
 const configFolder = "craeft"
 
 type ServerConfig struct {
-	Host string `yaml:"host"`
-	Port int    `yaml:"port"`
+	Host string `yaml:"host" default:"localhost"`
+	Port int    `yaml:"port" default:"8080"`
 }
 
-type PublishConfig struct {
-	Provider       string `yaml:"provider"`
-	FTPCredentials struct {
-		Username string `yaml:"username"`
-		Password string `yaml:"password"`
-	} `yaml:"ftp_credentials"`
+type FsWatcherConfig struct {
+	HotReload bool `yaml:"hot_reload" default:"false"`
+	Content   bool `yaml:"content" default:"false"`
+	Theme     bool `yaml:"theme" default:"false"`
 }
 
 type TemplateConfig struct {
 	Type string `yaml:"type" default:"simple"`
 }
 
-// TODO set defaults
 type CraeftConfig struct {
-	ProjectName          string `yaml:"project_name" default:"Default Project"`
-	SourceDirectory      string
-	OutputDirectory      string   `yaml:"output_directory"`
-	Ignore               []string `yaml:"ignore_files"`
-	Debug                bool     `yaml:"debug"` // should save in-between files? see main.go
-	EnableHotReload      bool     `yaml:"hot_reload" default:false`
-	EnableThemeHotReload bool     `yaml:"theme_hot_reload" default:false`
+	ProjectName     string `yaml:"project_name" default:"Default Project"`
+	SourceDirectory string
+	OutputDirectory string   `yaml:"output" default:"dist"`
+	Ignore          []string `yaml:"ignore" default:"[\".git\"]"`
+	Debug           bool     `yaml:"debug" default:"false"` // should save in-between files? see main.go
 
 	Layout string `yaml:"layout" default:"layout.xml"`
 
 	Theme          string         `yaml:"theme"`
-	Pipelines      []string       `yaml:"enabled_pipelines"`
+	Pipelines      []string       `yaml:"pipelines" default:"[\"md\"]"`
 	TemplateConfig TemplateConfig `yaml:"template_config"`
 
 	ConfigBase    string
 	ThemePath     string
 	PipelinesPath string
 
-	OutputFormats []string      `yaml:"output_formats"`
-	Server        ServerConfig  `yaml:"server"`
-	Publish       PublishConfig `yaml:"publish"`
+	Server    ServerConfig    `yaml:"server"`
+	FsWatcher FsWatcherConfig `yaml:"file_watcher"`
 }
 
 func loadConfig(configFile string) (*CraeftConfig, error) {
@@ -84,6 +78,14 @@ func loadConfig(configFile string) (*CraeftConfig, error) {
 	config.PipelinesPath, err = xdg.ConfigFile(filepath.Join(configFolder, "pipelines"))
 	if err != nil {
 		log.Fatal(err.Error())
+	}
+
+	if config.Theme == "" {
+		log.Fatal("No theme specified in config file")
+	}
+
+	if config.FsWatcher.HotReload && (!config.FsWatcher.Content || !config.FsWatcher.Theme) {
+		log.Warn("Hot-reload enabled, but no file watcher enabled")
 	}
 
 	return &config, nil
