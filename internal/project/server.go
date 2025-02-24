@@ -7,9 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"craeft/assets"
 	"craeft/internal/log"
 
 	"github.com/gorilla/websocket"
@@ -22,6 +22,8 @@ type Server struct {
 	httpServer *http.Server
 	routing    *http.ServeMux
 
+	ignoreWrite int32
+
 	// websocket
 	upgrader       websocket.Upgrader
 	wsclients      map[*websocket.Conn]bool
@@ -29,19 +31,21 @@ type Server struct {
 }
 
 func NewServer(p *Project) *Server {
-	return &Server{
-		config:  p.Config,
-		project: p,
-		routing: http.NewServeMux(),
+	s := &Server{
+		config:      p.Config,
+		project:     p,
+		routing:     http.NewServeMux(),
+		ignoreWrite: 0,
 
 		wsclients: make(map[*websocket.Conn]bool),
 	}
+
+	return s
 }
 
 func (s *Server) ServeFiles() {
 	fs := http.FileServer(http.Dir(s.config.OutputDirectory))
 
-	s.routing.Handle("/assets/", http.StripPrefix("/assets/", http.FileServer(http.FS(assets.EmbedFiles))))
 	s.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Info(fmt.Sprintf("Requested: %s", r.URL.Path))
 
@@ -54,10 +58,6 @@ func (s *Server) ServeFiles() {
 		fs.ServeHTTP(w, r)
 	})
 
-	// http.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
-	// 	w.Write([]byte("Hello, welcome to the custom route!"))
-	// })
-
 	s.httpServer = &http.Server{
 		Addr:         fmt.Sprintf(":%d", s.config.Server.Port),
 		Handler:      s.routing,
@@ -65,12 +65,15 @@ func (s *Server) ServeFiles() {
 		WriteTimeout: 10 * time.Second,
 	}
 
-	log.Info(fmt.Sprintf("Server started at port %d\n", s.config.Server.Port))
+	log.Info(fmt.Sprintf("Server started at port %d", s.config.Server.Port))
 	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(fmt.Sprintf("Error starting server: %v", err))
 	}
 }
 
+// WatchFiles watches for changes in the source directory and triggers a rebuild
+// what it don't watch is changes on the config file. it also only watch for file changes
+// be careful, some files may end into multiple files, in this case, the websocket is notified with the last build file
 func (s *Server) WatchFiles() {
 	events := make(chan notify.EventInfo, 1)
 
@@ -79,20 +82,30 @@ func (s *Server) WatchFiles() {
 		log.Fatal(err.Error())
 	}
 
-	if err := notify.Watch(absPath+"/...", events, notify.All); err != nil {
+	if err := notify.Watch(absPath+"/...", events, notify.Write); err != nil {
 		log.Fatal(fmt.Sprintf("Can't watch files for change: %v", err))
 	}
 	defer notify.Stop(events)
 
 	for {
-		switch ei := <-events; ei.Event() {
+		ei := <-events
+
+		if atomic.LoadInt32(&s.ignoreWrite) == 1 {
+			continue
+		}
+
+		if filepath.Base(ei.Path()) == "config.yaml" {
+			continue
+
+		}
+		switch ei.Event() {
 		case notify.Write:
 			relPath, err := filepath.Rel(absPath, ei.Path())
 			if err != nil {
 				log.Warn(fmt.Sprintf("Can't resolve relative path: %s", err))
 				continue
 			}
-			log.Info(fmt.Sprintf("File changed. UPDATE: %s", relPath))
+			log.Trace(fmt.Sprintf("File changed. UPDATE: %s", relPath))
 
 			if s.project.ignoreFile(relPath) {
 				continue
@@ -100,21 +113,64 @@ func (s *Server) WatchFiles() {
 
 			newPath, err := s.project.BuildPath(relPath)
 			if err != nil {
-				log.Warn(fmt.Sprintf("Can't resolve relative path: %s", err))
+				log.Error(err)
 				continue
 			}
 
-			// TODO only change of source files. dist may be on the same folder
 			newUrl, err := filepath.Rel(s.config.OutputDirectory, newPath)
 			if err != nil {
-				log.Warn(fmt.Sprintf("Can't resolve absolute path: %s", err))
+				log.Error(err)
 				continue
 			}
-			s.notifyPageChange(newUrl)
 
-			// Handle the file change (e.g., rebuild, refresh, etc.)
-		case notify.Remove, notify.Rename:
-			log.Info("TODO remove/rename builded file")
+			if s.config.EnableHotReload {
+				message := map[string]string{"url": fmt.Sprintf("/%s", newUrl)}
+				s.sendToClient(message)
+			}
+
+		}
+	}
+}
+
+func (s *Server) WatchTheme() {
+	events := make(chan notify.EventInfo, 1)
+
+	configPath, err := filepath.Abs(s.config.ConfigBase)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	if err := notify.Watch(configPath+"/...", events, notify.Write); err != nil {
+		log.Fatal(fmt.Sprintf("Can't watch files for change: %v", err))
+	}
+	defer notify.Stop(events)
+
+	for {
+		ei := <-events
+
+		// TODO for now, we just rebuild all files. We could do better, and just rebuild the affected files
+		for p := range s.config.Pipelines {
+			pipelinePath := filepath.Join(s.config.PipelinesPath, s.config.Pipelines[p])
+			// TODO filepath.HasPrefix should not be used. is deprecated. find a fix
+			if filepath.HasPrefix(ei.Path(), pipelinePath) {
+				atomic.StoreInt32(&s.ignoreWrite, 1)
+				log.Trace(fmt.Sprintf("Pipeline changed. Reloading file: %s", ei.Path()))
+				s.project.pipelines.LoadPipelines()
+				s.project.Build()
+				atomic.StoreInt32(&s.ignoreWrite, 0)
+				break
+			}
+		}
+
+		if filepath.HasPrefix(ei.Path(), s.config.ThemePath) {
+			log.Trace(fmt.Sprintf("Theme changed. Reloading file: %s", ei.Path()))
+			atomic.StoreInt32(&s.ignoreWrite, 1)
+			s.project.Build()
+			atomic.StoreInt32(&s.ignoreWrite, 0)
+		}
+
+		if s.config.EnableHotReload {
+			s.reloadPage()
 		}
 	}
 }
@@ -126,7 +182,6 @@ func (s *Server) HotReload() error {
 			log.Warn(fmt.Sprintf("Upgrade error: %s", err))
 		}
 
-		// keep connection open
 		go func() {
 			defer func() {
 				s.wsclientsMutex.Lock()
@@ -151,15 +206,17 @@ func (s *Server) HotReload() error {
 	return nil
 }
 
-func (s *Server) notifyPageChange(path string) error {
-	message := map[string]string{"url": fmt.Sprintf("/%s", path)}
+func (s *Server) reloadPage() {
+	message := map[string]string{"reload": "true"}
+	s.sendToClient(message)
+}
+func (s *Server) sendToClient(msg map[string]string) error {
 
 	s.wsclientsMutex.Lock()
 	defer s.wsclientsMutex.Unlock()
 
-	log.Info(fmt.Sprintf("Notifying clients about page change: %s", path))
 	for client := range s.wsclients {
-		err := client.WriteJSON(message)
+		err := client.WriteJSON(msg)
 		if err != nil {
 			client.Close()
 			delete(s.wsclients, client)

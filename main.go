@@ -73,8 +73,6 @@ func main() {
 			p.Config.SourceDirectory = currentPath
 			p.Config.OutputDirectory = c.String("outputPath")
 
-			// i mean unicode. can you find something similar to a hammer, or a bench?
-
 			c.App.Metadata["project"] = p
 			return nil
 		},
@@ -89,9 +87,14 @@ func main() {
 						Usage: "Port for the server",
 					},
 					&cli.BoolFlag{
-						Name:  "hotreload",
-						Usage: "Enable hot-reload",
+						Name:  "watch-content",
+						Usage: "Enable hot-reload on the Content folder",
 						Value: true,
+					},
+					&cli.BoolFlag{
+						Name:  "watch-theme",
+						Usage: "Enable hot-reload on the Theme folder",
+						Value: false,
 					},
 				},
 				Before: func(c *cli.Context) error {
@@ -103,8 +106,8 @@ func main() {
 					if c.Int("port") != 0 {
 						p.Config.Server.Port = c.Int("port")
 					}
-					p.Config.EnableHotReload = c.Bool("hotreload")
-					log.Fatal(fmt.Sprintf("Using theme path: %s", p.Config.ThemePath))
+					p.Config.EnableHotReload = c.Bool("watch-content")
+					p.Config.EnableThemeHotReload = c.Bool("watch-theme")
 
 					return nil
 				},

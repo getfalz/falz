@@ -14,11 +14,14 @@ func Server(c *cli.Context) error {
 	}
 
 	// 1) compile files
-	p.Build(true)
-	p.BuildAssets()
+	p.Build()
 
 	// 4) start file watcher
 	go p.Server.WatchFiles()
+
+	if p.Config.EnableThemeHotReload {
+		go p.Server.WatchTheme()
+	}
 
 	// 2) start websocket?
 	if p.Config.EnableHotReload {
@@ -26,5 +29,6 @@ func Server(c *cli.Context) error {
 	}
 	// 3) start server
 	p.Server.ServeFiles()
+
 	return nil
 }

@@ -27,13 +27,28 @@ const (
 	ctxOutputPath
 )
 
+const wsClient string = `
+<script>
+(() => {
+    const socketUrl = 'ws://'+window.location.host+'/ws';
+    let socket = new WebSocket(socketUrl);
+        socket.addEventListener('message', (evt) => {
+        let data = JSON.parse(evt.data)
+        window.location.href = data.url;
+    });
+})();
+</script>
+
+`
+
 // TODO make xml structs private?
 type Layout struct {
-	XMLName   xml.Name `xml:"Layout"`
-	basePath  string
-	name      string
-	path      string
-	pipelines *pipeline.Registry
+	XMLName      xml.Name `xml:"Layout"`
+	basePath     string
+	name         string
+	path         string
+	pipelines    *pipeline.Registry
+	useHotReload bool
 
 	// Children
 	fragments []Fragment
@@ -188,6 +203,10 @@ func (l *Layout) Render(path string) (string, error) {
 		tplVariables[f.Name] = output
 	}
 
+	if l.useHotReload {
+		tplVariables["hotreload"] = wsClient
+	}
+
 	log.Trace(fmt.Sprintf("Rendering layout %s with variables: %v", l.Tpl, tplVariables))
 	result := parseTpl(string(tmpl), tplVariables)
 
@@ -330,11 +349,6 @@ func (l Layout) Name() string {
 	return l.name
 }
 
-func (l Layout) HasPart(part string) bool {
-	// TODO like collectContents, collectFragments
-	return false
-}
-
 // MatchContent checks if the given path matches the layout's content
 func (l Layout) MatchContent(path string) bool {
 	match, err := zglob.Match(l.content.Path, path)
@@ -347,8 +361,14 @@ func (l Layout) MatchContent(path string) bool {
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
-func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry) (*Layout, error) {
-	layout := &Layout{basePath: basePath, path: filepath.Dir(path), pipelines: pipeReg, name: filepath.Base(path)}
+func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
+	layout := &Layout{
+		basePath:     basePath,
+		path:         filepath.Dir(path),
+		pipelines:    pipeReg,
+		name:         filepath.Base(path),
+		useHotReload: useHotReload,
+	}
 	err := xml.Unmarshal(data, layout)
 	if err != nil {
 		return nil, err

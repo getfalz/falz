@@ -26,32 +26,19 @@ type PublishConfig struct {
 	} `yaml:"ftp_credentials"`
 }
 
-type StylesConfig struct {
-	Parser     string `yaml:"parser"` // scss, css
-	Compressed bool   `yaml:"compressed"`
-	SourceMap  bool   `yaml:"sourcemap"`
-	SassPath   string `yaml:"sass_path" default:"sass"`
-}
-
-type ScriptsConfig struct {
-	Parser     string `yaml:"parser"`
-	Compressed bool   `yaml:"compressed"`
-	SourceMap  bool   `yaml:"sourcemap"`
-}
-
 type TemplateConfig struct {
 	Type string `yaml:"type" default:"simple"`
 }
 
 // TODO set defaults
 type CraeftConfig struct {
-	ProjectName     string `yaml:"project_name" default:"Default Project"`
-	SourceDirectory string
-	OutputDirectory string   `yaml:"output_directory"`
-	Ignore          []string `yaml:"ignore_files"`
-	Debug           bool     `yaml:"debug"`
-	EnableHotReload bool     `yaml:"hot_reload"`
-	EnableIndexing  bool     `yaml:"use_index"`
+	ProjectName          string `yaml:"project_name" default:"Default Project"`
+	SourceDirectory      string
+	OutputDirectory      string   `yaml:"output_directory"`
+	Ignore               []string `yaml:"ignore_files"`
+	Debug                bool     `yaml:"debug"` // should save in-between files? see main.go
+	EnableHotReload      bool     `yaml:"hot_reload" default:false`
+	EnableThemeHotReload bool     `yaml:"theme_hot_reload" default:false`
 
 	Layout string `yaml:"layout" default:"layout.xml"`
 
@@ -59,11 +46,9 @@ type CraeftConfig struct {
 	Pipelines      []string       `yaml:"enabled_pipelines"`
 	TemplateConfig TemplateConfig `yaml:"template_config"`
 
+	ConfigBase    string
 	ThemePath     string
 	PipelinesPath string
-
-	StylesConfig  StylesConfig  `yaml:"styles"`
-	ScriptsConfig ScriptsConfig `yaml:"scripts"`
 
 	OutputFormats []string      `yaml:"output_formats"`
 	Server        ServerConfig  `yaml:"server"`
@@ -87,7 +72,10 @@ func loadConfig(configFile string) (*CraeftConfig, error) {
 	if err := defaults.Set(&config); err != nil {
 		return nil, err
 	}
-
+	config.ConfigBase, err = xdg.ConfigFile(filepath.Join(configFolder))
+	if err != nil {
+		log.Fatal(err.Error())
+	}
 	config.ThemePath, err = xdg.ConfigFile(filepath.Join(configFolder, "themes", config.Theme))
 	if err != nil {
 		log.Fatal(err.Error())

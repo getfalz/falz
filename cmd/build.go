@@ -15,13 +15,13 @@ var debug bool
 func Build(c *cli.Context) error {
 	p, ok := c.App.Metadata["project"].(*project.Project)
 	if !ok {
-		log.Error(errors.New("Can't get project from context"))
+		log.Error(errors.New("can't get project from context"))
 	}
 
 	// TODO Build could be done parallel. First check for cache access
-	if err := p.Build(false); err != nil {
+	if err := p.Build(); err != nil {
 		log.Fatal(fmt.Sprintf("Can't build project: %v", err))
 	}
-	p.BuildAssets()
+	// p.BuildAssets()
 	return nil
 }

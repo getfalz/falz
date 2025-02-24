@@ -314,7 +314,7 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 		}
 
 		// layout should know where is the project base folder, for later fragment lookup
-		layout, err := layout.Parse(p.Config.ThemePath, path, layoutFile, p.pipelines)
+		layout, err := layout.Parse(p.Config.ThemePath, path, layoutFile, p.pipelines, p.Config.EnableHotReload)
 		if err != nil {
 			return nil, fmt.Errorf("can't parse layout file: %w", err)
 		}
