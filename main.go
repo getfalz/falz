@@ -14,7 +14,7 @@ import (
 
 var (
 	Name        = "craeft"
-	Description = "..."
+	Description = "A general purpose file to file converter"
 	Version     = "0.1.0"
 )
 
@@ -28,7 +28,7 @@ func main() {
 
 	app := &cli.App{
 		Name:                   Name,
-		Usage:                  "A new ...",
+		Usage:                  Description,
 		Version:                Version,
 		UseShortOptionHandling: true,
 		Flags: []cli.Flag{
@@ -152,6 +152,7 @@ func printWelcome(cli *cli.Context, base string) {
 	fmt.Printf("")
 	if cli.Int("port") != 0 {
 		fmt.Printf("Server running on port: %d\n", cli.Int("port"))
+		fmt.Printf("")
 	}
 	fmt.Printf("──────────────────────────────\n")
 }

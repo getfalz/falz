@@ -4,143 +4,106 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"craeft/internal/log"
-
-	"github.com/dop251/goja"
-	"github.com/evanw/esbuild/pkg/api"
 )
 
-type script struct {
-	name   string
-	path   string
-	config *JSConfig
-
-	env *JsEnv
+type PipelineScript interface {
+	Index(input []byte, vars Vars) Vars
+	Transform(input []byte, vars Vars) []map[string]string
+	Config() PipelineConfig
 }
 
-// TODO rename file to script.go
-// Script represents the script in a pipeline
-func NewScript(path string, config *JSConfig) (*script, error) {
-	name := filepath.Base(path)
+type Pipeline struct {
+	*script
+	config *PipelineConfig
+}
 
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		return nil, fmt.Errorf("pipeline entry point does not exist: %s", path)
+// TODO rename file to pipeline.go
+func New(path string, jsconfig *JSConfig) (*Pipeline, error) {
+
+	configPath := filepath.Join(path, "config.yaml")
+	config, err := loadConfig(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("can't load pipeline config %s", err)
 	}
 
-	code := loadScript(path)
-	env, err := NewJs(config, code)
+	scriptPath := filepath.Join(path, config.EntryPoint)
+	script, err := NewScript(scriptPath, jsconfig)
 	if err != nil {
 		return nil, err
 	}
 
-	s := &script{
-		name:   name,
-		path:   path,
-		env:    env,
+	return &Pipeline{
+		script: script,
 		config: config,
-	}
-
-	if s.env.loop.vm.GlobalObject().Get("transform") == goja.Undefined() {
-		return nil, fmt.Errorf("no transform function in script %s", s.name)
-	}
-
-	return s, nil
+	}, nil
 }
 
-func loadScript(path string) string {
-	// TODO configure esbuild
-	scriptName := filepath.Base(path)
-	dirName := filepath.Dir(path)
-
-	// TODO minify syntax dont work, because the entry functions will be renamed
-	result := api.Build(api.BuildOptions{
-		EntryPoints:      []string{scriptName},
-		AbsWorkingDir:    dirName,
-		Outfile:          "out.js",
-		Format:           api.FormatESModule,
-		Bundle:           true,
-		Write:            false,
-		TreeShaking:      api.TreeShakingFalse, // api.TreeShakingTrue
-		MinifyWhitespace: true,
-		// MinifyIdentifiers: true,
-		MinifySyntax: true,
-		Target:       api.ES2020, // api.ES5
-		Sourcemap:    api.SourceMapNone,
-	})
-
-	if len(result.Errors) > 0 {
-		log.Error(fmt.Errorf("esbuid can't load script: %s", strings.Join(api.FormatMessages(result.Errors, api.FormatMessagesOptions{Color: false}), ", ")))
-		return ""
-	}
-
-	return string(result.OutputFiles[0].Contents)
+func (p *Pipeline) Config() PipelineConfig {
+	return *p.config
 }
 
-type PipelineCtx struct {
-	Name string
-	Data map[string]any
+type RegistryConfig struct {
+	Pipelines       []string
+	PipelinesPath   string
+	SourceDirectory string
+}
+type Registry struct {
+	pipelines map[string]*Pipeline
+	config    *RegistryConfig
+	defaults  map[string]PipelineScript
 }
 
-func (s *script) getContext(vars map[string]any) *PipelineCtx {
-	return &PipelineCtx{
-		Name: s.name,
-		Data: vars,
+func NewRegistry(config *RegistryConfig) *Registry {
+	return &Registry{
+		pipelines: make(map[string]*Pipeline),
+		config:    config,
+		defaults: map[string]PipelineScript{
+			"tpl": &TplPipeline{},
+			"md":  &MdPipeline{},
+			"nop": &NopPipeline{},
+		},
 	}
 }
 
-func (s *script) Index(input []byte, vars Vars) Vars {
-	ctx := s.getContext(vars)
+func (r *Registry) LoadPipelines() error {
+	for _, pipelineName := range r.config.Pipelines {
+		pipelinePath := filepath.Join(r.config.PipelinesPath, pipelineName)
 
-	result, err := s.env.Call("index", s.env.ToValue(ctx), s.env.ToValue(input))
-	if err != nil {
-		log.Error(fmt.Errorf("Index return error %s", err))
-	}
-
-	if objRaw, ok := result.(*goja.Object); ok {
-		if obj, ok := objRaw.Export().(map[string]any); ok {
-			return obj
+		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
+			log.Warn(fmt.Sprintf("Pipeline directory does not exist or is not a directory: %s", pipelinePath))
+			continue
 		}
+
+		config := &JSConfig{
+			Name: pipelineName,
+			Root: r.config.SourceDirectory,
+		}
+		pipeline, err := New(pipelinePath, config)
+		if err != nil {
+			log.Warn(fmt.Sprintf("Error loading pipeline %s: %v", pipelineName, err))
+			continue
+		}
+
+		log.Trace(fmt.Sprintf("Pipeline loaded %s from %s", pipelineName, pipelinePath))
+		r.pipelines[pipelineName] = pipeline
 	}
 
-	return vars
+	return nil
 }
 
-func (s *script) Transform(input []byte, vars Vars) []map[string]string {
-	ctx := s.getContext(vars)
-
-	result, err := s.env.Call("transform", s.env.ToValue(ctx), s.env.ToValue(string(input)))
-	if err != nil {
-		log.Error(fmt.Errorf("Transform return error %s", err))
+func (r *Registry) Get(name string) (PipelineScript, error) {
+	if pipeline, ok := r.pipelines[name]; ok {
+		return pipeline, nil
 	}
 
-	var results []map[string]string
-
-	if str, ok := result.Export().(string); ok {
-		results = append(results, map[string]string{
-			"filename": vars["target"].(string),
-			"result":   str,
-		})
-	} else if obj, ok := result.Export().(map[string]interface{}); ok {
-		// TODO this could explode. ensure that the keys are present
-		filename, _ := obj["filename"].(string)
-		result, _ := obj["result"].(string)
-		results = append(results, map[string]string{
-			"filename": filename,
-			"result":   result,
-		})
-	} else if arr, ok := result.Export().([]interface{}); ok {
-		for _, item := range arr {
-			if obj, ok := item.(map[string]interface{}); ok {
-				filename, _ := obj["filename"].(string)
-				result, _ := obj["result"].(string)
-				results = append(results, map[string]string{
-					"filename": filename,
-					"result":   result,
-				})
-			}
-		}
+	if name == "" {
+		return r.defaults["nop"], nil
 	}
-	return results
+	if defaultPipeline, ok := r.defaults[name]; ok {
+		return defaultPipeline, nil
+	}
+
+	return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found. using default", name)
 }

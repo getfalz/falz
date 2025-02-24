@@ -10,8 +10,6 @@ import (
 	"github.com/urfave/cli/v2"
 )
 
-var debug bool
-
 func Build(c *cli.Context) error {
 	p, ok := c.App.Metadata["project"].(*project.Project)
 	if !ok {
@@ -22,6 +20,5 @@ func Build(c *cli.Context) error {
 	if err := p.Build(); err != nil {
 		log.Fatal(fmt.Sprintf("Can't build project: %v", err))
 	}
-	// p.BuildAssets()
 	return nil
 }
