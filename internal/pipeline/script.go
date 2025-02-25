@@ -20,7 +20,6 @@ type script struct {
 	env *JsEnv
 }
 
-// TODO rename file to script.go
 // Script represents the script in a pipeline
 func NewScript(path string, config *JSConfig) (*script, error) {
 	name := filepath.Base(path)

@@ -19,7 +19,6 @@ type Pipeline struct {
 	config *PipelineConfig
 }
 
-// TODO rename file to pipeline.go
 func New(path string, jsconfig *JSConfig) (*Pipeline, error) {
 
 	configPath := filepath.Join(path, "config.yaml")
