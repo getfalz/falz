@@ -66,8 +66,6 @@ func New(base string) (*Project, error) {
 }
 
 func (p *Project) Build() error {
-
-	log.Print("Building project: %s -> %s\n", p.Config.SourceDirectory, p.Config.OutputDirectory)
 	var assetslist = make(map[string]assetData)
 
 	err := p.walk(func(path string, d fs.DirEntry) error {

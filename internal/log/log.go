@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/rs/zerolog"
+	"golang.org/x/term"
 )
 
 var (
@@ -79,9 +80,13 @@ func Panic(msg string, tags ...Tag) {
 func init() {
 	once.Do(func() {
 
-		lw := &LevelWriter{os.Stdout, os.Stderr}
-		output := zerolog.ConsoleWriter{Out: lw}
-		logger = zerolog.New(output).With().Timestamp().Logger()
+		var writer io.Writer
+		writer = &LevelWriter{os.Stdout, os.Stderr}
+		if term.IsTerminal(int(os.Stdout.Fd())) {
+			writer = zerolog.ConsoleWriter{Out: writer}
+		}
+
+		logger = zerolog.New(writer).With().Timestamp().Logger()
 		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
 	})
 }

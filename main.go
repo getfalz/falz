@@ -63,7 +63,7 @@ func main() {
 				log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
 			}
 
-			printWelcome(c, currentPath)
+			printWelcome(c, currentPath, c.String("outputPath"))
 
 			p, err := project.New(currentPath)
 			if err != nil {
@@ -146,9 +146,9 @@ func main() {
 		log.Fatal(err.Error())
 	}
 }
-func printWelcome(cli *cli.Context, base string) {
+func printWelcome(cli *cli.Context, base, target string) {
 	fmt.Printf("⚒ %s %s\n", cli.App.Name, cli.App.Version)
-	fmt.Printf("➤ Building folder %s\n", base)
+	fmt.Printf("➤ Building folder %s -> %s\n", base, target)
 	fmt.Printf("")
 	if cli.Int("port") != 0 {
 		fmt.Printf("Server running on port: %d\n", cli.Int("port"))

@@ -3,7 +3,10 @@ package pipeline
 import (
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -11,6 +14,8 @@ import (
 	"craeft/internal/pipeline/api"
 
 	"github.com/dop251/goja"
+	"github.com/rs/zerolog"
+	"golang.org/x/term"
 )
 
 type JsEnv struct {
@@ -183,32 +188,64 @@ func setupEnv(vm *goja.Runtime, pipelineName string) {
 func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 	console := vm.NewObject()
 
-	tags := []log.Tag{
-		{Key: log.SrcTag, Value: "js"},
-		{Key: log.PipelineTag, Value: pipelineName},
+	// TODO it would be nice to also print from which method it comes (transform/index)
+
+	var writer io.Writer
+	writer = &log.LevelWriter{os.Stdout, os.Stderr}
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		cwriter := zerolog.ConsoleWriter{
+			Out:           os.Stdout,
+			FieldsExclude: []string{"pipeline"},
+			PartsOrder:    []string{"level", "pipeline", "message"},
+		}
+
+		cwriter.FormatMessage = func(i interface{}) string {
+			lines := strings.Split(i.(string), "\n")
+			var b strings.Builder
+			b.WriteString("\n")
+			for _, line := range lines {
+				b.WriteString("> ")
+				b.WriteString(line)
+				b.WriteString("\n")
+			}
+			return b.String()
+		}
+		cwriter.FormatFieldValue = func(i interface{}) string {
+			return fmt.Sprintf("pipeline:%s:", i)
+		}
+
+		writer = cwriter
 	}
 
-	logFn := func(logFunc func(string, ...log.Tag), call goja.FunctionCall) goja.Value {
-		args := make([]interface{}, len(call.Arguments))
+	l := zerolog.New(writer).With().Timestamp().Logger()
+
+	logFn := func(logger *zerolog.Event, call goja.FunctionCall) goja.Value {
+		var b strings.Builder
 		for i, arg := range call.Arguments {
-			args[i] = arg.Export()
+			b.WriteString(fmt.Sprintf("%v", arg.Export()))
+			if i < len(call.Arguments)-1 {
+				b.WriteString("\n")
+			}
 		}
-		msg := fmt.Sprint(args...)
-		logFunc(msg, tags...)
+		logger.Str("pipeline", pipelineName).Msg(b.String())
 		return goja.Undefined()
 	}
 
 	console.Set("log", func(call goja.FunctionCall) goja.Value {
-		return logFn(log.Info, call)
+		log.Info(fmt.Sprintf("log caller: %+v", call.This.Export()))
+		stackErr := vm.NewGoError(errors.New("stack trace"))
+		log.Info(fmt.Sprintf("stackErr: %+v", stackErr.Export()))
+
+		return logFn(l.Info(), call)
 	})
 	console.Set("info", func(call goja.FunctionCall) goja.Value {
-		return logFn(log.Info, call)
+		return logFn(l.Info(), call)
 	})
 	console.Set("warn", func(call goja.FunctionCall) goja.Value {
-		return logFn(log.Warn, call)
+		return logFn(l.Warn(), call)
 	})
 	console.Set("error", func(call goja.FunctionCall) goja.Value {
-		return logFn(func(msg string, _ ...log.Tag) { log.Error(errors.New(msg), tags...) }, call)
+		return logFn(l.Error(), call)
 	})
 
 	vm.Set("console", console)
