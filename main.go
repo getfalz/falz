@@ -98,7 +98,7 @@ func main() {
 					},
 					&cli.BoolFlag{
 						Name:  "hot-reload",
-						Usage: "Enable hot-reload. Onlu works if watch-content or watch-theme is enabled",
+						Usage: "Enable hot-reload. Only works if watch-content or watch-theme is enabled",
 						Value: false,
 					},
 				},

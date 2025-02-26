@@ -34,7 +34,11 @@ const wsClient string = `
     let socket = new WebSocket(socketUrl);
         socket.addEventListener('message', (evt) => {
         let data = JSON.parse(evt.data)
-        window.location.href = data.url;
+        if (data.reload) {
+            window.location.reload();
+        } else {
+            window.location.href = data.url;
+        }
     });
 })();
 </script>

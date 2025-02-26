@@ -71,6 +71,11 @@ func (s *Server) ServeFiles() {
 	}
 }
 
+type HotReloadMsg struct {
+	Reload bool   `json:"reload"`
+	Url    string `json:"url"`
+}
+
 // WatchFiles watches for changes in the source directory and triggers a rebuild
 // what it don't watch is changes on the config file. it also only watch for file changes
 // be careful, some files may end into multiple files, in this case, the websocket is notified with the last build file
@@ -124,7 +129,7 @@ func (s *Server) WatchFiles() {
 			}
 
 			if s.config.FsWatcher.HotReload {
-				message := map[string]string{"url": fmt.Sprintf("/%s", newUrl)}
+				message := HotReloadMsg{Url: fmt.Sprintf("/%s", newUrl), Reload: false}
 				s.sendToClient(message)
 			}
 
@@ -207,10 +212,10 @@ func (s *Server) HotReload() error {
 }
 
 func (s *Server) reloadPage() {
-	message := map[string]string{"reload": "true"}
+	message := HotReloadMsg{Reload: true, Url: ""}
 	s.sendToClient(message)
 }
-func (s *Server) sendToClient(msg map[string]string) error {
+func (s *Server) sendToClient(msg HotReloadMsg) error {
 
 	s.wsclientsMutex.Lock()
 	defer s.wsclientsMutex.Unlock()
