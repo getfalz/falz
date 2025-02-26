@@ -132,10 +132,14 @@ func (t *FastTplApi) getByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error
 
 func (t *FastTplApi) SetParameters(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	if len(call.Arguments) < 1 {
-		panic(vm.ToValue("SetParameters requires a parameters object"))
+		panic(vm.NewTypeError("SetParameters requires a parameters object"))
 	}
 
-	params := call.Argument(0).ToObject(vm)
+	arg0 := call.Argument(0)
+	if arg0 == goja.Undefined() {
+		panic(vm.NewTypeError("SetParameters requires a parameters object"))
+	}
+	params := arg0.ToObject(vm)
 	for _, key := range params.Keys() {
 		val := params.Get(key)
 
@@ -143,12 +147,12 @@ func (t *FastTplApi) SetParameters(call goja.FunctionCall, vm *goja.Runtime) goj
 			t.parameters[key] = func() string {
 				result, err := fn(goja.Undefined())
 				if err != nil {
-					panic(fmt.Sprintf("Error calling function for key '%s': %v", key, err))
+					panic(vm.NewTypeError("Error calling function for key '%s': %v", key, err))
 				}
 				if str, ok := result.Export().(string); ok {
 					return str
 				}
-				panic(fmt.Sprintf("Function for key '%s' must return a string", key))
+				panic(vm.NewTypeError("Function for key '%s' must return a string", key))
 			}
 		} else {
 			if str, ok := val.Export().(string); ok {

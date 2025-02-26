@@ -67,6 +67,8 @@ func loadScript(path string) string {
 		MinifySyntax: true,
 		Target:       api.ES2020, // api.ES5
 		Sourcemap:    api.SourceMapNone,
+		// see js.go:setupRequire
+		External: []string{"kv", "fs", "http", "md", "fasttpl", "tpl"},
 	})
 
 	if len(result.Errors) > 0 {
@@ -90,11 +92,9 @@ func (s *script) getContext(vars map[string]any) *PipelineCtx {
 }
 
 func (s *script) Index(input []byte, vars Vars) Vars {
-	ctx := s.getContext(vars)
-
-	result, err := s.env.Call("index", s.env.ToValue(ctx), s.env.ToValue(input))
+	result, err := s.env.Call("index", vars.ToGojaObject(s.env.loop.vm), s.env.ToValue(input))
 	if err != nil {
-		log.Error(fmt.Errorf("Index return error %s", err))
+		log.Error(fmt.Errorf("%s:index return error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
 	}
 
 	if objRaw, ok := result.(*goja.Object); ok {
@@ -103,32 +103,36 @@ func (s *script) Index(input []byte, vars Vars) Vars {
 		}
 	}
 
-	return vars
+	return map[string]any{}
 }
 
 func (s *script) Transform(input []byte, vars Vars) []map[string]string {
-	ctx := s.getContext(vars)
-
-	result, err := s.env.Call("transform", s.env.ToValue(ctx), s.env.ToValue(string(input)))
-	if err != nil {
-		log.Error(fmt.Errorf("Transform return error %s", err))
-	}
+	result, err := s.env.Call("transform", vars.ToGojaObject(s.env.loop.vm), s.env.ToValue(string(input)))
 
 	var results []map[string]string
 
+	if err != nil {
+		log.Error(fmt.Errorf("%s.transform return error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
+
+		return []map[string]string{
+			{"filename": ""},
+			{"result": ""},
+		}
+	}
+
 	if str, ok := result.Export().(string); ok {
-		results = append(results, map[string]string{
-			"filename": vars["target"].(string),
-			"result":   str,
-		})
+		results = []map[string]string{
+			{"filename": vars["target"].(string)},
+			{"result": str},
+		}
 	} else if obj, ok := result.Export().(map[string]interface{}); ok {
-		// TODO this could explode. ensure that the keys are present
+		// TODO important! this could explode. ensure that the keys are present
 		filename, _ := obj["filename"].(string)
 		result, _ := obj["result"].(string)
-		results = append(results, map[string]string{
-			"filename": filename,
-			"result":   result,
-		})
+		results = []map[string]string{
+			{"filename": filename},
+			{"result": result},
+		}
 	} else if arr, ok := result.Export().([]interface{}); ok {
 		for _, item := range arr {
 			if obj, ok := item.(map[string]interface{}); ok {

@@ -24,15 +24,21 @@ type FsWatcherConfig struct {
 	Theme     bool `yaml:"theme" default:"false"`
 }
 
+// TODO set start/end tag for layout.parseTpl
 type TemplateConfig struct {
 	Type string `yaml:"type" default:"simple"`
+}
+
+type HooksConfig struct {
+	Pre  []string `yaml:"pre_scripts"`
+	Post []string `yaml:"post_scripts"`
 }
 
 type CraeftConfig struct {
 	ProjectName     string `yaml:"project_name" default:"Default Project"`
 	SourceDirectory string
 	OutputDirectory string   `yaml:"output" default:"dist"`
-	Ignore          []string `yaml:"ignore" default:"[\".git\"]"`
+	Ignore          []string `yaml:"ignore"`
 	Debug           bool     `yaml:"debug" default:"false"` // should save in-between files? see main.go
 
 	Layout string `yaml:"layout" default:"layout.xml"`
@@ -47,6 +53,9 @@ type CraeftConfig struct {
 
 	Server    ServerConfig    `yaml:"server"`
 	FsWatcher FsWatcherConfig `yaml:"file_watcher"`
+
+	Variables map[string]any `yaml:"variables"`
+	Hooks     HooksConfig    `yaml:"hooks"`
 }
 
 func loadConfig(configFile string) (*CraeftConfig, error) {
@@ -62,6 +71,8 @@ func loadConfig(configFile string) (*CraeftConfig, error) {
 	if err := decoder.Decode(&config); err != nil {
 		return nil, err
 	}
+
+	config.Variables = resolveEnvVars(config.Variables).(map[string]any)
 
 	if err := defaults.Set(&config); err != nil {
 		return nil, err
@@ -89,4 +100,26 @@ func loadConfig(configFile string) (*CraeftConfig, error) {
 	}
 
 	return &config, nil
+}
+
+func resolveEnvVars(vars any) any {
+	switch v := vars.(type) {
+	case map[string]interface{}:
+		for key, value := range v {
+			v[key] = resolveEnvVars(value)
+		}
+	case []interface{}:
+		for i, item := range v {
+			v[i] = resolveEnvVars(item)
+		}
+	case string:
+		if len(v) > 1 && v[0] == '$' {
+			envVar := v[1:]
+			if val, exists := os.LookupEnv(envVar); exists {
+				return val
+			}
+			return ""
+		}
+	}
+	return vars
 }

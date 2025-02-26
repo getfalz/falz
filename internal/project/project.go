@@ -18,7 +18,7 @@ import (
 )
 
 var (
-	blackList = []string{"config.yaml", "**/layout.xml"}
+	blackList = []string{"config.yaml"}
 	// TODO move it to Project
 	caches = &Caches{}
 )
@@ -354,7 +354,7 @@ func (p *Project) getContent(path string, pipeline string) (*content.Content, er
 	if err != nil {
 		log.Warn(fmt.Sprintf("pipeline '%s' not found for content '%s': %s", pipeline, path, err))
 	}
-	page, err := content.New(path, pl)
+	page, err := content.New(path, pl, p.Config.Variables)
 	if err != nil {
 		return nil, err
 	}

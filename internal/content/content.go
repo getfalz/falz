@@ -26,13 +26,14 @@ type ContentResult struct {
 }
 
 // New creates a new content object with an absolute path and a pipeline
-func New(path string, pl pipeline.PipelineScript) (*Content, error) {
+func New(path string, pl pipeline.PipelineScript, variables any) (*Content, error) {
 
 	fileName := filepath.Base(path)
 	log.Trace(fmt.Sprintf("New content %s with pipeline %v", fileName, pl))
 	target := pl.Config().SourceSuffixRe.ReplaceAllString(fileName, "."+pl.Config().TargetSuffix)
 
 	vars := pipeline.NewVars(target)
+	vars.Set("variables", variables)
 	return &Content{
 		path:     path,
 		pipeline: pl,
@@ -58,11 +59,10 @@ func (c *Content) LoadIndex() error {
 	for k, v := range vars {
 		c.vars[k] = v
 	}
-	log.Debug(fmt.Sprintf("using data: %v", c.vars))
 
 	jsVars := c.pipeline.Index(content, c.vars)
 
-	c.vars = jsVars
+	c.vars.Set("index", jsVars)
 
 	return nil
 }
@@ -87,10 +87,12 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	log.Info(fmt.Sprintf("using data: %v", c.vars))
 
 	for _, r := range transformed {
-		c.vars["layout"] = r["result"]
-		tplResult := t.ExecuteString(c.vars)
+		if r["filename"] != "" {
+			c.vars["layout"] = r["result"]
+			tplResult := t.ExecuteString(c.vars)
 
-		results = append(results, ContentResult{Filename: r["filename"], Result: tplResult})
+			results = append(results, ContentResult{Filename: r["filename"], Result: tplResult})
+		}
 	}
 
 	return results, nil

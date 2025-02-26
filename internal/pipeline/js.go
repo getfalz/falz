@@ -1,7 +1,7 @@
 package pipeline
 
 import (
-	"errors"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -43,13 +43,13 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 		return nil, err
 	}
 
-	_, err = loop.vm.RunProgram(p)
-	if err != nil {
-		return nil, err
-	}
-
 	env := &JsEnv{config: config, loop: loop, prg: p}
 	env.setupRequire()
+
+	_, err = loop.vm.RunProgram(p)
+	if err != nil {
+		return nil, fmt.Errorf("error running pipeline %s: %s", config.Name, err)
+	}
 
 	return env, nil
 }
@@ -70,6 +70,7 @@ func (env *JsEnv) setupRequire() {
 	env.loop.vm.Set("require", func(call goja.FunctionCall) goja.Value {
 		modName := call.Argument(0).String()
 
+		// New modules should also be added into script.go:loadScript, so that esbuild can ignore them
 		switch modName {
 		case "kv":
 			kvApi, err := api.NewKVStore(env.config.DBPath)
@@ -232,10 +233,6 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 	}
 
 	console.Set("log", func(call goja.FunctionCall) goja.Value {
-		log.Info(fmt.Sprintf("log caller: %+v", call.This.Export()))
-		stackErr := vm.NewGoError(errors.New("stack trace"))
-		log.Info(fmt.Sprintf("stackErr: %+v", stackErr.Export()))
-
 		return logFn(l.Info(), call)
 	})
 	console.Set("info", func(call goja.FunctionCall) goja.Value {

@@ -26,7 +26,7 @@ func (d *NopPipeline) Config() PipelineConfig {
 	}
 }
 func (d *NopPipeline) Index(input []byte, vars Vars) Vars {
-	return vars
+	return map[string]any{}
 }
 func (d *NopPipeline) Transform(input []byte, vars Vars) []map[string]string {
 	results := []map[string]string{
@@ -54,7 +54,7 @@ func (m *MdPipeline) Config() PipelineConfig {
 	}
 }
 func (m *MdPipeline) Index(input []byte, vars Vars) Vars {
-	return vars
+	return map[string]any{}
 }
 func (m *MdPipeline) Transform(input []byte, vars Vars) []map[string]string {
 
@@ -93,7 +93,7 @@ func (t TplPipeline) Config() PipelineConfig {
 	}
 }
 func (t TplPipeline) Index(input []byte, vars Vars) Vars {
-	return vars
+	return map[string]any{}
 }
 func (t TplPipeline) Transform(input []byte, vars Vars) []map[string]string {
 	ctx := plush.NewContextWith(vars)
