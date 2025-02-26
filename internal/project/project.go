@@ -107,7 +107,7 @@ func (p *Project) Build() error {
 						log.Error(err)
 						return SkipFile
 					}
-					page, err := p.getContent(path, contentConf.Pipeline)
+					page, err := p.getContent(lyt.Content().Name, path, contentConf.Pipeline)
 					if err != nil {
 						log.Error(err)
 						return SkipFile
@@ -228,7 +228,7 @@ func (p *Project) BuildPath(path string) (string, error) {
 			}
 
 			// Index
-			page, err := p.getContent(path, contentConf.Pipeline)
+			page, err := p.getContent(lyt.Content().Name, path, contentConf.Pipeline)
 			if err != nil {
 				return "", err
 			}
@@ -344,7 +344,7 @@ func (p Project) writeResults(base string, results []content.ContentResult) (str
 	return outputPath, nil
 }
 
-func (p *Project) getContent(path string, pipeline string) (*content.Content, error) {
+func (p *Project) getContent(name, path string, pipeline string) (*content.Content, error) {
 	// var page *content.Content
 	// if cached, ok := caches.contents.Load(path); ok {
 	// 	page = cached.(*content.Content)
@@ -354,7 +354,7 @@ func (p *Project) getContent(path string, pipeline string) (*content.Content, er
 	if err != nil {
 		log.Warn(fmt.Sprintf("pipeline '%s' not found for content '%s': %s", pipeline, path, err))
 	}
-	page, err := content.New(path, pl, p.Config.Variables)
+	page, err := content.New(name, path, pl, p.Config.Variables)
 	if err != nil {
 		return nil, err
 	}

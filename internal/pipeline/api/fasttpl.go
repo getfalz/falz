@@ -160,7 +160,7 @@ func (t *FastTplApi) SetParameters(call goja.FunctionCall, vm *goja.Runtime) goj
 					return str
 				}
 			} else {
-				panic(fmt.Sprintf("Value for key '%s' must be a string or a function returning a string", key))
+				panic(vm.NewTypeError("Value for key '%s' must be a string or a function returning a string", key))
 			}
 		}
 	}

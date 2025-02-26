@@ -115,23 +115,20 @@ func (s *script) Transform(input []byte, vars Vars) []map[string]string {
 		log.Error(fmt.Errorf("%s.transform return error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
 
 		return []map[string]string{
-			{"filename": ""},
-			{"result": ""},
+			{"filename": "", "result": ""},
 		}
 	}
 
 	if str, ok := result.Export().(string); ok {
 		results = []map[string]string{
-			{"filename": vars["target"].(string)},
-			{"result": str},
+			{"filename": vars["target"].(string), "result": str},
 		}
 	} else if obj, ok := result.Export().(map[string]interface{}); ok {
 		// TODO important! this could explode. ensure that the keys are present
 		filename, _ := obj["filename"].(string)
 		result, _ := obj["result"].(string)
 		results = []map[string]string{
-			{"filename": filename},
-			{"result": result},
+			{"filename": filename, "result": result},
 		}
 	} else if arr, ok := result.Export().([]interface{}); ok {
 		for _, item := range arr {

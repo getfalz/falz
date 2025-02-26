@@ -133,8 +133,7 @@ func getValue(ctx context.Context, key contextKey) string {
 
 // Content struct loads Markdown, converts it to HTML, and renders it
 func (c Content) Render(ctx context.Context) (string, error) {
-	// TODO use config delimiters
-	return "[[layout]]", nil
+	return fmt.Sprintf("{{%s}}", c.Name), nil
 }
 
 func (a Asset) Render(ctx context.Context) (string, error) {

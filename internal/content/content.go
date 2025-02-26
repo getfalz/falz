@@ -15,6 +15,7 @@ import (
 )
 
 type Content struct {
+	name     string
 	path     string
 	pipeline pipeline.PipelineScript
 	vars     pipeline.Vars
@@ -26,7 +27,7 @@ type ContentResult struct {
 }
 
 // New creates a new content object with an absolute path and a pipeline
-func New(path string, pl pipeline.PipelineScript, variables any) (*Content, error) {
+func New(name, path string, pl pipeline.PipelineScript, variables any) (*Content, error) {
 
 	fileName := filepath.Base(path)
 	log.Trace(fmt.Sprintf("New content %s with pipeline %v", fileName, pl))
@@ -35,6 +36,7 @@ func New(path string, pl pipeline.PipelineScript, variables any) (*Content, erro
 	vars := pipeline.NewVars(target)
 	vars.Set("variables", variables)
 	return &Content{
+		name:     name,
 		path:     path,
 		pipeline: pl,
 		vars:     vars,
@@ -83,12 +85,11 @@ func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	transformed := c.pipeline.Transform(body, c.vars)
 
 	var results []ContentResult
-	t := fasttemplate.New(layoutTpl, "[[", "]]")
-	log.Info(fmt.Sprintf("using data: %v", c.vars))
+	t := fasttemplate.New(layoutTpl, "{{", "}}")
 
 	for _, r := range transformed {
 		if r["filename"] != "" {
-			c.vars["layout"] = r["result"]
+			c.vars.Set(c.name, r["result"])
 			tplResult := t.ExecuteString(c.vars)
 
 			results = append(results, ContentResult{Filename: r["filename"], Result: tplResult})
