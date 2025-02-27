@@ -1,7 +1,6 @@
 package pipeline
 
 import (
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -137,7 +136,7 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 	env.loop.Run(func(vm *goja.Runtime) {
 		promise, errr := fn(ctx, vars)
 		if errr != nil {
-			err = fmt.Errorf("%s return error %s", name, errr)
+			err = fmt.Errorf("loop.run %s return error %s", name, errr)
 			close(done)
 			return
 		}
@@ -149,7 +148,20 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 					time.Sleep(time.Millisecond * 100)
 					switch p.State() {
 					case goja.PromiseStateRejected:
-						err = fmt.Errorf("promise rejected: %s", p.Result().String())
+
+						var e string
+						// 1) try
+						val := p.Result()
+						var stackTrace string
+						if obj, ok := val.(*goja.Object); ok {
+							if stack := obj.Get("stack"); stack != nil {
+								stackTrace = stack.String()
+								e = stackTrace
+							}
+						}
+
+						// continue
+						err = fmt.Errorf("promise rejected: %s\n%s\n", p.Result().String(), e)
 						env.loop.StopNoWait()
 						close(done)
 						return
@@ -223,7 +235,12 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 	logFn := func(logger *zerolog.Event, call goja.FunctionCall) goja.Value {
 		var b strings.Builder
 		for i, arg := range call.Arguments {
-			b.WriteString(fmt.Sprintf("%v", arg.Export()))
+			// if an object doesn't has toString, this could also be a posibility
+			// obj, err := json.MarshalIndent(arg, "", "  ")
+			// if err != nil {
+			// 	obj = []byte(fmt.Sprintf("export error: %v", err))
+			// }
+			b.WriteString(arg.String())
 			if i < len(call.Arguments)-1 {
 				b.WriteString("\n")
 			}

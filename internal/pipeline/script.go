@@ -67,6 +67,10 @@ func loadScript(path string) string {
 		MinifySyntax: true,
 		Target:       api.ES2020, // api.ES5
 		Sourcemap:    api.SourceMapNone,
+		Supported: map[string]bool{
+			"for-await":       false,
+			"async-generator": false,
+		},
 		// see js.go:setupRequire
 		External: []string{"kv", "fs", "http", "md", "fasttpl", "tpl"},
 	})
@@ -76,6 +80,7 @@ func loadScript(path string) string {
 		return ""
 	}
 
+	log.Trace(fmt.Sprintf("esbuild generated: %s", result.OutputFiles[0].Contents))
 	return string(result.OutputFiles[0].Contents)
 }
 

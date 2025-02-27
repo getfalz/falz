@@ -62,7 +62,7 @@ func NewFastTplApi(vm *goja.Runtime, options FastTplApiConfig) *FastTplApi {
 
 func (t *FastTplApi) Use(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	if len(call.Arguments) < 1 {
-		panic(vm.ToValue("Use requires a template string"))
+		panic(vm.NewTypeError("Use requires a template string"))
 	}
 
 	arg := call.Argument(0)

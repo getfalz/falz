@@ -95,6 +95,10 @@ func (p *Project) Build() error {
 				log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
 				contents, err := zglob.Glob(cpath)
 				if err != nil {
+					if errors.Is(err, os.ErrNotExist) {
+						log.Warn(fmt.Sprintf("No content %s found for layout %s", filepath.Join(currentDir, contentConf.Path), lyt.Name()))
+						return SkipFile
+					}
 					log.Error(err)
 					return SkipFile
 				}
@@ -180,24 +184,33 @@ func (p *Project) Build() error {
 			continue
 		}
 
-		asset, err := p.getAsset(atype.path, atype.pipeline)
+		matches, err := zglob.Glob(path)
 		if err != nil {
-			log.Error(err)
+			log.Error(fmt.Errorf("failed building asset with path %s: %v", path, err))
 			continue
 		}
 
-		log.Debug(fmt.Sprintf("Building asset %s", atype.path))
-		results, err := asset.Build()
-		if err != nil {
-			log.Error(err)
-			continue
+		for _, match := range matches {
+			asset, err := p.getAsset(match, atype.pipeline)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+
+			log.Debug(fmt.Sprintf("Building asset %s", match))
+			results, err := asset.Build()
+			if err != nil {
+				log.Error(err)
+				continue
+			}
+
+			_, err = p.writeResults(base, results)
+			if err != nil {
+				log.Error(err)
+				continue
+			}
 		}
 
-		_, err = p.writeResults(base, results)
-		if err != nil {
-			log.Error(err)
-			continue
-		}
 	}
 
 	return err

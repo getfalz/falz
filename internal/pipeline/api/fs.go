@@ -397,56 +397,64 @@ func (fs *FsApi) deleteAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value 
 func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	dirPath, err := getStringArg(call.Argument(0))
 	if err != nil {
-		panic(vm.ToValue(err))
+		panic(vm.NewTypeError("file.list", err))
 	}
 
 	dirPath, err = fs.resolvePath(dirPath)
 	if err != nil {
-		return vm.ToValue(err)
+		panic(vm.NewTypeError("file.list", err))
 	}
 
 	iterable := vm.NewObject()
-	iterable.Set("Symbol.asyncIterator", iterable)
-
 	files, err := os.ReadDir(dirPath)
 	if err != nil {
-		panic(vm.ToValue(err))
+		panic(vm.NewTypeError("file.list", err))
 	}
 
-	index := 0
-
-	nextFunc := func(call goja.FunctionCall) goja.Value {
-		promise, resolve, _ := vm.NewPromise()
-
-		go func() {
+	iterable.SetSymbol(goja.SymIterator, vm.ToValue(func() goja.Value {
+		index := 0
+		itr := vm.NewObject()
+		itr.Set("next", vm.ToValue(func(call goja.FunctionCall) goja.Value {
 			if index >= len(files) {
 				// No more files
 				result := vm.NewObject()
 				result.Set("done", true)
-				resolve(result)
-				return
+				return result
 			}
 
 			file := files[index]
 			index++
 
+			// TODO this could be a struct
 			entry := vm.NewObject()
 			entry.Set("name", file.Name())
+			entry.Set("path", filepath.Join(dirPath, file.Name()))
 			entry.Set("isDirectory", file.IsDir())
 			entry.Set("isFile", file.Type().IsRegular())
 			entry.Set("isSymlink", file.Type()&os.ModeSymlink != 0)
+			entry.Set("toString", func(call goja.FunctionCall) goja.Value {
+				obj, err := json.MarshalIndent(entry, "", "  ")
+				if err != nil {
+					obj = []byte(fmt.Sprintf("export error: %v", err))
+				}
+
+				return vm.ToValue(fmt.Sprintf("Page(%v)", string(obj)))
+			})
 
 			result := vm.NewObject()
 			result.Set("value", entry)
 			result.Set("done", false)
 
-			resolve(result)
-		}()
+			return result
+		}))
 
-		return vm.ToValue(promise)
-	}
+		return itr
+	}))
 
-	iterable.Set("next", nextFunc)
+	iterable.Set("toString", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(fmt.Sprintf("IterableObject(%v)", files))
+	})
+
 	return iterable
 }
 
