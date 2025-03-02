@@ -117,7 +117,7 @@ func (s *script) Transform(input []byte, vars Vars) []map[string]string {
 	var results []map[string]string
 
 	if err != nil {
-		log.Error(fmt.Errorf("%s.transform return error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
+		log.Error(fmt.Errorf("%s.transform return error:\n%s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
 
 		return []map[string]string{
 			{"filename": "", "result": ""},
