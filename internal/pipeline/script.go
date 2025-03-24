@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"craeft/internal/log"
+	"craeft/internal/pipeline/js"
 
 	"github.com/dop251/goja"
 	"github.com/evanw/esbuild/pkg/api"
@@ -15,13 +16,13 @@ import (
 type script struct {
 	name   string
 	path   string
-	config *JSConfig
+	config *js.JSConfig
 
-	env *JsEnv
+	env *js.JsEnv
 }
 
 // Script represents the script in a pipeline
-func NewScript(path string, config *JSConfig) (*script, error) {
+func NewScript(path string, config *js.JSConfig) (*script, error) {
 	name := filepath.Base(path)
 
 	if _, err := os.Stat(path); os.IsNotExist(err) {
@@ -29,7 +30,7 @@ func NewScript(path string, config *JSConfig) (*script, error) {
 	}
 
 	code := loadScript(path)
-	env, err := NewJs(config, code)
+	env, err := js.NewJs(config, code)
 	if err != nil {
 		return nil, err
 	}
@@ -41,7 +42,7 @@ func NewScript(path string, config *JSConfig) (*script, error) {
 		config: config,
 	}
 
-	if s.env.loop.vm.GlobalObject().Get("transform") == goja.Undefined() {
+	if s.env.VM().GlobalObject().Get("transform") == goja.Undefined() {
 		return nil, fmt.Errorf("no transform function in script %s", s.name)
 	}
 
@@ -54,6 +55,7 @@ func loadScript(path string) string {
 	dirName := filepath.Dir(path)
 
 	// TODO minify syntax dont work, because the entry functions will be renamed
+	// use transform instead of build?
 	result := api.Build(api.BuildOptions{
 		EntryPoints:      []string{scriptName},
 		AbsWorkingDir:    dirName,
@@ -66,7 +68,8 @@ func loadScript(path string) string {
 		// MinifyIdentifiers: true,
 		MinifySyntax: true,
 		Target:       api.ES2020, // api.ES5
-		Sourcemap:    api.SourceMapNone,
+		// Sourcemap:    api.SourceMapNone,
+		Sourcemap: api.SourceMapInline,
 		Supported: map[string]bool{
 			"for-await":       false,
 			"async-generator": false,
@@ -97,7 +100,7 @@ func (s *script) getContext(vars map[string]any) *PipelineCtx {
 }
 
 func (s *script) Index(input []byte, vars Vars) Vars {
-	result, err := s.env.Call("index", vars.ToGojaObject(s.env.loop.vm), s.env.ToValue(input))
+	result, err := s.env.Call("index", vars.ToGojaObject(s.env.VM()), s.env.ToValue(input))
 	if err != nil {
 		log.Error(fmt.Errorf("%s:index return error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
 	}
@@ -112,7 +115,7 @@ func (s *script) Index(input []byte, vars Vars) Vars {
 }
 
 func (s *script) Transform(input []byte, vars Vars) []map[string]string {
-	result, err := s.env.Call("transform", vars.ToGojaObject(s.env.loop.vm), s.env.ToValue(string(input)))
+	result, err := s.env.Call("transform", vars.ToGojaObject(s.env.VM()), s.env.ToValue(string(input)))
 
 	var results []map[string]string
 

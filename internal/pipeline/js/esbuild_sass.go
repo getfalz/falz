@@ -1,4 +1,4 @@
-package api
+package js
 
 // type SassPlugin struct {
 // 	transpiler *godartsass.Transpiler

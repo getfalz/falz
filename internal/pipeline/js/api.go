@@ -1,4 +1,4 @@
-package api
+package js
 
 type Closable interface {
 	Close() error

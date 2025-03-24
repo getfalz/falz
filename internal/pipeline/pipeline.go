@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"craeft/internal/log"
+	"craeft/internal/pipeline/js"
 )
 
 type PipelineScript interface {
@@ -19,7 +20,7 @@ type Pipeline struct {
 	config *PipelineConfig
 }
 
-func New(path string, jsconfig *JSConfig) (*Pipeline, error) {
+func New(path string, jsconfig *js.JSConfig) (*Pipeline, error) {
 
 	configPath := filepath.Join(path, "config.yaml")
 	config, err := loadConfig(configPath)
@@ -75,7 +76,7 @@ func (r *Registry) LoadPipelines() error {
 			continue
 		}
 
-		config := &JSConfig{
+		config := &js.JSConfig{
 			Name: pipelineName,
 			Root: r.config.SourceDirectory,
 		}

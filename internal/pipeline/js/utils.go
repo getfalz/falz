@@ -1,4 +1,4 @@
-package api
+package js
 
 import (
 	"fmt"
@@ -7,9 +7,9 @@ import (
 )
 
 // TODO rename to argMustString
-func getStringArg(arg goja.Value) (string, error) {
+func argMustString(arg goja.Value) (string, error) {
 	if arg == nil || goja.IsUndefined(arg) {
-		return "", fmt.Errorf("argument is required")
+		return "", fmt.Errorf("argument is nil or undefined")
 	}
 	if str, ok := arg.Export().(string); ok {
 		return str, nil
@@ -17,11 +17,22 @@ func getStringArg(arg goja.Value) (string, error) {
 	return "", fmt.Errorf("argument must be a string")
 }
 
-func getByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
+func argMustObject(arg goja.Value) (*goja.Object, error) {
+	if arg == nil || goja.IsUndefined(arg) {
+		return nil, fmt.Errorf("argument is nil or undefined")
+	}
+	if o, ok := arg.Export().(*goja.Object); ok {
+		return o, nil
+	}
+	return nil, fmt.Errorf("argument must be an object")
+}
+
+func GetByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 	if arg == nil || goja.IsUndefined(arg) {
 		return nil, fmt.Errorf("data argument is required")
 	}
 
+	// TODO try this: b := obj.Get("buffer").Export().(goja.ArrayBuffer).Bytes()
 	arrayBufferConstructor := vm.Get("ArrayBuffer").ToObject(vm)
 	if arrayBufferConstructor != nil {
 		if vm.InstanceOf(arg, arrayBufferConstructor) {

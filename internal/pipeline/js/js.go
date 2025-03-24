@@ -1,6 +1,7 @@
-package pipeline
+package js
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -10,7 +11,6 @@ import (
 	"time"
 
 	"craeft/internal/log"
-	"craeft/internal/pipeline/api"
 
 	"github.com/dop251/goja"
 	"github.com/rs/zerolog"
@@ -21,28 +21,28 @@ type JsEnv struct {
 	loop   *EventLoop
 	config *JSConfig
 	prg    *goja.Program
+	logger zerolog.Logger
 
-	resources []api.Closable
+	resources []Closable
 	rm        sync.Mutex
 }
 
 // NewJs returns a ready to use JavaScript environment,
 // with require() setup, and auxiliary functions like console.log
 func NewJs(config *JSConfig, code string) (*JsEnv, error) {
+	l := getLogger(config.Name)
+
 	loop := NewEventLoop()
 
-	loop.vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
+	setupEnv(loop.vm, config.Name, l)
 
 	name := filepath.Base(config.Path)
-
-	setupEnv(loop.vm, config.Name)
-
 	p, err := goja.Compile(name, code, false)
 	if err != nil {
 		return nil, err
 	}
 
-	env := &JsEnv{config: config, loop: loop, prg: p}
+	env := &JsEnv{config: config, loop: loop, prg: p, logger: l}
 	env.setupRequire()
 
 	_, err = loop.vm.RunProgram(p)
@@ -51,6 +51,10 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 	}
 
 	return env, nil
+}
+
+func (env *JsEnv) VM() *goja.Runtime {
+	return env.loop.vm
 }
 
 func (env *JsEnv) ToValue(val any) goja.Value {
@@ -72,7 +76,7 @@ func (env *JsEnv) setupRequire() {
 		// New modules should also be added into script.go:loadScript, so that esbuild can ignore them
 		switch modName {
 		case "kv":
-			kvApi, err := api.NewKVStore(env.config.DBPath)
+			kvApi, err := NewKVStore(env.config.DBPath)
 			if err != nil {
 				// TODO don't use panic
 				panic(err)
@@ -80,20 +84,20 @@ func (env *JsEnv) setupRequire() {
 			env.addClosable(kvApi)
 			return kvApi.GetModule(env.loop.vm)
 		case "fs":
-			fsAPI, err := api.NewFsApi(env.config.Root)
+			fsAPI, err := NewFsApi(env.config.Root)
 			if err != nil {
 				// TODO don't use panic
 				panic(err)
 			}
 			return fsAPI.GetModule(env.loop.vm)
 		case "http":
-			return api.GetFetchModule(env.loop.vm)
+			return GetFetchModule(env.loop.vm)
 		case "md":
-			return api.GetMdModule(env.loop.vm)
+			return GetMdModule(env.loop.vm)
 		case "fasttpl":
-			return api.GetFastTplModule(env.loop.vm)
+			return GetFastTplModule(env.loop.vm)
 		case "tpl":
-			return api.GetTplModule(env.loop.vm)
+			return GetTplModule(env.loop)
 		}
 		return goja.Undefined()
 	})
@@ -133,7 +137,10 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 	var err error
 	done := make(chan struct{})
 
-	env.loop.Run(func(vm *goja.Runtime) {
+	env.loop.Start()
+	defer env.loop.Stop()
+
+	env.loop.RunOnLoop(func(vm *goja.Runtime) {
 		promise, errr := fn(ctx, vars)
 		if errr != nil {
 			err = fmt.Errorf("loop.run %s return error %s", name, errr)
@@ -142,26 +149,14 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 		}
 
 		go func() {
-			// if the return is indeed a promise, wait for it
 			if p, ok := promise.Export().(*goja.Promise); ok {
 				for {
 					time.Sleep(time.Millisecond * 100)
 					switch p.State() {
 					case goja.PromiseStateRejected:
-
-						var e string
-						// 1) try
 						val := p.Result()
-						var stackTrace string
-						if obj, ok := val.(*goja.Object); ok {
-							if stack := obj.Get("stack"); stack != nil {
-								stackTrace = stack.String()
-								e = stackTrace
-							}
-						}
+						err = errors.New(val.String())
 
-						// continue
-						err = fmt.Errorf("promise rejected: %s\n%s\n", p.Result().String(), e)
 						env.loop.StopNoWait()
 						close(done)
 						return
@@ -194,15 +189,30 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 	}
 }
 
-func setupEnv(vm *goja.Runtime, pipelineName string) {
-	createConsoleObject(vm, pipelineName)
+func setupEnv(vm *goja.Runtime, pipelineName string, l zerolog.Logger) {
+
+	vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
+
+	vm.SetPromiseRejectionTracker(func(p *goja.Promise, op goja.PromiseRejectionOperation) {
+		var err string
+		val := p.Result()
+		if obj, ok := val.(*goja.Object); ok {
+			if stack := obj.Get("stack"); stack != nil {
+				err = stack.String()
+			} else {
+				err = val.String()
+			}
+		} else {
+			err = val.String()
+		}
+		l.Error().Msg(fmt.Sprintf("unhandled promise rejection:\n%s", err))
+	})
+
+	createConsoleObject(vm, pipelineName, l)
 }
 
-func createConsoleObject(vm *goja.Runtime, pipelineName string) {
-	console := vm.NewObject()
-
+func getLogger(pipelineName string) zerolog.Logger {
 	// TODO it would be nice to also print from which method it comes (transform/index)
-
 	var writer io.Writer
 	writer = &log.LevelWriter{os.Stdout, os.Stderr}
 	if term.IsTerminal(int(os.Stdout.Fd())) {
@@ -213,7 +223,10 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 		}
 
 		cwriter.FormatMessage = func(i interface{}) string {
-			lines := strings.Split(i.(string), "\n")
+			if i == nil || i == "" {
+				return ""
+			}
+			lines := strings.Split(fmt.Sprintf("%s", i), "\n")
 			var b strings.Builder
 			b.WriteString("\n")
 			for _, line := range lines {
@@ -230,7 +243,12 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 		writer = cwriter
 	}
 
-	l := zerolog.New(writer).With().Timestamp().Logger()
+	l := zerolog.New(writer).With().Timestamp().Str("pipeline", pipelineName).Logger()
+	return l
+}
+
+func createConsoleObject(vm *goja.Runtime, pipelineName string, l zerolog.Logger) {
+	console := vm.NewObject()
 
 	logFn := func(logger *zerolog.Event, call goja.FunctionCall) goja.Value {
 		var b strings.Builder
@@ -265,7 +283,7 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string) {
 	vm.Set("console", console)
 }
 
-func (env *JsEnv) addClosable(resource api.Closable) {
+func (env *JsEnv) addClosable(resource Closable) {
 	env.rm.Lock()
 	defer env.rm.Unlock()
 	env.resources = append(env.resources, resource)

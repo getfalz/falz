@@ -1,4 +1,4 @@
-package api
+package js
 
 import (
 	"encoding/json"
@@ -89,7 +89,7 @@ func (fs *FsApi) json(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		filePath, err := getStringArg(call.Argument(0))
+		filePath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -126,7 +126,7 @@ func (fs *FsApi) readFile(call goja.FunctionCall, vm *goja.Runtime, asText bool)
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		filePath, err := getStringArg(call.Argument(0))
+		filePath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -168,7 +168,7 @@ func (fs *FsApi) write(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		filePath, err := getStringArg(call.Argument(0))
+		filePath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -180,7 +180,7 @@ func (fs *FsApi) write(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 			return
 		}
 
-		data, err := getByteArg(vm, call.Argument(1))
+		data, err := GetByteArg(vm, call.Argument(1))
 		if err != nil {
 			reject(err)
 			return
@@ -202,7 +202,7 @@ func (fs *FsApi) append(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		filePath, err := getStringArg(call.Argument(0))
+		filePath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -214,7 +214,7 @@ func (fs *FsApi) append(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 			return
 		}
 
-		data, err := getByteArg(vm, call.Argument(1))
+		data, err := GetByteArg(vm, call.Argument(1))
 		if err != nil {
 			reject(err)
 			return
@@ -242,7 +242,7 @@ func (fs *FsApi) isFile(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		filePath, err := getStringArg(call.Argument(0))
+		filePath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -274,7 +274,7 @@ func (fs *FsApi) isDirectory(call goja.FunctionCall, vm *goja.Runtime) goja.Valu
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		dirPath, err := getStringArg(call.Argument(0))
+		dirPath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -306,7 +306,7 @@ func (fs *FsApi) createDirectory(call goja.FunctionCall, vm *goja.Runtime) goja.
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		dirPath, err := getStringArg(call.Argument(0))
+		dirPath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -334,7 +334,7 @@ func (fs *FsApi) delete(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		path, err := getStringArg(call.Argument(0))
+		path, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -366,7 +366,7 @@ func (fs *FsApi) deleteAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value 
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		path, err := getStringArg(call.Argument(0))
+		path, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -418,7 +418,7 @@ type IterEntry struct {
 }
 
 func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	dirPath, err := getStringArg(call.Argument(0))
+	dirPath, err := argMustString(call.Argument(0))
 	if err != nil {
 		panic(vm.NewTypeError("file.list", err))
 	}
@@ -480,7 +480,7 @@ func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 }
 
 func (fs *FsApi) walk(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	rootPath, err := getStringArg(call.Argument(0))
+	rootPath, err := argMustString(call.Argument(0))
 	if err != nil {
 		panic(vm.ToValue(err))
 	}
@@ -555,7 +555,7 @@ func (fs *FsApi) size(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		filePath, err := getStringArg(call.Argument(0))
+		filePath, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -587,7 +587,7 @@ func (fs *FsApi) lastModified(call goja.FunctionCall, vm *goja.Runtime) goja.Val
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		path, err := getStringArg(call.Argument(0))
+		path, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -620,7 +620,7 @@ func (fs *FsApi) copy(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		source, err := getStringArg(call.Argument(0))
+		source, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -631,7 +631,7 @@ func (fs *FsApi) copy(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 			return
 		}
 
-		destination, err := getStringArg(call.Argument(1))
+		destination, err := argMustString(call.Argument(1))
 		if err != nil {
 			reject(err)
 			return
@@ -658,7 +658,7 @@ func (fs *FsApi) copyAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		source, err := getStringArg(call.Argument(0))
+		source, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -670,7 +670,7 @@ func (fs *FsApi) copyAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 			return
 		}
 
-		destination, err := getStringArg(call.Argument(1))
+		destination, err := argMustString(call.Argument(1))
 		if err != nil {
 			reject(err)
 			return
@@ -697,7 +697,7 @@ func (fs *FsApi) move(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
 	go func() {
-		source, err := getStringArg(call.Argument(0))
+		source, err := argMustString(call.Argument(0))
 		if err != nil {
 			reject(err)
 			return
@@ -709,7 +709,7 @@ func (fs *FsApi) move(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 			return
 		}
 
-		destination, err := getStringArg(call.Argument(1))
+		destination, err := argMustString(call.Argument(1))
 		if err != nil {
 			reject(err)
 			return
