@@ -1,11 +1,13 @@
 package js
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -141,6 +143,19 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 	defer env.loop.Stop()
 
 	env.loop.RunOnLoop(func(vm *goja.Runtime) {
+		defer func() {
+			if r := recover(); r != nil {
+				stack := debug.Stack()
+
+				stackStr := string(stack)
+				stackLines := strings.Split(stackStr, "\n")
+
+				err = fmt.Errorf("loop.run panic: %v\nStack Trace:\n%s", r, strings.Join(stackLines, "\n"))
+				close(done)
+				return
+			}
+		}()
+
 		promise, errr := fn(ctx, vars)
 		if errr != nil {
 			err = fmt.Errorf("loop.run %s return error %s", name, errr)
@@ -239,6 +254,24 @@ func getLogger(pipelineName string) zerolog.Logger {
 		cwriter.FormatFieldValue = func(i interface{}) string {
 			return fmt.Sprintf("pipeline:%s:", i)
 		}
+		cwriter.FormatLevel = func(i any) string {
+			switch i {
+			case "debug":
+				return "[console.dump]"
+			case "info":
+				return "[console.log]"
+			case "warn":
+				return "[console.warn]"
+			case "error":
+				return "[console.error]"
+			case zerolog.FatalLevel:
+				return "[FATAL]"
+			case zerolog.PanicLevel:
+				return "[PANIC]"
+			default:
+				return "[[[" + fmt.Sprintf("%s", i) + "]]]"
+			}
+		}
 
 		writer = cwriter
 	}
@@ -253,11 +286,6 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string, l zerolog.Logger
 	logFn := func(logger *zerolog.Event, call goja.FunctionCall) goja.Value {
 		var b strings.Builder
 		for i, arg := range call.Arguments {
-			// if an object doesn't has toString, this could also be a posibility
-			// obj, err := json.MarshalIndent(arg, "", "  ")
-			// if err != nil {
-			// 	obj = []byte(fmt.Sprintf("export error: %v", err))
-			// }
 			b.WriteString(arg.String())
 			if i < len(call.Arguments)-1 {
 				b.WriteString("\n")
@@ -267,6 +295,19 @@ func createConsoleObject(vm *goja.Runtime, pipelineName string, l zerolog.Logger
 		return goja.Undefined()
 	}
 
+	console.Set("dump", func(call goja.FunctionCall) goja.Value {
+		var b strings.Builder
+		for _, arg := range call.Arguments {
+			obj, err := json.MarshalIndent(arg, "", "  ")
+			if err != nil {
+				obj = []byte(fmt.Sprintf("console.dump error: %v", err))
+			}
+			b.WriteString(string(obj))
+		}
+		// TODO dump should have the same log level as console.log. but it would be nice to differentiate the format level
+		l.Info().Str("pipeline", pipelineName).Msg(b.String())
+		return goja.Undefined()
+	})
 	console.Set("log", func(call goja.FunctionCall) goja.Value {
 		return logFn(l.Info(), call)
 	})
