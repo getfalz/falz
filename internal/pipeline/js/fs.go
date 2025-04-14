@@ -394,28 +394,28 @@ func (fs *FsApi) deleteAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value 
 	return vm.ToValue(promise)
 }
 
-type FileEntry struct {
-	Name        string     `json:"name"`
-	Path        string     `json:"path"`
-	ModTime     goja.Value `json:"modTime"`
-	Size        int64      `json:"size"`
-	IsDirectory bool       `json:"isDirectory"`
-	IsFile      bool       `json:"isFile"`
-	IsSymlink   bool       `json:"isSymlink"`
-}
-
-func (e FileEntry) ToString() string {
-	obj, err := json.MarshalIndent(e, "", "  ")
-	if err != nil {
-		obj = []byte(fmt.Sprintf("export error: %v", err))
-	}
-	return fmt.Sprintf("File(%v)", string(obj))
-}
-
-type IterEntry struct {
-	Done  bool
-	Value any
-}
+// type FileEntry struct {
+// 	Name        string     `json:"name"`
+// 	Path        string     `json:"path"`
+// 	ModTime     goja.Value `json:"modTime"`
+// 	Size        int64      `json:"size"`
+// 	IsDirectory bool       `json:"isDirectory"`
+// 	IsFile      bool       `json:"isFile"`
+// 	IsSymlink   bool       `json:"isSymlink"`
+// }
+//
+// func (e FileEntry) ToString() string {
+// 	obj, err := json.MarshalIndent(e, "", "  ")
+// 	if err != nil {
+// 		obj = []byte(fmt.Sprintf("export error: %v", err))
+// 	}
+// 	return fmt.Sprintf("File(%v)", string(obj))
+// }
+//
+// type IterEntry struct {
+// 	Done  bool
+// 	Value any
+// }
 
 func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	dirPath, err := argMustString(call.Argument(0))
@@ -428,55 +428,111 @@ func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 		panic(vm.NewTypeError("file.list", err))
 	}
 
-	iterable := vm.NewObject()
 	files, err := os.ReadDir(absPath)
 	if err != nil {
 		panic(vm.NewTypeError("file.list", err))
 	}
 
-	iterable.SetSymbol(goja.SymIterator, vm.ToValue(func() goja.Value {
-		index := 0
-		itr := vm.NewObject()
-		itr.Set("next", vm.ToValue(func(call goja.FunctionCall) goja.Value {
-			if index >= len(files) {
-				result := IterEntry{Done: true}
-				return vm.ToValue(result)
-			}
+	// iterable := vm.NewObject()
+	// iterable.SetSymbol(goja.SymIterator, vm.ToValue(func() goja.Value {
+	// 	index := 0
+	// 	itr := vm.NewObject()
+	// 	itr.Set("next", vm.ToValue(func(call goja.FunctionCall) goja.Value {
+	// 		if index >= len(files) {
+	// 			result := IterEntry{Done: true}
+	// 			return vm.ToValue(result)
+	// 		}
+	//
+	// 		file := files[index]
+	// 		index++
+	// 		info, err := file.Info()
+	// 		if err != nil {
+	// 			panic(vm.NewTypeError("file.list", err))
+	// 		}
+	//
+	// 		time, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(info.ModTime()))
+	// 		if err != nil {
+	// 			panic(vm.NewTypeError("file.list", err))
+	// 		}
+	// 		entry := FileEntry{
+	// 			Name:        file.Name(),
+	// 			Path:        "/" + filepath.Join(dirPath, file.Name()),
+	// 			ModTime:     time,
+	// 			Size:        info.Size(),
+	// 			IsDirectory: file.IsDir(),
+	// 			IsFile:      file.Type().IsRegular(),
+	// 			IsSymlink:   file.Type()&os.ModeSymlink != 0,
+	// 		}
+	//
+	// 		result := IterEntry{Done: false, Value: entry}
+	//
+	// 		return vm.ToValue(result)
+	// 	}))
+	//
+	// 	return itr
+	// }))
+	//
+	// iterable.Set("toString", func(call goja.FunctionCall) goja.Value {
+	// 	return vm.ToValue(fmt.Sprintf("IterableObject(%v)", files))
+	// })
 
-			file := files[index]
-			index++
-			info, err := file.Info()
-			if err != nil {
-				panic(vm.NewTypeError("file.list", err))
-			}
+	// return iterable
 
-			time, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(info.ModTime()))
-			if err != nil {
-				panic(vm.NewTypeError("file.list", err))
-			}
-			entry := FileEntry{
-				Name:        file.Name(),
-				Path:        "/" + filepath.Join(dirPath, file.Name()),
-				ModTime:     time,
-				Size:        info.Size(),
-				IsDirectory: file.IsDir(),
-				IsFile:      file.Type().IsRegular(),
-				IsSymlink:   file.Type()&os.ModeSymlink != 0,
-			}
+	entries := make([]any, 0, len(files))
 
-			result := IterEntry{Done: false, Value: entry}
+	for _, file := range files {
+		info, err := file.Info()
+		if err != nil {
+			panic(vm.NewTypeError("file.list: %s", err))
+		}
 
-			return vm.ToValue(result)
-		}))
+		time, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(info.ModTime()))
+		if err != nil {
+			panic(vm.NewTypeError("file.list: %s", err))
+		}
 
-		return itr
-	}))
+		entry := map[string]any{
+			"name":        file.Name(),
+			"path":        "/" + filepath.Join(dirPath, file.Name()),
+			"modTime":     time,
+			"size":        info.Size(),
+			"isDirectory": file.IsDir(),
+			"isFile":      file.Type().IsRegular(),
+			"isSymlink":   file.Type()&os.ModeSymlink != 0,
+		}
 
-	iterable.Set("toString", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(fmt.Sprintf("IterableObject(%v)", files))
-	})
+		gojaObj := vm.ToValue(entry)
+		err = gojaObj.ToObject(vm).Set("toString", func(call goja.FunctionCall) goja.Value {
+			e := call.This.ToObject(vm)
 
-	return iterable
+			name := e.Get("name").String()
+			path := e.Get("path").String()
+			modTime := e.Get("modTime").String()
+			size := e.Get("size").ToInteger()
+			isDir := e.Get("isDirectory").ToBoolean()
+			isFile := e.Get("isFile").ToBoolean()
+			isSymlink := e.Get("isSymlink").ToBoolean()
+
+			str := fmt.Sprintf(`{
+  name: "%s",
+  path: "%s",
+  modTime: %s,
+  size: %d,
+  isDirectory: %t,
+  isFile: %t,
+  isSymlink: %t,
+}`, name, path, modTime, size, isDir, isFile, isSymlink)
+
+			return vm.ToValue(str)
+		})
+		if err != nil {
+			panic(vm.NewTypeError("file.list: %s", err))
+		}
+
+		entries = append(entries, entry)
+	}
+
+	return vm.NewArray(entries...)
 }
 
 func (fs *FsApi) walk(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
