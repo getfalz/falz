@@ -57,23 +57,6 @@ func main() {
 		Before: func(c *cli.Context) error {
 			setLogLevel(verbosity, c.Bool("silence"))
 
-			// TODO starting point is the current dir. craeft could search for the root folder
-			currentPath, err := os.Getwd()
-			if err != nil {
-				log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
-			}
-
-			printWelcome(c, currentPath, c.String("outputPath"))
-
-			p, err := project.New(currentPath)
-			if err != nil {
-				log.Fatal(fmt.Sprintf("Error loading config: %v", err))
-			}
-
-			p.Config.SourceDirectory = currentPath
-			p.Config.OutputDirectory = c.String("outputPath")
-
-			c.App.Metadata["project"] = p
 			return nil
 		},
 		Commands: []*cli.Command{
@@ -103,6 +86,7 @@ func main() {
 					},
 				},
 				Before: func(c *cli.Context) error {
+					initialize(c)
 					p, ok := c.App.Metadata["project"].(*project.Project)
 					if !ok {
 						log.Fatal("Project not found in context.")
@@ -129,6 +113,8 @@ func main() {
 					},
 				},
 				Before: func(c *cli.Context) error {
+					initialize(c)
+
 					p, ok := c.App.Metadata["project"].(*project.Project)
 					if !ok {
 						log.Fatal("Project not found in context.")
@@ -139,6 +125,11 @@ func main() {
 					return nil
 				},
 			},
+			{
+				Name:   "config",
+				Usage:  "Generate a default config",
+				Action: cmd.Config,
+			},
 		},
 	}
 
@@ -146,6 +137,26 @@ func main() {
 		log.Fatal(err.Error())
 	}
 }
+func initialize(c *cli.Context) {
+	// TODO starting point is the current dir. craeft could search for the root folder
+	currentPath, err := os.Getwd()
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
+	}
+
+	printWelcome(c, currentPath, c.String("outputPath"))
+
+	p, err := project.New(currentPath)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Error loading config: %v", err))
+	}
+
+	p.Config.SourceDirectory = currentPath
+	p.Config.OutputDirectory = c.String("outputPath")
+
+	c.App.Metadata["project"] = p
+}
+
 func printWelcome(cli *cli.Context, base, target string) {
 	fmt.Printf("⚒ %s %s\n", cli.App.Name, cli.App.Version)
 	fmt.Printf("➤ Building folder %s -> %s\n", base, target)
