@@ -44,12 +44,12 @@ func NewServer(p *Project) *Server {
 }
 
 func (s *Server) ServeFiles() {
-	fs := http.FileServer(http.Dir(s.config.OutputDirectory))
+	fs := http.FileServer(http.Dir(s.config.OutputPath))
 
 	s.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Info(fmt.Sprintf("Requested: %s", r.URL.Path))
 
-		if _, err := os.Stat(s.config.OutputDirectory + r.URL.Path); os.IsNotExist(err) {
+		if _, err := os.Stat(s.config.OutputPath + r.URL.Path); os.IsNotExist(err) {
 			http.NotFound(w, r)
 			return
 		}
@@ -82,7 +82,7 @@ type HotReloadMsg struct {
 func (s *Server) WatchFiles() {
 	events := make(chan notify.EventInfo, 1)
 
-	absPath, err := filepath.Abs(s.config.SourceDirectory)
+	absPath, err := filepath.Abs(s.config.SourcePath)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -122,7 +122,7 @@ func (s *Server) WatchFiles() {
 				continue
 			}
 
-			newUrl, err := filepath.Rel(s.config.OutputDirectory, newPath)
+			newUrl, err := filepath.Rel(s.config.OutputPath, newPath)
 			if err != nil {
 				log.Error(err)
 				continue
@@ -140,7 +140,7 @@ func (s *Server) WatchFiles() {
 func (s *Server) WatchTheme() {
 	events := make(chan notify.EventInfo, 1)
 
-	configPath, err := filepath.Abs(s.config.ConfigBase)
+	configPath, err := filepath.Abs(s.config.ConfigPath)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -154,8 +154,8 @@ func (s *Server) WatchTheme() {
 		ei := <-events
 
 		// TODO for now, we just rebuild all files. We could do better, and just rebuild the affected files
-		for p := range s.config.Pipelines {
-			pipelinePath := filepath.Join(s.config.PipelinesPath, s.config.Pipelines[p])
+		for p := range s.config.Pipes {
+			pipelinePath := filepath.Join(s.config.PipesPath, s.config.Pipes[p])
 			// TODO filepath.HasPrefix should not be used. is deprecated. find a fix
 			if filepath.HasPrefix(ei.Path(), pipelinePath) {
 				atomic.StoreInt32(&s.ignoreWrite, 1)
@@ -167,7 +167,7 @@ func (s *Server) WatchTheme() {
 			}
 		}
 
-		if filepath.HasPrefix(ei.Path(), s.config.ThemePath) {
+		if filepath.HasPrefix(ei.Path(), s.config.SchemePath) {
 			log.Trace(fmt.Sprintf("Theme changed. Reloading file: %s", ei.Path()))
 			atomic.StoreInt32(&s.ignoreWrite, 1)
 			s.project.Build()

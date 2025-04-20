@@ -33,13 +33,12 @@ func main() {
 		UseShortOptionHandling: true,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "outputPath",
+				Name:  "output",
 				Usage: "Build path of the project",
-				Value: "dist",
 			},
 			&cli.StringFlag{
-				Name:  "theme",
-				Usage: "Theme name",
+				Name:  "scheme",
+				Usage: "Use the given scheme",
 			},
 			&cli.BoolFlag{
 				Name:    "verbose",
@@ -53,7 +52,7 @@ func main() {
 				Value: false,
 			},
 		},
-		Metadata: make(map[string]interface{}),
+		Metadata: make(map[string]any),
 		Before: func(c *cli.Context) error {
 			setLogLevel(verbosity, c.Bool("silence"))
 
@@ -144,15 +143,26 @@ func initialize(c *cli.Context) {
 		log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
 	}
 
-	printWelcome(c, currentPath, c.String("outputPath"))
+	printWelcome(c, currentPath, c.String("output"))
 
-	p, err := project.New(currentPath)
+	config, err := project.LoadConfig(currentPath)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error loading config: %v", err))
 	}
 
-	p.Config.SourceDirectory = currentPath
-	p.Config.OutputDirectory = c.String("outputPath")
+	config.SourcePath = currentPath
+	if c.String("output") != "" {
+		config.OutputPath = c.String("output")
+	}
+	if c.String("scheme") != "" {
+		config.Scheme = c.String("scheme")
+	}
+	config.SetPaths()
+
+	p, err := project.New(config)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Failed initializing the project: %v", err))
+	}
 
 	c.App.Metadata["project"] = p
 }

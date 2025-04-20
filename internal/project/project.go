@@ -18,9 +18,9 @@ import (
 )
 
 var (
-	blackList = []string{"config.yaml"}
 	// TODO move it to Project
-	caches = &Caches{}
+	caches    = &Caches{}
+	blackList = []string{projectRootFolder}
 )
 
 type Project struct {
@@ -35,21 +35,18 @@ type Caches struct {
 	contents sync.Map
 }
 
-func New(base string) (*Project, error) {
-	configPath := filepath.Join(base, "config.yaml")
-
-	config, err := loadConfig(configPath)
-	if err != nil {
+func New(config *CraeftConfig) (*Project, error) {
+	if err := config.IsValid(); err != nil {
 		return nil, err
 	}
 
-	blackList = append(blackList, filepath.Base(config.OutputDirectory))
+	blackList = append(blackList, filepath.Base(config.OutputPath))
 	config.Ignore = append(config.Ignore, blackList...)
 
 	rconfig := &pipeline.RegistryConfig{
-		Pipelines:       config.Pipelines,
-		PipelinesPath:   config.PipelinesPath,
-		SourceDirectory: config.SourceDirectory,
+		Pipelines:       config.Pipes,
+		PipelinesPath:   config.PipesPath,
+		SourceDirectory: config.SourcePath,
 	}
 	p := &Project{
 		Config:    config,
@@ -91,7 +88,7 @@ func (p *Project) Build() error {
 				}
 
 				// TODO(content): move this to content struct? see asset. content.Build(), content.Index()
-				cpath := filepath.Join(p.Config.SourceDirectory, currentDir, contentConf.Path)
+				cpath := filepath.Join(p.Config.SourcePath, currentDir, contentConf.Path)
 				log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
 				contents, err := zglob.Glob(cpath)
 				if err != nil {
@@ -106,7 +103,7 @@ func (p *Project) Build() error {
 				var contentBuffer = make(map[string]*content.Content)
 
 				for _, contentPath := range contents {
-					path, err := filepath.Rel(p.Config.SourceDirectory, contentPath)
+					path, err := filepath.Rel(p.Config.SourcePath, contentPath)
 					if err != nil {
 						log.Error(err)
 						return SkipFile
@@ -124,7 +121,7 @@ func (p *Project) Build() error {
 				// }
 
 				for _, contentPath := range contents {
-					path, err := filepath.Rel(p.Config.SourceDirectory, contentPath)
+					path, err := filepath.Rel(p.Config.SourcePath, contentPath)
 					if err != nil {
 						log.Error(err)
 						return SkipFile
@@ -151,14 +148,14 @@ func (p *Project) Build() error {
 
 				// assets path should be absolute!
 				for _, asset := range lyt.Assets() {
-					npath := filepath.Join(p.Config.ThemePath, asset.Source)
+					npath := filepath.Join(p.Config.SchemePath, asset.Source)
 
 					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
 					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
 				}
 
 				for _, asset := range lyt.Content().Assets {
-					npath := filepath.Join(p.Config.SourceDirectory, asset.Source)
+					npath := filepath.Join(p.Config.SourcePath, asset.Source)
 
 					log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
 					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
@@ -174,10 +171,11 @@ func (p *Project) Build() error {
 
 	for path, atype := range assetslist {
 		var base string
+		// atype.from says where the asset was found. inside a content or the layout
 		if atype.from == "theme" {
-			base, err = filepath.Rel(p.Config.ThemePath, filepath.Dir(path))
+			base, err = filepath.Rel(p.Config.SchemePath, filepath.Dir(path))
 		} else {
-			base, err = filepath.Rel(p.Config.SourceDirectory, filepath.Dir(path))
+			base, err = filepath.Rel(p.Config.SourcePath, filepath.Dir(path))
 		}
 		if err != nil {
 			log.Error(err)
@@ -307,7 +305,7 @@ func (p *Project) ignoreFile(path string) bool {
 func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 	var results = make(map[string]*layout.Layout)
 
-	layoutPaths, err := utils.FindFile(p.Config.ThemePath, path, p.Config.Layout)
+	layoutPaths, err := utils.FindFile(p.Config.SchemePath, path, p.Config.Layout)
 	if err != nil {
 		return nil, err
 	}
@@ -319,13 +317,13 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 			continue
 		}
 
-		layoutFile, err := os.ReadFile(filepath.Join(p.Config.ThemePath, path))
+		layoutFile, err := os.ReadFile(filepath.Join(p.Config.SchemePath, path))
 		if err != nil {
 			return nil, fmt.Errorf("can't read layout file: %w", err)
 		}
 
 		// layout should know where is the project base folder, for later fragment lookup
-		layout, err := layout.Parse(p.Config.ThemePath, path, layoutFile, p.pipelines, p.Config.FsWatcher.HotReload)
+		layout, err := layout.Parse(p.Config.SchemePath, path, layoutFile, p.pipelines, p.Config.FsWatcher.HotReload)
 		if err != nil {
 			return nil, fmt.Errorf("can't parse layout file: %w", err)
 		}
@@ -340,7 +338,7 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 
 func (p Project) writeResults(base string, results []content.ContentResult) (string, error) {
 	var outputPath string
-	targetDir := filepath.Join(p.Config.OutputDirectory, base)
+	targetDir := filepath.Join(p.Config.OutputPath, base)
 	if err := os.MkdirAll(targetDir, 0755); err != nil {
 		return "", err
 	}
@@ -487,9 +485,9 @@ func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error)
 var SkipFile = errors.New("skip this file")
 
 func (p *Project) walk(callback func(path string, d fs.DirEntry) error) error {
-	return filepath.WalkDir(p.Config.SourceDirectory, func(path string, d fs.DirEntry, err error) error {
+	return filepath.WalkDir(p.Config.SourcePath, func(path string, d fs.DirEntry, err error) error {
 
-		rel, err := filepath.Rel(p.Config.SourceDirectory, path)
+		rel, err := filepath.Rel(p.Config.SourcePath, path)
 		if err != nil {
 			return err
 		}
