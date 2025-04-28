@@ -110,11 +110,12 @@ func (s *Server) WatchFiles() {
 				log.Warn(fmt.Sprintf("Can't resolve relative path: %s", err))
 				continue
 			}
-			log.Trace(fmt.Sprintf("File changed. UPDATE: %s", relPath))
 
 			if s.project.ignoreFile(relPath) {
 				continue
 			}
+
+			log.Trace(fmt.Sprintf("File changed. UPDATE: %s", relPath))
 
 			newPath, err := s.project.BuildPath(relPath)
 			if err != nil {
@@ -140,8 +141,8 @@ func (s *Server) WatchFiles() {
 func (s *Server) WatchTheme() {
 	events := make(chan notify.EventInfo, 1)
 
-	configPath, err := filepath.Abs(s.config.ConfigPath)
-	fmt.Println("server theme on path %s", s.config.ConfigPath)
+	configPath, err := filepath.Abs(s.config.SchemePath)
+	fmt.Println("server theme on path %s", s.config.SchemePath)
 	if err != nil {
 		log.Fatal(err.Error())
 	}
@@ -155,22 +156,42 @@ func (s *Server) WatchTheme() {
 		ei := <-events
 
 		// TODO for now, we just rebuild all files. We could do better, and just rebuild the affected files
-		for p := range s.config.Pipes {
-			pipelinePath := filepath.Join(s.config.PipesPath, s.config.Pipes[p])
-			// TODO filepath.HasPrefix should not be used. is deprecated. find a fix
-			if filepath.HasPrefix(ei.Path(), pipelinePath) {
-				atomic.StoreInt32(&s.ignoreWrite, 1)
-				log.Trace(fmt.Sprintf("Pipeline changed. Reloading file: %s", ei.Path()))
-				s.project.pipelines.LoadPipelines()
-				s.project.Build(false)
-				atomic.StoreInt32(&s.ignoreWrite, 0)
-				break
-			}
-		}
+		log.Trace(fmt.Sprintf("Theme changed. Reloading file: %s", ei.Path()))
+		atomic.StoreInt32(&s.ignoreWrite, 1)
+		s.project.Build(false)
+		atomic.StoreInt32(&s.ignoreWrite, 0)
 
-		if filepath.HasPrefix(ei.Path(), s.config.SchemePath) {
-			log.Trace(fmt.Sprintf("Theme changed. Reloading file: %s", ei.Path()))
+		if s.config.FsWatcher.HotReload {
+			s.reloadPage()
+		}
+	}
+}
+
+func (s *Server) WatchPipes() {
+	events := make(chan notify.EventInfo, 1)
+
+	configPath, err := filepath.Abs(s.config.PipesPath)
+	fmt.Println("server theme on path %s", s.config.PipesPath)
+	if err != nil {
+		log.Fatal(err.Error())
+	}
+
+	// TODO: start a watcher for each pipe folder. this way, we can:
+	// * selectively watch for pipes in ~/.config and .craeft/pipes
+	// * when a pipe change, we can use the pipe information to just rebuild files transformed by the pipe
+	if err := notify.Watch(configPath+"/...", events, notify.Write); err != nil {
+		log.Fatal(fmt.Sprintf("Can't watch files for change: %v", err))
+	}
+	defer notify.Stop(events)
+
+	for {
+		ei := <-events
+
+		// TODO for now, we just rebuild all files. We could do better, and just rebuild the affected files
+		for _ = range s.config.Pipes {
 			atomic.StoreInt32(&s.ignoreWrite, 1)
+			log.Trace(fmt.Sprintf("Pipeline changed. Reloading file: %s", ei.Path()))
+			s.project.pipelines.LoadPipelines()
 			s.project.Build(false)
 			atomic.StoreInt32(&s.ignoreWrite, 0)
 		}

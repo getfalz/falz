@@ -23,6 +23,10 @@ func Server(c *cli.Context) error {
 		go p.Server.WatchTheme()
 	}
 
+	if p.Config.FsWatcher.Pipes {
+		go p.Server.WatchPipes()
+	}
+
 	if p.Config.FsWatcher.HotReload {
 		p.Server.HotReload()
 	}

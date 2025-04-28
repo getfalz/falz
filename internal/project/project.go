@@ -20,7 +20,7 @@ import (
 var (
 	// TODO move it to Project
 	caches    = &Caches{}
-	blackList = []string{projectRootFolder}
+	blackList = []string{fmt.Sprintf("%s/**", projectRootFolder)}
 )
 
 type Project struct {
@@ -40,7 +40,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
-	blackList = append(blackList, filepath.Base(config.OutputPath))
+	blackList = append(blackList, fmt.Sprintf("%s/**", filepath.Base(config.OutputPath)))
 	config.Ignore = append(config.Ignore, blackList...)
 
 	rconfig := &pipeline.RegistryConfig{
@@ -91,7 +91,6 @@ func (p *Project) Build(useCache bool) error {
 					// TODO(important): path should not point out of the project
 					cpath := filepath.Join(p.Config.SourcePath, currentDir, contentConf.Path)
 					log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
-					fmt.Printf("cpath: %s\n", cpath)
 					contents, err := zglob.Glob(cpath)
 					if err != nil {
 						if errors.Is(err, os.ErrNotExist) {
@@ -104,7 +103,6 @@ func (p *Project) Build(useCache bool) error {
 
 					var contentBuffer = make(map[string]*content.Content)
 
-					fmt.Printf("found contents: %+v", contents)
 					if len(contents) == 0 {
 						log.Warn(fmt.Sprintf("layout %s/%s content path %q has no matches", lyt.Path(), lyt.Name(), contentConf.Path))
 					}
@@ -297,6 +295,7 @@ func (p *Project) BuildAsset(path string, assetType string) error {
 }
 
 func (p *Project) ignoreFile(path string) bool {
+	path = filepath.Clean(path)
 	for _, pat := range p.Config.Ignore {
 		match, err := zglob.Match(pat, path)
 		if err != nil {

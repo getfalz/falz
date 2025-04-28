@@ -79,6 +79,11 @@ func main() {
 						Value: false,
 					},
 					&cli.BoolFlag{
+						Name:  "watch-pipes",
+						Usage: "Enable file watcher on pipes folder",
+						Value: false,
+					},
+					&cli.BoolFlag{
 						Name:  "hot-reload",
 						Usage: "Enable hot-reload. Only works if watch-content or watch-theme is enabled",
 						Value: false,
@@ -96,7 +101,8 @@ func main() {
 					}
 					p.Config.FsWatcher.Content = c.Bool("watch-content")
 					p.Config.FsWatcher.Theme = c.Bool("watch-theme")
-					p.Config.FsWatcher.HotReload = (c.Bool("watch-content") || c.Bool("watch-theme")) && c.Bool("hot-reload")
+					p.Config.FsWatcher.Pipes = c.Bool("watch-pipes")
+					p.Config.FsWatcher.HotReload = (c.Bool("watch-content") || c.Bool("watch-theme") || c.Bool("watch-pipes")) && c.Bool("hot-reload")
 
 					return nil
 				},

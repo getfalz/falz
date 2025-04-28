@@ -27,6 +27,7 @@ type FsWatcherConfig struct {
 	HotReload bool `yaml:"hot_reload" default:"false"`
 	Content   bool `yaml:"content" default:"false"`
 	Theme     bool `yaml:"theme" default:"false"`
+	Pipes     bool `yaml:"pipes" default:"false"`
 }
 
 // TODO set start/end tag for layout.parseTpl
@@ -122,7 +123,7 @@ func (c *CraeftConfig) IsValid() error {
 	// 	return errors.New("no theme specified in config file")
 	// }
 
-	if c.FsWatcher.HotReload && (!c.FsWatcher.Content || !c.FsWatcher.Theme) {
+	if c.FsWatcher.HotReload && (!c.FsWatcher.Content || !c.FsWatcher.Theme || !c.FsWatcher.Pipes) {
 		return errors.New("hot-reload enabled, but no file watcher enabled")
 	}
 
