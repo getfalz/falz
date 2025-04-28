@@ -162,7 +162,7 @@ func (s *Server) WatchTheme() {
 				atomic.StoreInt32(&s.ignoreWrite, 1)
 				log.Trace(fmt.Sprintf("Pipeline changed. Reloading file: %s", ei.Path()))
 				s.project.pipelines.LoadPipelines()
-				s.project.Build()
+				s.project.Build(false)
 				atomic.StoreInt32(&s.ignoreWrite, 0)
 				break
 			}
@@ -171,7 +171,7 @@ func (s *Server) WatchTheme() {
 		if filepath.HasPrefix(ei.Path(), s.config.SchemePath) {
 			log.Trace(fmt.Sprintf("Theme changed. Reloading file: %s", ei.Path()))
 			atomic.StoreInt32(&s.ignoreWrite, 1)
-			s.project.Build()
+			s.project.Build(false)
 			atomic.StoreInt32(&s.ignoreWrite, 0)
 		}
 

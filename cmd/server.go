@@ -13,7 +13,7 @@ func Server(c *cli.Context) error {
 		log.Fatal("Project not found in context.")
 	}
 
-	p.Build()
+	p.Build(true)
 
 	if p.Config.FsWatcher.Content {
 		go p.Server.WatchFiles()

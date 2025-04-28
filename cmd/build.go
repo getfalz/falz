@@ -17,7 +17,7 @@ func Build(c *cli.Context) error {
 	}
 
 	// TODO Build could be done parallel. First check for cache access
-	if err := p.Build(); err != nil {
+	if err := p.Build(true); err != nil {
 		log.Fatal(fmt.Sprintf("Can't build project: %v", err))
 	}
 	return nil

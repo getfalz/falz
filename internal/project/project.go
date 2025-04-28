@@ -62,7 +62,7 @@ func New(config *CraeftConfig) (*Project, error) {
 	return p, nil
 }
 
-func (p *Project) Build() error {
+func (p *Project) Build(useCache bool) error {
 	var assetslist = make(map[string]assetData)
 
 	err := p.walk(func(path string, d fs.DirEntry) error {
@@ -70,7 +70,7 @@ func (p *Project) Build() error {
 			log.Trace(fmt.Sprintf("Building folder %s", path), log.Tag{Key: log.SrcTag, Value: "layout"})
 			currentDir := path
 
-			layouts, err := p.getLayouts(currentDir)
+			layouts, err := p.getLayouts(currentDir, useCache)
 			if err != nil {
 				log.Error(err)
 				return SkipFile
@@ -229,7 +229,7 @@ func (p *Project) BuildPath(path string) (string, error) {
 
 	// TODO: check if the path is withing the project
 
-	layouts, err := p.getLayouts(base)
+	layouts, err := p.getLayouts(base, false)
 	if err != nil {
 		return "", err
 	}
@@ -312,7 +312,7 @@ func (p *Project) ignoreFile(path string) bool {
 }
 
 // GetLayout returns all layouts for a given path
-func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
+func (p *Project) getLayouts(path string, useCache bool) (map[string]*layout.Layout, error) {
 	var results = make(map[string]*layout.Layout)
 
 	layoutPaths, err := utils.FindFile(p.Config.SchemePath, path, p.Config.Layout)
@@ -322,7 +322,7 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 
 	for i := range layoutPaths {
 		path := layoutPaths[i]
-		if cached, ok := caches.layouts.Load(path); ok {
+		if cached, ok := caches.layouts.Load(path); ok && useCache {
 			results[path] = cached.(*layout.Layout)
 			log.Trace(fmt.Sprintf("using cached layout %s", path))
 			continue
