@@ -7,6 +7,17 @@ import (
 	"github.com/gobuffalo/plush"
 )
 
+// @jsapi
+// @namespace tpl
+//
+// A utility module for rendering and manipulating templates using the Plush system.
+//
+// This module provides various functions that support rendering templates,
+// working with variables, and performing other templating tasks.
+// It uses the Plush template engine from Go (`github.com/gobuffalo/plush`).
+//
+// Functions available in this module include `render`, which renders a template string
+// using the provided variables, and other utilities that may support different use cases.
 func GetTplModule(ev *EventLoop) *goja.Object {
 	module := ev.vm.NewObject()
 	module.Set("render", func(call goja.FunctionCall) goja.Value { return Render(call, ev) })
@@ -15,11 +26,17 @@ func GetTplModule(ev *EventLoop) *goja.Object {
 
 // @jsapi
 //
-// Renders a template using the provided variables.
+// Renders a template using the provided variables, leveraging the Plush template system.
 //
-// @param template - The template string to render.
-// @param variables - A key-value map containing variables to be used in the template.
-// @returns A promise that resolves to the rendered string.
+// @param template - A template string with embedded dynamic content (e.g., "<%= name %>").
+// @param variables - An object (map) containing key-value pairs to replace placeholders in the template.
+// @returns A promise that resolves to the rendered string with variables replaced.
+//
+// @example
+// ```javascript
+// const result = await tpl.render("Hello, <%= name %>!", { name: "World" });
+// console.log(result); // Output: "Hello, World!"
+// ```
 //
 // function Render(template: string, variables: Record<string, any>): Promise<string>;
 func Render(call goja.FunctionCall, ev *EventLoop) goja.Value {

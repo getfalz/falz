@@ -50,6 +50,10 @@ func (fs *FsApi) isWithinRoot(path string) bool {
 	return strings.HasPrefix(absPath, fs.root)
 }
 
+// @jsapi
+// @namespace fs
+//
+// File system utilities.
 func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 	module := vm.NewObject()
 
@@ -77,14 +81,41 @@ func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 
 // TODO put this in api.utils
 
+// @jsapi
+//
+// This function opens a file.
+//
+// @param some - The template string to render.
+// @param variable - A key-value map containing variables to be used in the template.
+// @returns A promise that resolves to the rendered string.
+//
+// function bytes(template: string, variables: Record<string, any>): Promise<string>;
 func (fs *FsApi) bytes(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	return fs.readFile(call, vm, false)
 }
 
+// @jsapi
+//
+// This function opens a text file.
+//
+// @param some - The template string to render.
+// @param variable - A key-value map containing variables to be used in the template.
+// @returns A promise that resolves to the rendered string.
+//
+// function text(template: string, variables: Record<string, any>): Promise<string>;
 func (fs *FsApi) text(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	return fs.readFile(call, vm, true)
 }
 
+// @jsapi
+//
+// This function opens a json.
+//
+// @param some - The template string to render.
+// @param variable - A key-value map containing variables to be used in the template.
+// @returns A promise that resolves to the rendered string.
+//
+// function json(template: string, variables: Record<string, any>): Promise<string>;
 func (fs *FsApi) json(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 

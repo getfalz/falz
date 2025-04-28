@@ -1,6 +1,8 @@
+//go:generate go run ./gendoc/jsdocs.go
 package main
 
 import (
+	_ "embed"
 	"fmt"
 	"os"
 
@@ -17,6 +19,9 @@ var (
 	Description = "A general purpose file to file converter"
 	Version     = "0.1.0"
 )
+
+//go:embed gendoc/api.d.ts
+var jsDocs string
 
 func main() {
 	var verbosity int
