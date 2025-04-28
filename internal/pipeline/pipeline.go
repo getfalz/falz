@@ -98,9 +98,9 @@ func (r *Registry) Get(name string) (PipelineScript, error) {
 		return pipeline, nil
 	}
 
-	if name == "" {
-		return r.defaults["nop"], nil
-	}
+	// if name == "" {
+	// 	return r.defaults["nop"], nil
+	// }
 	if defaultPipeline, ok := r.defaults[name]; ok {
 		return defaultPipeline, nil
 	}

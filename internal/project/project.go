@@ -77,72 +77,86 @@ func (p *Project) Build() error {
 			}
 
 			for _, lyt := range layouts {
-				contentConf := lyt.Content()
-
-				log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "layout"})
-
 				layoutTpl, err := lyt.Render(currentDir)
 				if err != nil {
 					log.Error(err)
 					return SkipFile
 				}
 
-				// TODO(content): move this to content struct? see asset. content.Build(), content.Index()
-				cpath := filepath.Join(p.Config.SourcePath, currentDir, contentConf.Path)
-				log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
-				contents, err := zglob.Glob(cpath)
-				if err != nil {
-					if errors.Is(err, os.ErrNotExist) {
-						log.Warn(fmt.Sprintf("No content %s found for layout %s", filepath.Join(currentDir, contentConf.Path), lyt.Name()))
-						return SkipFile
-					}
-					log.Error(err)
-					return SkipFile
-				}
+				for _, contentConf := range lyt.Contents() {
 
-				var contentBuffer = make(map[string]*content.Content)
+					log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "layout"})
 
-				for _, contentPath := range contents {
-					path, err := filepath.Rel(p.Config.SourcePath, contentPath)
+					// TODO(content): move this to content struct? see asset. content.Build(), content.Index()
+					// TODO(important): path should not point out of the project
+					cpath := filepath.Join(p.Config.SourcePath, currentDir, contentConf.Path)
+					log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
+					fmt.Printf("cpath: %s\n", cpath)
+					contents, err := zglob.Glob(cpath)
 					if err != nil {
+						if errors.Is(err, os.ErrNotExist) {
+							log.Warn(fmt.Sprintf("No content %s found for layout %s", filepath.Join(currentDir, contentConf.Path), lyt.Name()))
+							return SkipFile
+						}
 						log.Error(err)
 						return SkipFile
 					}
-					page, err := p.getContent(lyt.Content().Name, path, contentConf.Pipeline)
-					if err != nil {
-						log.Error(err)
-						return SkipFile
-					}
-					log.Debug(fmt.Sprintf("Indexing %s", path))
 
-					page.LoadIndex()
-					contentBuffer[path] = page
-				}
-				// }
+					var contentBuffer = make(map[string]*content.Content)
 
-				for _, contentPath := range contents {
-					path, err := filepath.Rel(p.Config.SourcePath, contentPath)
-					if err != nil {
-						log.Error(err)
-						return SkipFile
+					fmt.Printf("found contents: %+v", contents)
+					if len(contents) == 0 {
+						log.Warn(fmt.Sprintf("layout %s/%s content path %q has no matches", lyt.Path(), lyt.Name(), contentConf.Path))
 					}
-					// page, err := p.getContent(contentPath, contentConf.Pipeline)
-					// if err != nil {
-					// 	return err
+					for _, contentPath := range contents {
+						path, err := filepath.Rel(p.Config.SourcePath, contentPath)
+						if err != nil {
+							log.Error(err)
+							return SkipFile
+						}
+						page, err := p.getContent(contentConf.Name, path, contentConf.Pipe)
+						if err != nil {
+							log.Error(err)
+							return SkipFile
+						}
+						log.Debug(fmt.Sprintf("Indexing %s", path))
+
+						page.LoadIndex()
+						contentBuffer[path] = page
+					}
 					// }
-					page := contentBuffer[path]
 
-					log.Debug(fmt.Sprintf("Building %s", path))
-					results, err := page.Build(layoutTpl)
-					if err != nil {
-						log.Error(err)
-						return SkipFile
+					for _, contentPath := range contents {
+						path, err := filepath.Rel(p.Config.SourcePath, contentPath)
+						if err != nil {
+							log.Error(err)
+							return SkipFile
+						}
+						// page, err := p.getContent(contentPath, contentConf.Pipeline)
+						// if err != nil {
+						// 	return err
+						// }
+						page := contentBuffer[path]
+
+						log.Debug(fmt.Sprintf("Building %s", path))
+						results, err := page.Build(layoutTpl)
+						if err != nil {
+							log.Error(err)
+							return SkipFile
+						}
+
+						_, err = p.writeResults(currentDir, results)
+						if err != nil {
+							log.Error(err)
+							return SkipFile
+						}
 					}
 
-					_, err = p.writeResults(currentDir, results)
-					if err != nil {
-						log.Error(err)
-						return SkipFile
+					for _, asset := range contentConf.Assets {
+						npath := filepath.Join(p.Config.SourcePath, asset.Source)
+
+						log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
+						assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
 					}
 				}
 
@@ -152,13 +166,6 @@ func (p *Project) Build() error {
 
 					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
 					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
-				}
-
-				for _, asset := range lyt.Content().Assets {
-					npath := filepath.Join(p.Config.SourcePath, asset.Source)
-
-					log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
-					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
 				}
 
 			}
@@ -230,31 +237,34 @@ func (p *Project) BuildPath(path string) (string, error) {
 	var outputPath string
 	for _, lyt := range layouts {
 		if lyt.MatchContent(fileName) {
+			for _, contentConf := range lyt.Contents() {
+				if contentConf.MatchContent(fileName) {
 
-			contentConf := lyt.Content()
+					layoutTpl, err := lyt.Render(base)
+					if err != nil {
+						return "", err
+					}
 
-			layoutTpl, err := lyt.Render(base)
-			if err != nil {
-				return "", err
-			}
+					// Index
+					page, err := p.getContent(contentConf.Name, path, contentConf.Pipe)
+					if err != nil {
+						return "", err
+					}
 
-			// Index
-			page, err := p.getContent(lyt.Content().Name, path, contentConf.Pipeline)
-			if err != nil {
-				return "", err
-			}
+					page.LoadIndex()
 
-			page.LoadIndex()
+					// Build
+					results, err := page.Build(layoutTpl)
+					if err != nil {
+						return "", err
+					}
 
-			// Build
-			results, err := page.Build(layoutTpl)
-			if err != nil {
-				return "", err
-			}
+					outputPath, err = p.writeResults(base, results)
+					if err != nil {
+						return "", err
+					}
 
-			outputPath, err = p.writeResults(base, results)
-			if err != nil {
-				return "", err
+				}
 			}
 
 		}
@@ -307,28 +317,30 @@ func (p *Project) getLayouts(path string) (map[string]*layout.Layout, error) {
 
 	layoutPaths, err := utils.FindFile(p.Config.SchemePath, path, p.Config.Layout)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("cannot find layout for path %q: %w", path, err)
 	}
 
 	for i := range layoutPaths {
 		path := layoutPaths[i]
 		if cached, ok := caches.layouts.Load(path); ok {
 			results[path] = cached.(*layout.Layout)
+			log.Trace(fmt.Sprintf("using cached layout %s", path))
 			continue
 		}
 
-		layoutFile, err := os.ReadFile(filepath.Join(p.Config.SchemePath, path))
+		layoutPath := filepath.Join(p.Config.SchemePath, path)
+		layoutFile, err := os.ReadFile(layoutPath)
 		if err != nil {
-			return nil, fmt.Errorf("can't read layout file: %w", err)
+			return nil, fmt.Errorf("failed to read layout file %q: %w", layoutPath, err)
 		}
 
 		// layout should know where is the project base folder, for later fragment lookup
 		layout, err := layout.Parse(p.Config.SchemePath, path, layoutFile, p.pipelines, p.Config.FsWatcher.HotReload)
 		if err != nil {
-			return nil, fmt.Errorf("can't parse layout file: %w", err)
+			return nil, fmt.Errorf("failed to parse layout file %q: %w", layoutPath, err)
 		}
 
-		log.Trace(fmt.Sprintf("found layout %s", path))
+		log.Trace(fmt.Sprintf("using layout %s", layoutPath))
 		caches.layouts.Store(path, layout)
 		results[path] = layout
 	}

@@ -141,6 +141,7 @@ func (s *Server) WatchTheme() {
 	events := make(chan notify.EventInfo, 1)
 
 	configPath, err := filepath.Abs(s.config.ConfigPath)
+	fmt.Println("server theme on path %s", s.config.ConfigPath)
 	if err != nil {
 		log.Fatal(err.Error())
 	}

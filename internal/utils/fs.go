@@ -9,7 +9,18 @@ import (
 	"github.com/mattn/go-zglob"
 )
 
-// FindFile searches a file fileName by consuming the targetPath and going up the directory hierarchy until reaching the basePath. Then it returns a map of fileName to the relative path of the file with the basePath.
+// FindFile searches for files matching the given glob pattern by walking up the directory
+// tree, starting from the combined basePath and targetPath, and stopping at basePath.
+// It returns a slice of relative file paths (relative to basePath) for each unique match found.
+//
+// For example, if pattern is "*.config" and targetPath is "src/app", the function will look for
+// matching files in:
+//
+//	basePath/src/app
+//	basePath/src
+//	basePath
+//
+// The search stops once basePath is reached. If no matches are found, an error is returned.
 func FindFile(basePath, targetPath, pattern string) ([]string, error) {
 	var results []string
 	uniqueResult := make(map[string]bool)
@@ -18,7 +29,7 @@ func FindFile(basePath, targetPath, pattern string) ([]string, error) {
 	for {
 		matches, err := zglob.Glob(filepath.Join(currentPath, pattern))
 		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("findFile can't glob '%s' in '%s': %w", pattern, currentPath, err)
+			return nil, fmt.Errorf("failed to glob pattern %q in directory %q: %w", pattern, currentPath, err)
 		}
 
 		for _, match := range matches {
@@ -41,7 +52,7 @@ func FindFile(basePath, targetPath, pattern string) ([]string, error) {
 	}
 
 	if len(results) == 0 {
-		return nil, fmt.Errorf("no files matching pattern %s found from %s up to %s", pattern, targetPath, basePath)
+		return nil, fmt.Errorf("no files matching pattern %q found while walking from %q up to %q", pattern, filepath.Join(basePath, targetPath), basePath)
 	}
 
 	return results, nil

@@ -3,6 +3,7 @@ package layout
 import (
 	"context"
 	"encoding/xml"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -56,27 +57,28 @@ type Layout struct {
 
 	// Children
 	fragments []Fragment
-	content   *Content
+	contents  []Content
 	assets    []Asset
 
-	Tpl string `xml:"template,attr"`
+	Tpl     string `xml:"tpl,attr"`
+	TplPath string `xml:"path,attr"`
 }
 
 type Fragment struct {
 	pipeline pipeline.PipelineScript
 
-	XMLName  xml.Name `xml:"Fragment"`
-	Name     string   `xml:"name,attr"`
-	Source   string   `xml:"src,attr"`
-	Pipeline string   `xml:"pipeline,attr"`
+	XMLName xml.Name `xml:"Fragment"`
+	Name    string   `xml:"name,attr"`
+	Source  string   `xml:"src,attr"`
+	Pipe    string   `xml:"pipe,attr"`
 }
 
 type Content struct {
-	XMLName  xml.Name `xml:"Content"`
-	Name     string   `xml:"name,attr"`
-	Path     string   `xml:"path,attr"`
-	Pipeline string   `xml:"pipeline,attr"`
-	Assets   []Asset  `xml:"Assets"`
+	XMLName xml.Name `xml:"Content"`
+	Name    string   `xml:"name,attr"`
+	Path    string   `xml:"path,attr"`
+	Pipe    string   `xml:"pipe,attr"`
+	Assets  []Asset  `xml:"Assets"`
 }
 
 type Asset struct {
@@ -127,6 +129,16 @@ func (f Fragment) Render(ctx context.Context) (string, error) {
 	return result[0]["result"], nil
 }
 
+func (f Fragment) Validate() error {
+	if f.Name == "" {
+		return errors.New("element <Fragment>: missing required field: name")
+	}
+	if f.Source == "" {
+		return errors.New("element <Fragment>: missing required field: src")
+	}
+	return nil
+}
+
 func getValue(ctx context.Context, key contextKey) string {
 	// Use the key to get the value from the context
 	if val, ok := ctx.Value(key).(string); ok {
@@ -140,6 +152,18 @@ func (c Content) Render(ctx context.Context) (string, error) {
 	return fmt.Sprintf("{{%s}}", c.Name), nil
 }
 
+// TODO(important): path should not point out of the project
+func (c Content) Validate() error {
+	if c.Name == "" {
+		return errors.New("element <Content>: missing required field: name")
+	}
+	if c.Path == "" {
+		return errors.New("element <Content>: missing required field: path")
+	}
+	return nil
+}
+
+// TODO: deprecate? this is css/js specific. maybe only return the new path
 func (a Asset) Render(ctx context.Context) (string, error) {
 	basePath := getValue(ctx, ctxBasePath)
 
@@ -163,20 +187,34 @@ func (a Asset) Render(ctx context.Context) (string, error) {
 	return string(result), nil
 }
 
+func (a Asset) Validate() error {
+	if a.Name == "" {
+		return errors.New("element <Asset>: missing required field: name")
+	}
+	if a.Source == "" {
+		return errors.New("element <Asset>: missing required field: src")
+	}
+	return nil
+}
+
 // Render layout. The fragments will be searched first in the given base path
 func (l *Layout) Render(path string) (string, error) {
 	// TODO render websocket script only when the development flag is set
 	// but find a way to define the variables placeholders. maybe use fasttemplate?
 
-	tplPaths, err := utils.FindFile(l.basePath, path, l.Tpl)
-	if err != nil {
-		return "", fmt.Errorf("Can't find layout template: %w", err)
-	}
-
 	var tmpl []byte
-	tmpl, err = os.ReadFile(filepath.Join(l.basePath, tplPaths[0]))
-	if err != nil {
-		return "", err
+	if l.Tpl != "" {
+		tmpl = []byte(l.Tpl)
+	} else {
+		tplPaths, err := utils.FindFile(l.basePath, path, l.TplPath)
+		if err != nil {
+			return "", fmt.Errorf("can't find layout template: %w", err)
+		}
+
+		tmpl, err = os.ReadFile(filepath.Join(l.basePath, tplPaths[0]))
+		if err != nil {
+			return "", err
+		}
 	}
 
 	ctx := context.WithValue(context.Background(), ctxBasePath, l.basePath)
@@ -192,11 +230,13 @@ func (l *Layout) Render(path string) (string, error) {
 		tplVariables[asset.Name] = output
 	}
 
-	content, err := l.content.Render(ctx)
-	if err != nil {
-		return "", err
+	for _, c := range l.contents {
+		content, err := c.Render(ctx)
+		if err != nil {
+			return "", err
+		}
+		tplVariables[c.Name] = content
 	}
-	tplVariables[l.content.Name] = content
 
 	for _, f := range l.fragments {
 		output, err := f.Render(ctx)
@@ -210,10 +250,17 @@ func (l *Layout) Render(path string) (string, error) {
 		tplVariables["hotreload"] = wsClient
 	}
 
-	log.Trace(fmt.Sprintf("Rendering layout %s with variables: %v", l.Tpl, tplVariables))
+	log.Trace(fmt.Sprintf("Rendering layout %q with variables: %v", l.Tpl, tplVariables))
 	result := parseTpl(string(tmpl), tplVariables)
 
 	return result, nil
+}
+
+func (l Layout) Validate() error {
+	if l.Tpl == "" && l.TplPath == "" {
+		return errors.New("element <Layout>: layout requires Tpl or TplPath")
+	}
+	return nil
 }
 
 func (l *Layout) Fragments() []string {
@@ -226,8 +273,8 @@ func (l *Layout) Fragments() []string {
 	return fragments
 }
 
-func (l Layout) Content() Content {
-	return *l.content
+func (l Layout) Contents() []Content {
+	return l.contents
 }
 
 func (l Layout) Assets() []Asset {
@@ -242,8 +289,8 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			c.Name = attr.Value
 		case "path":
 			c.Path = attr.Value
-		case "pipeline":
-			c.Pipeline = attr.Value
+		case "pipe":
+			c.Pipe = attr.Value
 		}
 	}
 
@@ -264,12 +311,15 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			}
 		case xml.StartElement:
 			if t.Name.Local == "Asset" {
-				var v Asset
-				if err := d.DecodeElement(&v, &t); err != nil {
+				var a Asset
+				if err := d.DecodeElement(&a, &t); err != nil {
+					return err
+				}
+				if err := a.Validate(); err != nil {
 					return err
 				}
 				// pipelines are set on layout.UnmarshalXML
-				c.Assets = append(c.Assets, v)
+				c.Assets = append(c.Assets, a)
 			}
 		}
 	}
@@ -280,8 +330,10 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	l.XMLName = start.Name
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
-		case "template":
+		case "tpl":
 			l.Tpl = attr.Value
+		case "path":
+			l.TplPath = attr.Value
 		}
 	}
 
@@ -298,38 +350,48 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case xml.StartElement:
 			switch se.Name.Local {
 			case "Asset":
-				var v Asset
-				if err := d.DecodeElement(&v, &se); err != nil {
+				var a Asset
+				if err := d.DecodeElement(&a, &se); err != nil {
 					return err
 				}
-				v.pipeline, err = l.pipelines.Get(v.AssetType)
+				if err := a.Validate(); err != nil {
+					return err
+				}
+				a.pipeline, err = l.pipelines.Get(a.AssetType)
 				if err != nil {
 					log.Warn(
-						fmt.Sprintf("pipeline '%s' not found for asset %s: %s", v.AssetType, v.Name, err),
+						fmt.Sprintf("pipeline '%s' not found for asset %s: %s", a.AssetType, a.Name, err),
 						log.Tag{Key: log.SrcTag, Value: "layout"},
 					)
 				}
-				l.assets = append(l.assets, v)
+				l.assets = append(l.assets, a)
 			case "Fragment":
-				var v Fragment
-				if err := d.DecodeElement(&v, &se); err != nil {
+				var f Fragment
+				if err := d.DecodeElement(&f, &se); err != nil {
 					return err
 				}
-				v.pipeline, err = l.pipelines.Get(v.Pipeline)
+				if err := f.Validate(); err != nil {
+					return err
+				}
+				f.pipeline, err = l.pipelines.Get(f.Pipe)
 				if err != nil {
 					log.Warn(
-						fmt.Sprintf("pipeline '%s' not found for fragment %s, err: %s", v.Pipeline, v.Name, err),
+						fmt.Sprintf("pipeline '%s' not found for fragment %s, err: %s", f.Pipe, f.Name, err),
 						log.Tag{Key: log.SrcTag, Value: "layout"},
 					)
 				}
-				l.fragments = append(l.fragments, v)
+				l.fragments = append(l.fragments, f)
 			case "Content":
-				var child Content
-				if err := d.DecodeElement(&child, &se); err != nil {
+				var c Content
+				if err := d.DecodeElement(&c, &se); err != nil {
 					return err
 				}
-				for i, a := range child.Assets {
-					child.Assets[i].pipeline, err = l.pipelines.Get(a.AssetType)
+				if err := c.Validate(); err != nil {
+					return err
+				}
+				// initialize assets pipelines
+				for i, a := range c.Assets {
+					c.Assets[i].pipeline, err = l.pipelines.Get(a.AssetType)
 					if err != nil {
 						log.Warn(
 							fmt.Sprintf("pipeline '%s' not found for content asset %s, err: %s", a.AssetType, a.Name, err),
@@ -337,7 +399,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 						)
 					}
 				}
-				l.content = &child
+				l.contents = append(l.contents, c)
 			}
 		}
 	}
@@ -352,15 +414,25 @@ func (l Layout) Name() string {
 	return l.name
 }
 
-// MatchContent checks if the given path matches the layout's content
-func (l Layout) MatchContent(path string) bool {
-	match, err := zglob.Match(l.content.Path, path)
+func (c Content) MatchContent(path string) bool {
+	match, err := zglob.Match(c.Path, path)
 	if err != nil {
+		// TODO(now) why is an error needed?. this can be refactor to a simple break
 		log.Error(fmt.Errorf("error matching layout with path %s: %v", path, err))
 		return false
 	}
-
 	return match
+}
+
+// MatchContent checks if the given path matches the layout's content
+func (l Layout) MatchContent(path string) bool {
+	for _, c := range l.contents {
+		if c.MatchContent(path) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
