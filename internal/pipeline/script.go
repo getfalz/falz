@@ -60,15 +60,15 @@ func loadScript(path string) string {
 		EntryPoints:      []string{scriptName},
 		AbsWorkingDir:    dirName,
 		Outfile:          "out.js",
-		Format:           api.FormatESModule,
+		Format:           api.FormatCommonJS,
 		Bundle:           true,
 		Write:            false,
 		TreeShaking:      api.TreeShakingFalse, // api.TreeShakingTrue
-		MinifyWhitespace: true,
+		MinifyWhitespace: false,
 		// MinifyIdentifiers: true,
-		MinifySyntax: true,
+		MinifySyntax: false,
 		Target:       api.ES2020, // api.ES5
-		// Sourcemap:    api.SourceMapNone,
+		// Sourcemap: api.SourceMapNone,
 		Sourcemap: api.SourceMapInline,
 		Supported: map[string]bool{
 			"for-await":       false,
@@ -83,7 +83,12 @@ func loadScript(path string) string {
 		return ""
 	}
 
-	log.Trace(fmt.Sprintf("esbuild generated: %s", result.OutputFiles[0].Contents))
+	// TODO this could be written to debug files
+	// log.Trace(fmt.Sprintf("esbuild generated: %s", result.OutputFiles[0].Contents))
+	fmt.Println("saving debug file to %s", result.OutputFiles[0].Path)
+	if err := os.WriteFile(result.OutputFiles[0].Path, []byte(result.OutputFiles[0].Contents), 0644); err != nil {
+		panic(err)
+	}
 	return string(result.OutputFiles[0].Contents)
 }
 

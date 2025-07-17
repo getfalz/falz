@@ -180,7 +180,7 @@ func initialize(c *cli.Context) {
 
 func printWelcome(cli *cli.Context, base, target string) {
 	fmt.Printf("⚒ %s %s\n", cli.App.Name, cli.App.Version)
-	fmt.Printf("➤ Building folder %s -> %s\n", base, target)
+	fmt.Printf("➤ Building folder %q -> %q\n", base, target)
 	fmt.Printf("")
 	if cli.Int("port") != 0 {
 		fmt.Printf("Server running on port: %d\n", cli.Int("port"))

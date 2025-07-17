@@ -5,25 +5,31 @@ import (
 	"os"
 	"regexp"
 
+	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
 
+// TODO validate
 type PipelineConfig struct {
 	PipelineName   string `yaml:"name"`
-	EntryPoint     string `yaml:"entry_point"`
+	EntryPoint     string `yaml:"entry_point" default:"index.js"`
 	SourceSuffix   string `yaml:"source_suffix"`
 	TargetSuffix   string `yaml:"target_suffix"`
 	SourceSuffixRe *regexp.Regexp
 }
 
 func loadConfig(configFile string) (*PipelineConfig, error) {
+	config := &PipelineConfig{}
+
 	file, err := os.Open(configFile)
 	if err != nil {
 		return nil, err
 	}
 	defer file.Close()
 
-	var config PipelineConfig
+	if err := defaults.Set(config); err != nil {
+		return nil, err
+	}
 
 	decoder := yaml.NewDecoder(file)
 	if err := decoder.Decode(&config); err != nil {
@@ -34,5 +40,5 @@ func loadConfig(configFile string) (*PipelineConfig, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile source_suffix pattern: %s", err)
 	}
-	return &config, nil
+	return config, nil
 }

@@ -15,6 +15,7 @@ import (
 	"craeft/internal/log"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja/parser"
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
 )
@@ -41,6 +42,42 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 	name := filepath.Base(config.Path)
 	p, err := goja.Compile(name, code, false)
 	if err != nil {
+		var ex *goja.Exception
+		if errors.As(err, &ex) {
+			// ex.Value() is the thrown JS value (could be a SyntaxError, ReferenceError, or any Error subtype)
+			// ex.String() prints message + JS stack trace
+			fmt.Println("▶ JS Exception:")
+			fmt.Println("   Value():", ex.Value())
+			fmt.Println("   String():", ex.String())
+			return nil, err
+		}
+
+		// 2) Next, catch a parser‐level syntax error (before it got wrapped)
+		var pe *parser.Error
+		if errors.As(err, &pe) {
+			fmt.Printf("▶ Parser.Error: %s at %s:%d:%d\n",
+				pe.Message,
+				pe.Position.Filename,
+				pe.Position.Line,
+				pe.Position.Column,
+			)
+			return nil, err
+		}
+
+		// 3) Maybe there are other compiler‐phase errors exposed by Goja
+		var cref *goja.CompilerReferenceError
+		if errors.As(err, &cref) {
+			fmt.Printf("▶ ReferenceError: %s at %s:%d:%d\n",
+				pe.Message,
+				pe.Position.Filename,
+				pe.Position.Line,
+				pe.Position.Column,
+			)
+			return nil, err
+		}
+
+		// 4) Fallback to whatever else
+		fmt.Printf("▶ Unknown error type (%T): %v\n", err, err)
 		return nil, err
 	}
 
@@ -49,6 +86,7 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 
 	_, err = loop.vm.RunProgram(p)
 	if err != nil {
+		fmt.Printf("error running pipeline %s: %s", config.Name, err)
 		return nil, fmt.Errorf("error running pipeline %s: %s", config.Name, err)
 	}
 

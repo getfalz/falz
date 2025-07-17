@@ -7,9 +7,9 @@ import (
 	"github.com/gobuffalo/plush"
 )
 
-// @jsapi
-// @namespace tpl
+// @ts namespace tpl
 //
+// @doc
 // A utility module for rendering and manipulating templates using the Plush system.
 //
 // This module provides various functions that support rendering templates,
@@ -24,8 +24,9 @@ func GetTplModule(ev *EventLoop) *goja.Object {
 	return module
 }
 
-// @jsapi
+// @ts function tpl
 //
+// @doc
 // Renders a template using the provided variables, leveraging the Plush template system.
 //
 // @param template - A template string with embedded dynamic content (e.g., "<%= name %>").
@@ -38,7 +39,8 @@ func GetTplModule(ev *EventLoop) *goja.Object {
 // console.log(result); // Output: "Hello, World!"
 // ```
 //
-// function Render(template: string, variables: Record<string, any>): Promise<string>;
+// @sig
+// function render(template: string, variables: Record<string, any>): Promise<string>;
 func Render(call goja.FunctionCall, ev *EventLoop) goja.Value {
 	promise, resolve, reject := ev.vm.NewPromise()
 

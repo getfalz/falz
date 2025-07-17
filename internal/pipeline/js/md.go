@@ -14,12 +14,26 @@ type MdApi struct {
 	renderer *html.Renderer
 }
 
+// @ts namespace md
+//
+// @doc
+// Markdown parser and renderer module.
+// Provides a `Parser` class to parse Markdown into HTML.
 func GetMdModule(vm *goja.Runtime) *goja.Object {
 	module := vm.NewObject()
 	module.Set("Parser", NewMdApiConstructor(vm))
 	return module
 }
 
+// @ts class md.Parser
+//
+// @doc
+// Class for parsing and rendering Markdown.
+// Configure with parser and renderer options.
+//
+// @example
+// const parser = new md.Parser({ parser: { Tables: true }, renderer: { Smartypants: true } });
+// const html = parser.render("# Hello!");
 func NewMdApiConstructor(vm *goja.Runtime) func(call goja.ConstructorCall) *goja.Object {
 	return func(call goja.ConstructorCall) *goja.Object {
 		if len(call.Arguments) < 1 {
@@ -28,18 +42,18 @@ func NewMdApiConstructor(vm *goja.Runtime) func(call goja.ConstructorCall) *goja
 
 		optionsArg := call.Argument(0).ToObject(vm)
 		config := MdApiConfig{
-			Parser:   make(map[string]interface{}),
-			Renderer: make(map[string]interface{}),
+			Parser:   make(map[string]any),
+			Renderer: make(map[string]any),
 		}
 
 		if parserConfig := optionsArg.Get("parser"); parserConfig != nil {
-			if parserObj, ok := parserConfig.ToObject(vm).Export().(map[string]interface{}); ok {
+			if parserObj, ok := parserConfig.ToObject(vm).Export().(map[string]any); ok {
 				config.Parser = parserObj
 			}
 		}
 
 		if rendererConfig := optionsArg.Get("renderer"); rendererConfig != nil {
-			if rendererObj, ok := rendererConfig.ToObject(vm).Export().(map[string]interface{}); ok {
+			if rendererObj, ok := rendererConfig.ToObject(vm).Export().(map[string]any); ok {
 				config.Renderer = rendererObj
 			}
 		}
@@ -50,11 +64,72 @@ func NewMdApiConstructor(vm *goja.Runtime) func(call goja.ConstructorCall) *goja
 	}
 }
 
+// @ts interface md.Parser
+//
+// @doc
+// Configuration object accepted by the `md.Parser` constructor.
+//
+// @sig
+//
+//	interface MdApiConfig {
+//	  parser?: {
+//	    NoIntraEmphasis?: boolean;
+//	    Tables?: boolean;
+//	    FencedCode?: boolean;
+//	    Autolink?: boolean;
+//	    Strikethrough?: boolean;
+//	    LaxHTMLBlocks?: boolean;
+//	    SpaceHeadings?: boolean;
+//	    HardLineBreak?: boolean;
+//	    NonBlockingSpace?: boolean;
+//	    TabSizeEight?: boolean;
+//	    Footnotes?: boolean;
+//	    NoEmptyLineBeforeBlock?: boolean;
+//	    HeadingIDs?: boolean;
+//	    Titleblock?: boolean;
+//	    AutoHeadingIDs?: boolean;
+//	    BackslashLineBreak?: boolean;
+//	    DefinitionLists?: boolean;
+//	    MathJax?: boolean;
+//	    OrderedListStart?: boolean;
+//	    Attributes?: boolean;
+//	    SuperSubscript?: boolean;
+//	    EmptyLinesBreakList?: boolean;
+//	    Includes?: boolean;
+//	    Mmark?: boolean;
+//	  };
+//	  renderer?: {
+//	    HrefTargetBlank?: boolean;
+//	    SkipHTML?: boolean;
+//	    SkipImages?: boolean;
+//	    SkipLinks?: boolean;
+//	    Safelink?: boolean;
+//	    NofollowLinks?: boolean;
+//	    NoreferrerLinks?: boolean;
+//	    NoopenerLinks?: boolean;
+//	    CompletePage?: boolean;
+//	    UseXHTML?: boolean;
+//	    FootnoteReturnLinks?: boolean;
+//	    FootnoteNoHRTag?: boolean;
+//	    Smartypants?: boolean;
+//	    SmartypantsFractions?: boolean;
+//	    SmartypantsDashes?: boolean;
+//	    SmartypantsLatexDashes?: boolean;
+//	    SmartypantsAngledQuotes?: boolean;
+//	    SmartypantsQuotesNBSP?: boolean;
+//	    TOC?: boolean;
+//	    LazyLoadImages?: boolean;
+//	  };
+//	}
 type MdApiConfig struct {
-	Parser   map[string]interface{}
-	Renderer map[string]interface{}
+	Parser   map[string]any
+	Renderer map[string]any
 }
 
+// @ts function md.Parser
+//
+// @sig
+// function constructor(options: MdApiConfig): md.Parser
 func NewMdApi(vm *goja.Runtime, options MdApiConfig) *MdApi {
 	parserExtensions := parser.CommonExtensions
 	rendererFlags := html.CommonFlags
@@ -171,6 +246,16 @@ func NewMdApi(vm *goja.Runtime, options MdApiConfig) *MdApi {
 	}
 }
 
+// @ts function md.Parser
+//
+// @doc
+// Parses markdown to HTML.
+//
+// @param markdown - The Markdown content.
+// @returns The rendered HTML string.
+//
+// @sig
+// function render(markdown: string): string;
 func (m *MdApi) Parse(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 

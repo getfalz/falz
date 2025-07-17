@@ -50,9 +50,9 @@ func (fs *FsApi) isWithinRoot(path string) bool {
 	return strings.HasPrefix(absPath, fs.root)
 }
 
-// @jsapi
-// @namespace fs
+// @ts namespace fs
 //
+// @doc
 // File system utilities.
 func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 	module := vm.NewObject()
@@ -89,33 +89,40 @@ func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 // @param variable - A key-value map containing variables to be used in the template.
 // @returns A promise that resolves to the rendered string.
 //
-// function bytes(template: string, variables: Record<string, any>): Promise<string>;
+// function bytes(path: string): bytes;
 func (fs *FsApi) bytes(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	return fs.readFile(call, vm, false)
 }
 
-// @jsapi
+// @ts function fs
 //
-// This function opens a text file.
+// @doc
+// Reads the contents of a file as a UTF-8 string.
 //
-// @param some - The template string to render.
-// @param variable - A key-value map containing variables to be used in the template.
-// @returns A promise that resolves to the rendered string.
+// @param path - The file path to read.
+// @returns A promise that resolves to the file contents as a string.
 //
-// function text(template: string, variables: Record<string, any>): Promise<string>;
+// @example
+// const text = await fs.text("files/hello.txt");
+// console.log(text);
+// @sig
+// function text(path: string): string;
 func (fs *FsApi) text(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	return fs.readFile(call, vm, true)
 }
 
 // @jsapi
 //
-// This function opens a json.
+// Reads and parses a JSON file.
 //
-// @param some - The template string to render.
-// @param variable - A key-value map containing variables to be used in the template.
-// @returns A promise that resolves to the rendered string.
+// @param path - The file path to read.
+// @returns A promise that resolves to the parsed JSON object.
 //
-// function json(template: string, variables: Record<string, any>): Promise<string>;
+// @example
+// const config = await fs.json("/path/to/config.json");
+// console.log(config.apiKey);
+// @endexample
+// function json(path: string): string;
 func (fs *FsApi) json(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
@@ -142,7 +149,7 @@ func (fs *FsApi) json(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 			return
 		}
 
-		var result interface{}
+		var result any
 		if err := json.Unmarshal(data, &result); err != nil {
 			reject(err)
 			return
@@ -448,6 +455,15 @@ func (fs *FsApi) deleteAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value 
 // 	Value any
 // }
 
+// @jsapi
+//
+// This function opens a file.
+//
+// @param some - The template string to render.
+// @param variable - A key-value map containing variables to be used in the template.
+// @returns A promise that resolves to the rendered string.
+//
+// function bytes(template: string, variables: Record<string, any>): Promise<string>;
 func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	dirPath, err := argMustString(call.Argument(0))
 	if err != nil {

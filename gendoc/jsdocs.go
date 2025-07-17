@@ -1,158 +1,298 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"golang.org/x/tools/go/packages"
 )
 
-type Namespace struct {
-	DocLines []string
-	Entries  []string
+// Entry represents one @ts block and its optional @doc, @sig, @example sub-blocks.
+type Entry struct {
+	Kind          string   // namespace | class | interface | function | const
+	QualifiedName string   // e.g. module.Name or module.Class
+	Doc           []string // documentation lines
+	Sigs          []string // TypeScript signature lines
+	Examples      []string // code example lines
 }
 
-func extractJSAPI(pkgPath string) (map[string]*Namespace, []string, error) {
-	cfg := &packages.Config{Mode: packages.NeedSyntax | packages.NeedTypes}
-	pkgs, err := packages.Load(cfg, pkgPath)
+// NamespaceDef groups entries under the same namespace (module)
+type NamespaceDef struct {
+	Name    string
+	Doc     []string // module-level docs
+	Classes []*Entry // class entries
+	Free    []*Entry // functions/interfaces/constants
+}
+
+// parseEntries loads Go packages and extracts comment-based TS entries.
+func parseEntries(dirPath string) ([]*Entry, error) {
+	cfg := &packages.Config{Mode: packages.NeedSyntax | packages.NeedFiles}
+	pkgs, err := packages.Load(cfg, dirPath)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	namespaces := make(map[string]*Namespace)
-	var globalEntries []string
-	var currentNamespace string
-
+	var entries []*Entry
 	for _, pkg := range pkgs {
-		for _, file := range pkg.Syntax {
-			for _, cg := range file.Comments {
-				var docLines []string
-				var funSignature string
-				var foundJSAPI bool
-				var foundNamespace string
-
-				for _, comment := range cg.List {
-					line := comment.Text
-
-					if strings.Contains(line, "@jsapi") {
-						foundJSAPI = true
+		for _, f := range pkg.Syntax {
+			var curr *Entry
+			var tag string
+			for _, cg := range f.Comments {
+				for _, c := range cg.List {
+					text := strings.TrimSpace(c.Text)
+					if !strings.HasPrefix(text, "//") {
+						tag = ""
 						continue
 					}
+					line := strings.TrimLeft(strings.TrimPrefix(text, "//"), " ")
+					if strings.HasPrefix(line, "@") {
+						parts := strings.Fields(line)
+						tagName := strings.TrimPrefix(parts[0], "@")
+						switch tagName {
+						case "ts":
+							// start a new entry
+							if curr != nil {
+								entries = append(entries, curr)
+							}
+							if len(parts) < 3 {
+								return nil, fmt.Errorf("malformed @ts: %s", line)
+							}
+							curr = &Entry{Kind: parts[1], QualifiedName: parts[2]}
+							tag = ""
+							continue
 
-					if foundJSAPI {
-						if strings.HasPrefix(line, "//") {
-							line = strings.TrimPrefix(line, "//")
-							line = strings.TrimSpace(line)
-						}
-
-						if strings.HasPrefix(line, "@namespace") {
-							foundNamespace = strings.TrimSpace(strings.TrimPrefix(line, "@namespace"))
+						case "doc", "sig", "example":
+							// switch into one of the known blocks
+							if curr != nil {
+								tag = tagName
+							}
 							continue
 						}
 
-						if strings.HasPrefix(line, "function") {
-							funSignature = line
-							break
+						// if we’re already in a @doc block, treat ANY @… line as part of the doc
+						if curr != nil && tag == "doc" {
+							curr.Doc = append(curr.Doc, line)
 						}
-
-						docLines = append(docLines, line)
+						// otherwise, skip unknown @tags
+						continue
 					}
-				}
-
-				if foundJSAPI {
-					apiEntry := "/**\n"
-					for _, docLine := range docLines {
-						apiEntry += " * " + strings.TrimSpace(docLine) + "\n"
-					}
-					apiEntry += " **/\n" + funSignature
-
-					if foundNamespace != "" {
-						// Define a new namespace
-						currentNamespace = foundNamespace
-						if _, exists := namespaces[currentNamespace]; !exists {
-							namespaces[currentNamespace] = &Namespace{}
+					if curr != nil && tag != "" {
+						switch tag {
+						case "doc":
+							curr.Doc = append(curr.Doc, line)
+						case "sig":
+							curr.Sigs = append(curr.Sigs, line)
+						case "example":
+							curr.Examples = append(curr.Examples, line)
 						}
-						namespaces[currentNamespace].DocLines = append(namespaces[currentNamespace].DocLines, docLines...)
-					} else if currentNamespace != "" {
-						// Add the function into the current namespace
-						namespaces[currentNamespace].Entries = append(namespaces[currentNamespace].Entries, apiEntry)
-					} else {
-						// No namespace, global
-						globalEntries = append(globalEntries, apiEntry)
 					}
 				}
 			}
+			if curr != nil {
+				entries = append(entries, curr)
+				curr = nil
+			}
 		}
 	}
-
-	return namespaces, globalEntries, nil
+	return entries, nil
 }
 
-func writeDTS(namespaces map[string]*Namespace, globalEntries []string, outputFile string) error {
-	var sb strings.Builder
-	sb.WriteString("declare global {\n")
+// writeDTS generates a .d.ts file at outPath, with all modules under global.
+func writeDTS(entries []*Entry, outPath string) error {
+	// organize by module
+	ns := map[string]*NamespaceDef{}
+	// track class definitions
+	classes := map[string]*Entry{}
+	// methods to attach
+	methods := map[string][]*Entry{}
+	var nestedInterfaces = map[string][]*Entry{}
 
-	for _, entry := range globalEntries {
-		sb.WriteString(entry)
-		sb.WriteString("\n")
+	// first pass: gather namespace docs and class entries
+	for _, e := range entries {
+		parts := strings.SplitN(e.QualifiedName, ".", 2)
+		mod := parts[0]
+		if ns[mod] == nil {
+			ns[mod] = &NamespaceDef{Name: mod}
+		}
+		switch e.Kind {
+		case "namespace":
+			ns[mod].Doc = e.Doc
+		case "class":
+			classes[e.QualifiedName] = e
+			ns[mod].Classes = append(ns[mod].Classes, e)
+		}
 	}
 
-	for nsName, ns := range namespaces {
-		sb.WriteString(fmt.Sprintf("  namespace %s {\n", nsName))
-
-		// Namespace-level doc (only if it has lines)
-		if len(ns.DocLines) > 0 {
-			sb.WriteString("    /**\n")
-			for _, line := range ns.DocLines {
-				sb.WriteString("     * " + line + "\n")
-			}
-			sb.WriteString("     **/\n")
+	// second pass: distribute methods, nested interfaces, and free entries
+	for _, e := range entries {
+		parts := strings.SplitN(e.QualifiedName, ".", 2)
+		mod := parts[0]
+		if ns[mod] == nil {
+			ns[mod] = &NamespaceDef{Name: mod}
 		}
-
-		for _, entry := range ns.Entries {
-			lines := strings.Split(entry, "\n")
-
-			insideDoc := false
-			for _, line := range lines {
-				trimmed := strings.TrimSpace(line)
-				if trimmed == "/**" {
-					sb.WriteString("    /**\n")
-					insideDoc = true
-					continue
-				}
-				if trimmed == "**/" {
-					sb.WriteString("    **/\n")
-					insideDoc = false
-					continue
-				}
-				if insideDoc {
-					sb.WriteString("     " + strings.TrimPrefix(line, "*") + "\n")
-				} else {
-					sb.WriteString("    " + line + "\n")
-				}
+		switch e.Kind {
+		case "function":
+			// is it a method? class exists
+			if classes[e.QualifiedName] != nil {
+				methods[e.QualifiedName] = append(methods[e.QualifiedName], e)
+			} else {
+				ns[mod].Free = append(ns[mod].Free, e)
 			}
+		case "interface":
+			// if matching class, treat as nested interface
+			if classes[e.QualifiedName] != nil {
+				nestedInterfaces[e.QualifiedName] = append(nestedInterfaces[e.QualifiedName], e)
+			} else {
+				ns[mod].Free = append(ns[mod].Free, e)
+			}
+		case "const":
+			ns[mod].Free = append(ns[mod].Free, e)
 		}
-
-		sb.WriteString("  }\n")
 	}
 
-	sb.WriteString("}\nexport {};\n")
+	// sort module names
+	mods := make([]string, 0, len(ns))
+	for m := range ns {
+		mods = append(mods, m)
+	}
+	sort.Strings(mods)
 
-	fmt.Println(sb.String())
-	return os.WriteFile(outputFile, []byte(sb.String()), 0644)
+	// open output file
+	f, err := os.Create(outPath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := bufio.NewWriter(f)
+	// header
+	fmt.Fprintln(w, "// Auto-generated by js-API docs tool. DO NOT EDIT.")
+	fmt.Fprintln(w)
+	// global namespace
+	fmt.Fprintln(w, "export{};\ndeclare global {")
+
+	for _, m := range mods {
+		rk := ns[m]
+		indent := "  "
+
+		// module docs
+		if len(rk.Doc) > 0 {
+			fmt.Fprintf(w, "%s/**\n ", indent)
+			for _, d := range rk.Doc {
+				fmt.Fprintf(w, "%s * %s\n ", indent, d)
+			}
+			fmt.Fprintf(w, "%s */\n ", indent)
+		}
+		// module block
+		fmt.Fprintf(w, "%snamespace %s {\n ", indent, rk.Name)
+
+		// classes
+		sort.Slice(rk.Classes, func(i, j int) bool {
+			return rk.Classes[i].QualifiedName < rk.Classes[j].QualifiedName
+		})
+		for _, c := range rk.Classes {
+			local := strings.SplitN(c.QualifiedName, ".", 2)[1]
+			sub := indent + "  "
+			// class doc
+			if len(c.Doc) > 0 {
+				fmt.Fprintf(w, "%s/**\n ", sub)
+				for _, d := range c.Doc {
+					fmt.Fprintf(w, "%s * %s\n ", sub, d)
+				}
+				fmt.Fprintf(w, "%s */\n ", sub)
+			}
+			// class header
+			fmt.Fprintf(w, "%sclass %s {\n ", sub, local)
+			// constructor or static sigs already in c.Sigs
+			for _, s := range c.Sigs {
+				fmt.Fprintf(w, "%s  %s\n ", sub, s)
+			}
+			// methods
+			for _, mth := range methods[c.QualifiedName] {
+				// method doc
+				if len(mth.Doc) > 0 {
+					fmt.Fprintf(w, "%s  /**\n ", sub)
+					for _, d := range mth.Doc {
+						fmt.Fprintf(w, "%s   * %s\n ", sub, d)
+					}
+					fmt.Fprintf(w, "%s   */\n ", sub)
+				}
+				// method sig
+				for _, s := range mth.Sigs {
+					fmt.Fprintf(w, "%s  %s\n ", sub, strings.TrimPrefix(s, "function "))
+				}
+			}
+			// nested interfaces
+			for _, ni := range nestedInterfaces[c.QualifiedName] {
+				if len(ni.Doc) > 0 {
+					fmt.Fprintf(w, "%s  /**\n ", sub)
+					for _, d := range ni.Doc {
+						fmt.Fprintf(w, "%s   * %s\n ", sub, d)
+					}
+					fmt.Fprintf(w, "%s   */\n ", sub)
+				}
+				// interface sigs verbatim
+				for _, s := range ni.Sigs {
+					fmt.Fprintf(w, "%s  %s\n ", sub, s)
+				}
+			}
+			fmt.Fprintf(w, "%s}\n ", sub)
+		}
+
+		// free entries
+		for _, e := range rk.Free {
+			// local := strings.SplitN(e.QualifiedName, ".", 2)[1]
+			sub := indent + "  "
+			if len(e.Doc) > 0 || len(e.Examples) > 0 {
+				// open comment
+				fmt.Fprintf(w, "%s/**\n", sub)
+
+				// the normal doc lines
+				for _, d := range e.Doc {
+					fmt.Fprintf(w, "%s * %s\n", sub, d)
+				}
+
+				// if we have examples, inject an @example block
+				if len(e.Examples) > 0 {
+					// blank line before example
+					fmt.Fprintf(w, "%s *\n", sub)
+					fmt.Fprintf(w, "%s * @example\n", sub)
+					for _, ex := range e.Examples {
+						fmt.Fprintf(w, "%s * %s\n", sub, ex)
+					}
+				}
+
+				// close comment
+				fmt.Fprintf(w, "%s */\n", sub)
+			}
+			for _, s := range e.Sigs {
+				fmt.Fprintf(w, "%s%s\n ", sub, s)
+			}
+		}
+
+		// close module
+		fmt.Fprintf(w, "%s}\n ", indent)
+	}
+
+	// close global
+	fmt.Fprintln(w, "}")
+	w.Flush()
+	return nil
 }
 
 func main() {
-	namespaces, globalEntries, err := extractJSAPI("craeft/internal/pipeline/js")
+	entries, err := parseEntries("craeft/internal/pipeline/js")
 	if err != nil {
-		fmt.Println("Error extracting API:", err)
-		return
+		fmt.Fprintln(os.Stderr, "parse error:", err)
+		os.Exit(1)
 	}
 
-	if err := writeDTS(namespaces, globalEntries, "./gendoc/api.d.ts"); err != nil {
-		fmt.Println("Error writing .d.ts:", err)
-	} else {
-		fmt.Println("Successfully generated goja.d.ts")
+	if err := writeDTS(entries, "./gendoc/api.d.ts"); err != nil {
+		fmt.Fprintln(os.Stderr, "write error:", err)
+		os.Exit(1)
 	}
+
+	fmt.Println("Written ./gendoc/api.d.ts")
 }

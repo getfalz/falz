@@ -20,7 +20,7 @@ import (
 var (
 	// TODO move it to Project
 	caches    = &Caches{}
-	blackList = []string{fmt.Sprintf("%s/**", projectRootFolder)}
+	blackList = []string{fmt.Sprintf("%s/**", projectRootFolder), projectRootFolder}
 )
 
 type Project struct {
@@ -40,7 +40,8 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
-	blackList = append(blackList, fmt.Sprintf("%s/**", filepath.Base(config.OutputPath)))
+	outputBase := filepath.Base(config.OutputPath)
+	blackList = append(blackList, fmt.Sprintf("%s/**", outputBase), outputBase)
 	config.Ignore = append(config.Ignore, blackList...)
 
 	rconfig := &pipeline.RegistryConfig{
@@ -67,7 +68,7 @@ func (p *Project) Build(useCache bool) error {
 
 	err := p.walk(func(path string, d fs.DirEntry) error {
 		if d.IsDir() {
-			log.Trace(fmt.Sprintf("Building folder %s", path), log.Tag{Key: log.SrcTag, Value: "layout"})
+			log.Trace(fmt.Sprintf("Building folder %q", path), log.Tag{Key: log.SrcTag, Value: "layout"})
 			currentDir := path
 
 			layouts, err := p.getLayouts(currentDir, useCache)
@@ -85,12 +86,12 @@ func (p *Project) Build(useCache bool) error {
 
 				for _, contentConf := range lyt.Contents() {
 
-					log.Info(fmt.Sprintf("processing layout %s/%s", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "layout"})
+					log.Info(fmt.Sprintf("processing layout '%s/%s'", lyt.Path(), lyt.Name()), log.Tag{Key: log.SrcTag, Value: "layout"})
 
 					// TODO(content): move this to content struct? see asset. content.Build(), content.Index()
 					// TODO(important): path should not point out of the project
 					cpath := filepath.Join(p.Config.SourcePath, currentDir, contentConf.Path)
-					log.Debug(fmt.Sprintf("- Loading layout contents %s", filepath.Join(currentDir, contentConf.Path)))
+					log.Debug(fmt.Sprintf("- Looking for layout content path %q", filepath.Join(currentDir, contentConf.Path)))
 					contents, err := zglob.Glob(cpath)
 					if err != nil {
 						if errors.Is(err, os.ErrNotExist) {
@@ -117,7 +118,7 @@ func (p *Project) Build(useCache bool) error {
 							log.Error(err)
 							return SkipFile
 						}
-						log.Debug(fmt.Sprintf("Indexing %s", path))
+						log.Debug(fmt.Sprintf("Indexing %q", path))
 
 						page.LoadIndex()
 						contentBuffer[path] = page
@@ -136,7 +137,7 @@ func (p *Project) Build(useCache bool) error {
 						// }
 						page := contentBuffer[path]
 
-						log.Debug(fmt.Sprintf("Building %s", path))
+						log.Debug(fmt.Sprintf("Building %q", path))
 						results, err := page.Build(layoutTpl)
 						if err != nil {
 							log.Error(err)
@@ -153,7 +154,7 @@ func (p *Project) Build(useCache bool) error {
 					for _, asset := range contentConf.Assets {
 						npath := filepath.Join(p.Config.SourcePath, asset.Source)
 
-						log.Debug(fmt.Sprintf("found content asset %s, total path: %s", asset, npath))
+						log.Debug(fmt.Sprintf("found content asset %q, total path: %q", asset, npath))
 						assetslist[npath] = assetData{pipeline: asset.AssetType, from: "content", path: npath}
 					}
 				}
@@ -162,7 +163,7 @@ func (p *Project) Build(useCache bool) error {
 				for _, asset := range lyt.Assets() {
 					npath := filepath.Join(p.Config.SchemePath, asset.Source)
 
-					log.Debug(fmt.Sprintf("found theme asset %s, total path: %s", asset, npath))
+					log.Debug(fmt.Sprintf("found theme asset %q, total path: %q", asset, npath))
 					assetslist[npath] = assetData{pipeline: asset.AssetType, from: "theme", path: npath}
 				}
 
@@ -189,7 +190,7 @@ func (p *Project) Build(useCache bool) error {
 
 		matches, err := zglob.Glob(path)
 		if err != nil {
-			log.Error(fmt.Errorf("failed building asset with path %s: %v", path, err))
+			log.Error(fmt.Errorf("failed building asset with path %q: %v", path, err))
 			continue
 		}
 
@@ -200,7 +201,7 @@ func (p *Project) Build(useCache bool) error {
 				continue
 			}
 
-			log.Debug(fmt.Sprintf("Building asset %s", match))
+			log.Debug(fmt.Sprintf("Building asset %q", match))
 			results, err := asset.Build()
 			if err != nil {
 				log.Error(err)
@@ -298,11 +299,13 @@ func (p *Project) ignoreFile(path string) bool {
 	path = filepath.Clean(path)
 	for _, pat := range p.Config.Ignore {
 		match, err := zglob.Match(pat, path)
+		fmt.Printf("testing path %s against %s\n", path, pat)
 		if err != nil {
 			log.Error(err)
 			return false
 		}
 		if match {
+			fmt.Println("found a match")
 			return true
 		}
 	}
