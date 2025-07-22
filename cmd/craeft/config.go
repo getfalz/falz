@@ -1,4 +1,4 @@
-package cmd
+package main
 
 import (
 	"fmt"
@@ -22,6 +22,8 @@ func Config(c *cli.Context) error {
 		panic(err)
 	}
 	fmt.Println(string(out))
+
+	// TODO generate js docs to same folder
 
 	return nil
 }

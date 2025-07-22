@@ -1,4 +1,3 @@
-//go:generate go run ./gendoc/jsdocs.go
 package main
 
 import (
@@ -6,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"craeft/cmd"
 	"craeft/internal/log"
 	"craeft/internal/project"
 
@@ -19,9 +17,6 @@ var (
 	Description = "A general purpose file to file converter"
 	Version     = "0.1.0"
 )
-
-//go:embed gendoc/api.d.ts
-var jsDocs string
 
 func main() {
 	var verbosity int
@@ -67,7 +62,7 @@ func main() {
 			{
 				Name:   "server",
 				Usage:  "Manage the server",
-				Action: cmd.Server,
+				Action: Server,
 				Flags: []cli.Flag{
 					&cli.IntFlag{
 						Name:  "port",
@@ -115,7 +110,7 @@ func main() {
 			{
 				Name:   "build",
 				Usage:  "Build commands",
-				Action: cmd.Build,
+				Action: Build,
 				Flags: []cli.Flag{
 					&cli.BoolFlag{
 						Name:  "debug",
@@ -138,7 +133,7 @@ func main() {
 			{
 				Name:   "config",
 				Usage:  "Generate a default config",
-				Action: cmd.Config,
+				Action: Config,
 			},
 		},
 	}

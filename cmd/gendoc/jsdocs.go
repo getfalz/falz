@@ -282,17 +282,17 @@ func writeDTS(entries []*Entry, outPath string) error {
 	return nil
 }
 
-func main() {
-	entries, err := parseEntries("craeft/internal/pipeline/js")
-	if err != nil {
-		fmt.Fprintln(os.Stderr, "parse error:", err)
-		os.Exit(1)
-	}
-
-	if err := writeDTS(entries, "./gendoc/api.d.ts"); err != nil {
-		fmt.Fprintln(os.Stderr, "write error:", err)
-		os.Exit(1)
-	}
-
-	fmt.Println("Written ./gendoc/api.d.ts")
-}
+// func main2() {
+// 	entries, err := parseEntries("craeft/internal/pipeline/js")
+// 	if err != nil {
+// 		fmt.Fprintln(os.Stderr, "parse error:", err)
+// 		os.Exit(1)
+// 	}
+//
+// 	if err := writeDTS(entries, "./gendoc/api.d.ts"); err != nil {
+// 		fmt.Fprintln(os.Stderr, "write error:", err)
+// 		os.Exit(1)
+// 	}
+//
+// 	fmt.Println("Written ./gendoc/api.d.ts")
+// }
