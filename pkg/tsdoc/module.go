@@ -34,6 +34,7 @@ func Load(name string) ([]*Namespace, error) {
 					parseEntry(&ns.Entries[i])
 				}
 				for _, cls := range ns.Classes {
+					parseClass(cls)
 					for i := range cls.Methods {
 						parseEntry(&cls.Methods[i])
 					}
@@ -173,9 +174,10 @@ type ReturnType struct {
 }
 
 type TsEntry struct {
-	Kind    string
-	Header  string   // the header e.g. @ts function tpl
-	Content []string // raw content
+	Kind      string
+	Header    string   // the header e.g. @ts function tpl
+	Content   []string // raw content
+	IsDefault bool
 
 	DocLines  []string
 	Params    []ParamType
@@ -185,9 +187,10 @@ type TsEntry struct {
 }
 
 type TsClass struct {
-	Name     string
-	DocLines []string
-	Methods  []TsEntry
+	Name      string
+	DocLines  []string
+	Methods   []TsEntry
+	IsDefault bool
 }
 
 func parseIdentifier(id string) (*Identifier, error) {
@@ -290,6 +293,9 @@ func parseEntry(entry *TsEntry) {
 			entry.Example = strings.Join(buffer, "\n")
 		case "@sig":
 			entry.Signature = strings.Join(buffer, " ")
+		case "@default":
+			fmt.Printf("Setting default for entry %s\n", entry.Header)
+			entry.IsDefault = true
 		}
 		buffer = nil
 	}
@@ -315,6 +321,33 @@ func parseEntry(entry *TsEntry) {
 	}
 }
 
+func parseClass(cls *TsClass) {
+	var currentTag string
+	var buffer []string
+
+	flush := func() {
+		switch currentTag {
+		case "@default":
+			cls.IsDefault = true
+		case "@doc":
+			cls.DocLines = append(cls.DocLines, buffer...)
+		}
+		buffer = nil
+	}
+
+	for _, line := range cls.DocLines {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "@") {
+			flush()
+			currentTag = firstWord(line)
+			buffer = []string{strings.TrimSpace(line[len(currentTag):])}
+		} else if currentTag != "" {
+			buffer = append(buffer, line)
+		}
+	}
+	flush()
+}
+
 func generateSignature(entry *TsEntry) string {
 	name := getNameFromHeader(entry.Header)
 	if name == "" {
@@ -332,7 +365,7 @@ func generateSignature(entry *TsEntry) string {
 	case "constructor":
 		return fmt.Sprintf("constructor (%s): %s", strings.Join(params, ", "), ret.Type)
 	case "function", "method":
-		return fmt.Sprintf("export function %s (%s): %s", name, strings.Join(params, ", "), ret.Type)
+		return fmt.Sprintf("function %s (%s): %s", name, strings.Join(params, ", "), ret.Type)
 	default:
 		return ""
 	}
@@ -354,6 +387,12 @@ func firstWord(line string) string {
 		return fields[0]
 	}
 	return ""
+}
+
+func trimExportKeyword(sig string) string {
+	sig = strings.TrimSpace(sig)
+	sig = strings.TrimPrefix(sig, "export ")
+	return sig
 }
 
 func parseParamLine(line string) *ParamType {
@@ -456,14 +495,22 @@ func (e *TsEntry) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, e.DocLines, e.Params, e.Returns)
 
 	if e.Signature != "" {
-		out.WriteString(indent + e.Signature + "\n")
+		if e.IsDefault {
+			out.WriteString(indent + "export default " + trimExportKeyword(e.Signature) + "\n")
+		} else {
+			out.WriteString(indent + "export " + trimExportKeyword(e.Signature) + "\n")
+		}
 	}
 }
 
 func (cls *TsClass) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, cls.DocLines, nil, nil)
 
-	fmt.Fprintf(out, "%sexport class %s{\n", indent, cls.Name)
+	if cls.IsDefault {
+		fmt.Fprintf(out, "%sexport default class %s{\n", indent, cls.Name)
+	} else {
+		fmt.Fprintf(out, "%sexport class %s{\n", indent, cls.Name)
+	}
 
 	for _, method := range cls.Methods {
 		method.Render(out, indent+"  ")
