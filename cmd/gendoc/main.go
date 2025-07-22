@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"craeft/pkg/tsdoc"
 
@@ -22,6 +23,13 @@ func main() {
 		Usage:                  Description,
 		Version:                Version,
 		UseShortOptionHandling: true,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "output",
+				Value: "api.d.ts",
+				Usage: "Build path of the documentation",
+			},
+		},
 		Action: func(c *cli.Context) error {
 			mod := c.Args().First()
 
@@ -34,21 +42,15 @@ func main() {
 			fmt.Println("Generated TypeScript definitions:")
 			fmt.Println(doc)
 
-			return nil
-			// entries, err := parseEntries("craeft/internal/pipeline/js")
-			// if err != nil {
-			// 	fmt.Fprintln(os.Stderr, "parse error:", err)
-			// 	os.Exit(1)
-			// }
-			//
-			// if err := writeDTS(entries, "./gendoc/api.d.ts"); err != nil {
-			// 	fmt.Fprintln(os.Stderr, "write error:", err)
-			// 	os.Exit(1)
-			// }
-			//
-			// fmt.Println("Written ./gendoc/api.d.ts")
+			if err := os.MkdirAll(filepath.Dir(c.String("output")), 0755); err != nil {
+				return fmt.Errorf("failed to create output directory: %w", err)
+			}
 
-			// return nil
+			if err := os.WriteFile(c.String("output"), []byte(doc), 0644); err != nil {
+				return fmt.Errorf("failed to write file: %w", err)
+			}
+
+			return nil
 		},
 	}
 
