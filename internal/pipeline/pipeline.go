@@ -72,6 +72,9 @@ func (r *Registry) LoadPipelines() error {
 		pipelinePath := filepath.Join(r.config.PipelinesPath, pipelineName)
 
 		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
+			if _, ok := r.defaults[pipelineName]; ok {
+				continue
+			}
 			log.Warn(fmt.Sprintf("Pipeline directory does not exist or is not a directory: %s", pipelinePath))
 			continue
 		}

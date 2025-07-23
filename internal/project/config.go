@@ -8,7 +8,6 @@ import (
 
 	"craeft/internal/log"
 
-	"github.com/adrg/xdg"
 	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
@@ -41,26 +40,26 @@ type HooksConfig struct {
 }
 
 type CraeftConfig struct {
-	OutputPath string   `yaml:"output" default:"dist"`
-	Ignore     []string `yaml:"ignore"`
-	Debug      bool     `yaml:"debug" default:"false"` // should save in-between files? see main.go
+	OutputPath string   `yaml:"output,omitempty" default:"dist"`
+	Ignore     []string `yaml:"ignore,omitempty"`
+	Debug      bool     `yaml:"debug,omitempty" default:"false"` // should save in-between files? see main.go
 
-	Layout string `yaml:"layout" default:"layout.xml"`
+	Layout string `yaml:"layout,omitempty" default:"layout.xml"`
 
-	Scheme         string         `yaml:"scheme"`
-	Pipes          []string       `yaml:"pipes" default:"[\"md\"]"`
-	TemplateConfig TemplateConfig `yaml:"template_config"`
+	Scheme         string         `yaml:"scheme,omitempty"`
+	Pipes          []string       `yaml:"pipes,omitempty" default:"[\"md\"]"`
+	TemplateConfig TemplateConfig `yaml:"template_config,omitempty"`
 
-	SourcePath string
-	ConfigPath string
-	SchemePath string
-	PipesPath  string
+	SourcePath string `yaml:"-"`
+	ConfigPath string `yaml:"-"`
+	SchemePath string `yaml:"-"`
+	PipesPath  string `yaml:"-"`
 
-	Server    ServerConfig    `yaml:"server"`
-	FsWatcher FsWatcherConfig `yaml:"file_watcher"`
+	Server    ServerConfig    `yaml:"server,omitempty"`
+	FsWatcher FsWatcherConfig `yaml:"file_watcher,omitempty"`
 
-	Variables map[string]any `yaml:"variables"`
-	Hooks     HooksConfig    `yaml:"hooks"`
+	Variables map[string]any `yaml:"variables,omitempty"`
+	Hooks     HooksConfig    `yaml:"hooks,omitempty"`
 }
 
 func LoadConfig(base string) (*CraeftConfig, error) {
@@ -72,7 +71,7 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 		return nil, err
 	}
 
-	configFile := filepath.Join(base, projectRootFolder, "config.yaml")
+	configFile := filepath.Join(config.ConfigPath, "config.yaml")
 
 	file, err := os.Open(configFile)
 	if err != nil {
@@ -99,10 +98,11 @@ func (c *CraeftConfig) SetPaths() {
 	if err == nil || !os.IsNotExist(err) {
 		c.SchemePath = filepath.Join(c.ConfigPath, configSchemesFolder)
 	} else {
-		c.SchemePath, err = xdg.ConfigFile(filepath.Join(xdgConfigFolder, configSchemesFolder, c.Scheme))
-		if err != nil {
-			log.Fatal(fmt.Sprintf("config file has no 'scheme' defined: %s", err))
-		}
+		log.Warn(fmt.Sprintf("Schemes folder %q doesn't exist", filepath.Join(c.ConfigPath, configPipesFolder)))
+		// c.SchemePath, err = xdg.ConfigFile(filepath.Join(xdgConfigFolder, configSchemesFolder, c.Scheme))
+		// if err != nil {
+		// 	log.Fatal(fmt.Sprintf("config file has no 'scheme' defined: %s", err))
+		// }
 	}
 
 	// TODO: at some point, pipes can be loaded from .craeft/pipes and .config/craeft/pipes
@@ -110,10 +110,11 @@ func (c *CraeftConfig) SetPaths() {
 	if err == nil || !os.IsNotExist(err) {
 		c.PipesPath = filepath.Join(c.ConfigPath, configPipesFolder)
 	} else {
-		c.PipesPath, err = xdg.ConfigFile(filepath.Join(xdgConfigFolder, configPipesFolder))
-		if err != nil {
-			log.Fatal(err.Error())
-		}
+		log.Warn(fmt.Sprintf("Pipes folder %q doesn't exist", filepath.Join(c.ConfigPath, configPipesFolder)))
+		// c.PipesPath, err = xdg.ConfigFile(filepath.Join(xdgConfigFolder, configPipesFolder))
+		// if err != nil {
+		// 	log.Fatal(err.Error())
+		// }
 	}
 
 }

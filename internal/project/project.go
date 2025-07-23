@@ -299,13 +299,11 @@ func (p *Project) ignoreFile(path string) bool {
 	path = filepath.Clean(path)
 	for _, pat := range p.Config.Ignore {
 		match, err := zglob.Match(pat, path)
-		fmt.Printf("testing path %s against %s\n", path, pat)
 		if err != nil {
 			log.Error(err)
 			return false
 		}
 		if match {
-			fmt.Println("found a match")
 			return true
 		}
 	}
@@ -377,7 +375,9 @@ func (p *Project) getContent(name, path string, pipeline string) (*content.Conte
 	// } else {
 	pl, err := p.pipelines.Get(pipeline)
 	if err != nil {
-		log.Warn(fmt.Sprintf("pipeline '%s' not found for content '%s': %s", pipeline, path, err))
+		if pipeline != "" {
+			log.Warn(fmt.Sprintf("pipeline '%s' not found for content '%s': %s", pipeline, path, err))
+		}
 	}
 	page, err := content.New(name, path, pl, p.Config.Variables)
 	if err != nil {

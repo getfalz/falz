@@ -135,6 +135,11 @@ func main() {
 				Usage:  "Generate a default config",
 				Action: Config,
 			},
+			{
+				Name:   "init",
+				Usage:  "Generate a default config and initialize the project",
+				Action: Init,
+			},
 		},
 	}
 
@@ -149,8 +154,6 @@ func initialize(c *cli.Context) {
 		log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
 	}
 
-	printWelcome(c, currentPath, c.String("output"))
-
 	config, err := project.LoadConfig(currentPath)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("Error loading config: %v", err))
@@ -164,6 +167,8 @@ func initialize(c *cli.Context) {
 		config.Scheme = c.String("scheme")
 	}
 	config.SetPaths()
+
+	printWelcome(c, config.SourcePath, config.OutputPath)
 
 	p, err := project.New(config)
 	if err != nil {

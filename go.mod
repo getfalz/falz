@@ -26,6 +26,7 @@ require (
 require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
+	github.com/chzyer/readline v1.5.0 // indirect
 	github.com/cli/safeexec v1.0.1 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
@@ -41,6 +42,7 @@ require (
 	github.com/google/go-cmp v0.6.0 // indirect
 	github.com/google/pprof v0.0.0-20230207041349-798e818bf904 // indirect
 	github.com/gorilla/css v1.0.1 // indirect
+	github.com/manifoldco/promptui v0.9.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/microcosm-cc/bluemonday v1.0.27 // indirect

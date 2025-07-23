@@ -1,5 +1,7 @@
 BIN_DIR := bin
 
+.PHONY: craeft gendoc
+
 all: craeft gendoc
 
 craeft:
