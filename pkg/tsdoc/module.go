@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
-func Load(name string) ([]*Namespace, error) {
+func Load(name string, printDebug bool) ([]*Namespace, error) {
 	cfg := &packages.Config{Mode: packages.NeedSyntax | packages.NeedFiles | packages.NeedName | packages.NeedDeps}
 	pkgs, err := packages.Load(cfg, name)
 	if err != nil {
@@ -25,7 +25,9 @@ func Load(name string) ([]*Namespace, error) {
 			}
 
 			blocks := parseCommentBlocks(comments)
-			fmt.Printf("Found %d blocks in file %s\n", len(blocks), file.Name)
+			if printDebug {
+				fmt.Printf("Found %d blocks in file %s\n", len(blocks), file.Name)
+			}
 
 			localNs := groupNamespaces(blocks)
 
@@ -43,8 +45,9 @@ func Load(name string) ([]*Namespace, error) {
 
 			namespaces = append(namespaces, localNs...)
 
-			// DEBUG
-			debug(localNs)
+			if printDebug {
+				debug(localNs)
+			}
 		}
 	}
 	return namespaces, nil

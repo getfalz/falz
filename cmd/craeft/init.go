@@ -27,8 +27,11 @@ const (
 </Layout>`
 )
 
-func Init(c *cli.Context) error {
+func init() {
+    promptui.DefaultCursor = promptui.PipeCursor
+}
 
+func Init(c *cli.Context) error {
 	if _, err := os.Stat(craeftDir); !os.IsNotExist(err) {
 		return fmt.Errorf("directory .craeft already exists")
 	}
@@ -43,7 +46,7 @@ func Init(c *cli.Context) error {
 	// 	panic(err)
 	// }
 
-	config, err := buildConfig()
+	config, err := buildProjectConfig()
 	if err != nil {
 		return fmt.Errorf("failed to build config: %w", err)
 	}
@@ -63,7 +66,7 @@ func Init(c *cli.Context) error {
 	return nil
 }
 
-func buildConfig() (*project.CraeftConfig, error) {
+func buildProjectConfig() (*project.CraeftConfig, error) {
 	outputPrompt := promptui.Prompt{
 		Label:   "Output directory",
 		Default: "dist",

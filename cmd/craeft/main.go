@@ -1,7 +1,7 @@
+//go:generate go run ../gendoc -o craeft.d.ts craeft/internal/pipeline/js
 package main
 
 import (
-	_ "embed"
 	"fmt"
 	"os"
 
@@ -139,6 +139,16 @@ func main() {
 				Name:   "init",
 				Usage:  "Generate a default config and initialize the project",
 				Action: Init,
+			},
+			{
+				Name: "add",
+				Subcommands: []*cli.Command{
+					{
+						Name:   "pipe",
+						Usage:  "Add a new pipe to the project",
+						Action: AddPipe,
+					},
+				},
 			},
 		},
 	}

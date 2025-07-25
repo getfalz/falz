@@ -25,29 +25,36 @@ func main() {
 		UseShortOptionHandling: true,
 		Flags: []cli.Flag{
 			&cli.StringFlag{
-				Name:  "output",
-				Value: "api.d.ts",
-				Usage: "Build path of the documentation",
+				Name:    "output",
+				Aliases: []string{"o"},
+				Usage:   "Build path of the documentation",
+			},
+			&cli.BoolFlag{
+				Name:  "debug",
+				Value: false,
+				Usage: "Print debug information",
 			},
 		},
 		Action: func(c *cli.Context) error {
 			mod := c.Args().First()
 
-			ns, err := tsdoc.Load(mod)
+			ns, err := tsdoc.Load(mod, c.Bool("debug"))
 			if err != nil {
 				os.Exit(1)
 			}
 
 			doc := tsdoc.WriteDTS(ns)
-			fmt.Println("Generated TypeScript definitions:")
-			fmt.Println(doc)
 
-			if err := os.MkdirAll(filepath.Dir(c.String("output")), 0755); err != nil {
-				return fmt.Errorf("failed to create output directory: %w", err)
-			}
+			if c.String("output") != "" {
+				if err := os.MkdirAll(filepath.Dir(c.String("output")), 0755); err != nil {
+					return fmt.Errorf("failed to create output directory: %w", err)
+				}
 
-			if err := os.WriteFile(c.String("output"), []byte(doc), 0644); err != nil {
-				return fmt.Errorf("failed to write file: %w", err)
+				if err := os.WriteFile(c.String("output"), []byte(doc), 0644); err != nil {
+					return fmt.Errorf("failed to write file: %w", err)
+				}
+			} else {
+				fmt.Println(doc)
 			}
 
 			return nil
