@@ -8,6 +8,23 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// Load loads TypeScript documentation from Go source files.
+//
+// @ts namespace md
+// @doc This is the top‑level module.
+
+// @ts class md.Parser
+// @doc A class called Parser in namespace md
+// It will be exported as default
+// @default
+
+// @ts method md.Parser.render
+// @doc A method called render
+// @param options - RenderOptions - First argument called options of type RenderOptions
+// @returns void - Return type
+// @example
+//   const p = new Parser();
+//   p.render({ color: "red" });
 func Load(name string, printDebug bool) ([]*Namespace, error) {
 	cfg := &packages.Config{Mode: packages.NeedSyntax | packages.NeedFiles | packages.NeedName | packages.NeedDeps}
 	pkgs, err := packages.Load(cfg, name)
@@ -177,7 +194,7 @@ type ReturnType struct {
 }
 
 type TsEntry struct {
-	Kind      string
+	Kind      string   // constructor, function, method
 	Header    string   // the header e.g. @ts function tpl
 	Content   []string // raw content
 	IsDefault bool
@@ -263,6 +280,17 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 					break
 				}
 			}
+		case "constructor":
+			for _, cls := range ns.Classes {
+				if cls.Name == id.Class {
+					cls.Methods = append(cls.Methods, TsEntry{
+						Kind:    "constructor",
+						Header:  block.TagLine,
+						Content: block.Content,
+					})
+					break
+				}
+			}
 		default: // function, interface, ...
 			ns.Entries = append(ns.Entries, TsEntry{
 				Kind:    tagType,
@@ -297,8 +325,10 @@ func parseEntry(entry *TsEntry) {
 		case "@sig":
 			entry.Signature = strings.Join(buffer, " ")
 		case "@default":
-			fmt.Printf("Setting default for entry %s\n", entry.Header)
-			entry.IsDefault = true
+			if entry.Kind == "function" {
+				// constructor or method can't be default
+				entry.IsDefault = true
+			}
 		}
 		buffer = nil
 	}
@@ -366,9 +396,11 @@ func generateSignature(entry *TsEntry) string {
 
 	switch entry.Kind {
 	case "constructor":
-		return fmt.Sprintf("constructor (%s): %s", strings.Join(params, ", "), ret.Type)
-	case "function", "method":
+		return fmt.Sprintf("constructor (%s)", strings.Join(params, ", "))
+	case "function":
 		return fmt.Sprintf("function %s (%s): %s", name, strings.Join(params, ", "), ret.Type)
+	case "method":
+		return fmt.Sprintf("%s(%s): %s", name, strings.Join(params, ", "), ret.Type)
 	default:
 		return ""
 	}
@@ -501,7 +533,11 @@ func (e *TsEntry) Render(out *strings.Builder, indent string) {
 		if e.IsDefault {
 			out.WriteString(indent + "export default " + trimExportKeyword(e.Signature) + "\n")
 		} else {
-			out.WriteString(indent + "export " + trimExportKeyword(e.Signature) + "\n")
+			if e.Kind == "constructor" || e.Kind == "method" {
+				out.WriteString(indent + trimExportKeyword(e.Signature) + "\n")
+			} else {
+				out.WriteString(indent + "export " + trimExportKeyword(e.Signature) + "\n")
+			}
 		}
 	}
 }
