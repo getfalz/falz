@@ -79,50 +79,43 @@ func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 	return module
 }
 
-// TODO put this in api.utils
-
-// @jsapi
+// @ts function fs.bytes
 //
+// @doc
 // This function opens a file.
 //
-// @param some - The template string to render.
-// @param variable - A key-value map containing variables to be used in the template.
-// @returns A promise that resolves to the rendered string.
-//
-// function bytes(path: string): bytes;
+// @param path - string - The template string to render.
+// @returns Promise<string> - A promise that resolves to the rendered string.
 func (fs *FsApi) bytes(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	return fs.readFile(call, vm, false)
 }
 
-// @ts function fs
+// @ts function fs.text
 //
 // @doc
 // Reads the contents of a file as a UTF-8 string.
 //
-// @param path - The file path to read.
-// @returns A promise that resolves to the file contents as a string.
+// @param path - string - The template string to render.
+// @returns Promise<string> - A promise that resolves to the rendered string.
 //
 // @example
 // const text = await fs.text("files/hello.txt");
 // console.log(text);
-// @sig
-// function text(path: string): string;
 func (fs *FsApi) text(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	return fs.readFile(call, vm, true)
 }
 
-// @jsapi
+// @ts function fs.json
 //
+// @doc
 // Reads and parses a JSON file.
 //
-// @param path - The file path to read.
-// @returns A promise that resolves to the parsed JSON object.
+// @param path - string - The file path to read.
+// @returns Promise<Object> - A promise that resolves to the parsed JSON object.
 //
 // @example
 // const config = await fs.json("/path/to/config.json");
 // console.log(config.apiKey);
-// @endexample
-// function json(path: string): string;
 func (fs *FsApi) json(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	promise, resolve, reject := vm.NewPromise()
 
@@ -455,15 +448,6 @@ func (fs *FsApi) deleteAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value 
 // 	Value any
 // }
 
-// @jsapi
-//
-// This function opens a file.
-//
-// @param some - The template string to render.
-// @param variable - A key-value map containing variables to be used in the template.
-// @returns A promise that resolves to the rendered string.
-//
-// function bytes(template: string, variables: Record<string, any>): Promise<string>;
 func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	dirPath, err := argMustString(call.Argument(0))
 	if err != nil {

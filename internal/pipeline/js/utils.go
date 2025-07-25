@@ -1,12 +1,13 @@
 package js
 
 import (
+	"errors"
 	"fmt"
+	"reflect"
 
 	"github.com/dop251/goja"
 )
 
-// TODO rename to argMustString
 func argMustString(arg goja.Value) (string, error) {
 	if arg == nil || goja.IsUndefined(arg) {
 		return "", fmt.Errorf("argument is nil or undefined")
@@ -32,13 +33,12 @@ func GetByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 		return nil, fmt.Errorf("data argument is required")
 	}
 
-	// TODO try this: b := obj.Get("buffer").Export().(goja.ArrayBuffer).Bytes()
 	arrayBufferConstructor := vm.Get("ArrayBuffer").ToObject(vm)
 	if arrayBufferConstructor != nil {
 		if vm.InstanceOf(arg, arrayBufferConstructor) {
 			buffer, ok := arg.Export().(goja.ArrayBuffer)
 			if !ok {
-				return nil, fmt.Errorf("failed to convert ArrayBuffer")
+				return nil, errors.New("internal error: failed to convert ArrayBuffer value")
 			}
 			return buffer.Bytes(), nil
 		}
@@ -53,21 +53,21 @@ func GetByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 			bufferObj := bufferProp.ToObject(vm)
 			buffer, ok := bufferObj.Export().(goja.ArrayBuffer)
 			if !ok {
-				return nil, fmt.Errorf("failed to retrieve ArrayBuffer from Uint8Array")
+				return nil, errors.New("internal error: could not extract underlying ArrayBuffer from Uint8Array")
 			}
 
-			byteOffsetProp := obj.Get("byteOffset")
-			byteLengthProp := obj.Get("byteLength")
-			byteOffset := int(byteOffsetProp.ToInteger())
-			byteLength := int(byteLengthProp.ToInteger())
+			offset := int(obj.Get("byteOffset").ToInteger())
+			length := int(obj.Get("byteLength").ToInteger())
 
-			bufferBytes := buffer.Bytes()
-			if byteOffset < 0 || byteLength < 0 || byteOffset+byteLength > len(bufferBytes) {
-				return nil, fmt.Errorf("invalid byteOffset or byteLength")
+			raw := buffer.Bytes()
+			if offset < 0 || length < 0 || offset+length > len(raw) {
+				return nil, fmt.Errorf(
+					"invalid Uint8Array range: offset=%d, length=%d, bufferSize=%d",
+					offset, length, len(raw),
+				)
 			}
 
-			data := bufferBytes[byteOffset : byteOffset+byteLength]
-			return data, nil
+			return raw[offset : offset+length], nil
 		}
 	}
 
@@ -75,5 +75,9 @@ func GetByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 		return []byte(str), nil
 	}
 
-	return nil, fmt.Errorf("data must be a Uint8Array, ArrayBuffer or string")
+	actual := reflect.TypeOf(arg.Export())
+	return nil, fmt.Errorf(
+		"unsupported data type: %v (need ArrayBuffer, Uint8Array, or string)",
+		actual,
+	)
 }

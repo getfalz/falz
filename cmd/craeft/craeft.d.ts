@@ -2,30 +2,32 @@
  * 
  * @doc
  * File system utilities.
- * TODO put this in api.utils
  */
 declare module "fs"{
   /**
-   * @param some The template string to render.
-   * @param variable value map containing variables to be used in the template.
-   * @returns A promise that resolves to the rendered string.  function bytes(path: string): bytes;
+   * 
+   * This function opens a file.
+   * 
+   * @param path The template string to render.
+   * @returns A promise that resolves to the rendered string.
    */
-  export function fs (some: any, variable: A key): any
+  export function bytes (path: string): Promise<string>
   /**
    * 
    * Reads the contents of a file as a UTF-8 string.
    * 
-   * @param path The file path to read.
-   * @returns A promise that resolves to the file contents as a string.
+   * @param path The template string to render.
+   * @returns A promise that resolves to the rendered string.
    */
-  export function fs (path: string): any
+  export function text (path: string): Promise<string>
   /**
+   * 
+   * Reads and parses a JSON file.
+   * 
    * @param path The file path to read.
-   * @param some The template string to render.
-   * @param variable value map containing variables to be used in the template.
-   * @returns A promise that resolves to the rendered string.  function bytes(template: string, variables: Record<string, any>): Promise<string>; iterable := vm.NewObject() iterable.SetSymbol(goja.SymIterator, vm.ToValue(func() goja.Value { index := 0 itr := vm.NewObject() itr.Set("next", vm.ToValue(func(call goja.FunctionCall) goja.Value { if index >= len(files) { result := IterEntry{Done: true} return vm.ToValue(result) }  file := files[index] index++ info, err := file.Info() if err != nil { panic(vm.NewTypeError("file.list", err)) }  time, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(info.ModTime())) if err != nil { panic(vm.NewTypeError("file.list", err)) } entry := FileEntry{ Name:        file.Name(), Path:        "/" + filepath.Join(dirPath, file.Name()), ModTime:     time, Size:        info.Size(), IsDirectory: file.IsDir(), IsFile:      file.Type().IsRegular(), IsSymlink:   file.Type()&os.ModeSymlink != 0, }  result := IterEntry{Done: false, Value: entry}  return vm.ToValue(result) }))  return itr }))  iterable.Set("toString", func(call goja.FunctionCall) goja.Value { return vm.ToValue(fmt.Sprintf("IterableObject(%v)", files)) }) return iterable No more entries Same as move since os.Rename works for directories
+   * @returns A promise that resolves to the parsed JSON object.
    */
-  export function fs (path: any, some: any, variable: A key): any
+  export function json (path: string): Promise<Object>
 }
 /**
  * 
@@ -36,21 +38,46 @@ declare module "fs"{
 declare module "md"{
   /**
    * 
-   * Configuration object accepted by the `md.Parser` constructor.
+   * This config sets which extensions are enabled when parsing Markdown.
    * 
    */
-  export interface MdApiConfig { parser?: { NoIntraEmphasis?: boolean; Tables?: boolean; FencedCode?: boolean; Autolink?: boolean; Strikethrough?: boolean; LaxHTMLBlocks?: boolean; SpaceHeadings?: boolean; HardLineBreak?: boolean; NonBlockingSpace?: boolean; TabSizeEight?: boolean; Footnotes?: boolean; NoEmptyLineBeforeBlock?: boolean; HeadingIDs?: boolean; Titleblock?: boolean; AutoHeadingIDs?: boolean; BackslashLineBreak?: boolean; DefinitionLists?: boolean; MathJax?: boolean; OrderedListStart?: boolean; Attributes?: boolean; SuperSubscript?: boolean; EmptyLinesBreakList?: boolean; Includes?: boolean; Mmark?: boolean; }; renderer?: { HrefTargetBlank?: boolean; SkipHTML?: boolean; SkipImages?: boolean; SkipLinks?: boolean; Safelink?: boolean; NofollowLinks?: boolean; NoreferrerLinks?: boolean; NoopenerLinks?: boolean; CompletePage?: boolean; UseXHTML?: boolean; FootnoteReturnLinks?: boolean; FootnoteNoHRTag?: boolean; Smartypants?: boolean; SmartypantsFractions?: boolean; SmartypantsDashes?: boolean; SmartypantsLatexDashes?: boolean; SmartypantsAngledQuotes?: boolean; SmartypantsQuotesNBSP?: boolean; TOC?: boolean; LazyLoadImages?: boolean; }; }
-  /**
-   */
-  export function constructor(options: MdApiConfig): md.Parser
+  export interface ParserOptions { /** Ignore emphasis markers inside words */ NoIntraEmphasis?: boolean; /** Parse tables */ Tables?: boolean; /** Parse fenced code blocks */ FencedCode?: boolean; /** Detect embedded URLs that are not explicitly marked */ Autolink?: boolean; /** Strikethrough text using ~~test~~ */ Strikethrough?: boolean; /** Loosen up HTML block parsing rules */ LaxHTMLBlocks?: boolean; /** Be strict about prefix heading rules */ SpaceHeadings?: boolean; /** Translate newlines into line breaks */ HardLineBreak?: boolean; /** Translate backspace spaces into non-blocking spaces */ NonBlockingSpace?: boolean; /** Expand tabs to eight spaces instead of four */ TabSizeEight?: boolean; /** Pandoc-style footnotes */ Footnotes?: boolean; /** No need to insert an empty line to start a block (code, quote, lists) */ NoEmptyLineBeforeBlock?: boolean; /** Specify heading IDs with {#id} */ HeadingIDs?: boolean; /** Titleblock ala pandoc */ Titleblock?: boolean; /** Create the heading ID from the text */ AutoHeadingIDs?: boolean; /** Translate trailing backslashes into line breaks */ BackslashLineBreak?: boolean; /** Parse definition lists */ DefinitionLists?: boolean; /** Parse MathJax */ MathJax?: boolean; /** Keep track of the first number when starting an ordered list */ OrderedListStart?: boolean; /** Block attributes */ Attributes?: boolean; /** Super- and subscript support: 2^10^, H~2~O */ SuperSubscript?: boolean; /** Two empty lines break out of a list */ EmptyLinesBreakList?: boolean; /** Support including other files */ Includes?: boolean; /** Support Mmark syntax (see https://mmark.miek.nl/post/syntax/) */ Mmark?: boolean; }
   /**
    * 
-   * Parses markdown to HTML.
+   * This config sets which extensions are enabled when rendering Markdown.
    * 
-   * @param markdown The Markdown content.
-   * @returns The rendered HTML string.
    */
-  export function render(markdown: string): string;
+  export interface RendererOptions { /** Skip preformatted HTML blocks */ SkipHTML?: boolean; /** Skip embedded images */ SkipImages?: boolean; /** Skip all links */ SkipLinks?: boolean; /** Only link to trusted protocols */ Safelink?: boolean; /** Only link with rel="nofollow" */ NofollowLinks?: boolean; /** Only link with rel="noreferrer" */ NoreferrerLinks?: boolean; /** Only link with rel="noopener" */ NoopenerLinks?: boolean; /** Add a blank target */ HrefTargetBlank?: boolean; /** Generate a complete HTML page */ CompletePage?: boolean; /** Generate XHTML output instead of HTML */ UseXHTML?: boolean; /** Generate a link at the end of a footnote to return to the source */ FootnoteReturnLinks?: boolean; /** Do not output an HR after starting a footnote list */ FootnoteNoHRTag?: boolean; /** Enable smart punctuation substitutions */ Smartypants?: boolean; /** Enable smart fractions (with Smartypants) */ SmartypantsFractions?: boolean; /** Enable smart dashes (with Smartypants) */ SmartypantsDashes?: boolean; /** Enable LaTeX-style dashes (with Smartypants) */ SmartypantsLatexDashes?: boolean; /** Enable angled double quotes for double quotes rendering */ SmartypantsAngledQuotes?: boolean; /** Enable « French guillemets » (with Smartypants) */ SmartypantsQuotesNBSP?: boolean; /** Generate a table of contents */ TOC?: boolean; /** Include loading="lazy" with images */ LazyLoadImages?: boolean; }
+  /**
+   * 
+   * This config sets which extensions are enabled when rendering Markdown.
+   * 
+   */
+  export interface Config { /** Parser options */ parser?: ParserOptions; /** Renderer options */ renderer?: RendererOptions; }
+  /**
+   * 
+   * Common options for markdown parsing and rendering.
+   * 
+   * **Parser flags**
+   * - `NoIntraEmphasis`
+   * - `Tables`
+   * - `FencedCode`
+   * - `Autolink`
+   * - `Strikethrough`
+   * - `SpaceHeadings`
+   * - `HeadingIDs`
+   * - `BackslashLineBreak`
+   * - `DefinitionLists`
+   * - `MathJax`
+   * 
+   * **Renderer flags**
+   * - `Smartypants`
+   * - `SmartypantsFractions`
+   * - `SmartypantsDashes`
+   * - `SmartypantsLatexDashes`
+   * 
+   */
+  export const commonOptions: Config;
   /**
    * 
    * @doc
@@ -66,6 +93,19 @@ declare module "md"{
    * 
    */
   export class Parser{
+    /**
+     * @param options Configuration object for the parser and renderer.
+     * @returns A new instance of `md.Parser`.
+     */
+    constructor (options: Config)
+    /**
+     * 
+     * Parses markdown to HTML.
+     * 
+     * @param markdown The Markdown content.
+     * @returns The rendered HTML string.
+     */
+    render(markdown: string): Promise<string>
   }
 }
 /**
