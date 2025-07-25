@@ -67,7 +67,7 @@ func loadScript(path string) string {
 		MinifyWhitespace: false,
 		// MinifyIdentifiers: true,
 		MinifySyntax: false,
-		Target:       api.ES2020, // api.ES5
+		Target:       api.ES2020, // better use api.ES2015?
 		// Sourcemap: api.SourceMapNone,
 		Sourcemap: api.SourceMapInline,
 		Supported: map[string]bool{

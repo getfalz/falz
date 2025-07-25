@@ -23,17 +23,20 @@ const (
 
 const (
 	tsconfig = `{
-  "compilerOptions": {
-    "target": "ES2020",
-    "module": "commonjs",
-    "strict": true,
-    "esModuleInterop": true,
-    "baseUrl": ".",
-    "paths": {
-      "craeft-api": ["../../types/craeft.d.ts"]
-    }
-  },
-  "include": ["index.ts"]
+    "compilerOptions": {
+        "target": "ES2020",
+        "module": "commonjs",
+        "strict": true,
+        "esModuleInterop": true,
+        "baseUrl": ".",
+        "lib": [
+            "ES2020"
+        ]
+    },
+    "include": [
+        "index.ts",
+        "../../types/craeft.d.ts"
+    ]
 }`
 
 	indexTS = `import { Parser } from "md"
