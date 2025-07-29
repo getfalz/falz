@@ -5,6 +5,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"craeft/pkg/tsdoc"
 
@@ -34,6 +35,16 @@ func main() {
 				Value: false,
 				Usage: "Print debug information",
 			},
+			&cli.StringSliceFlag{
+				Name:    "include",
+				Aliases: []string{"i"},
+				Usage:   "Comma-separated list of sections to include (md, tpl, kv)",
+			},
+			&cli.StringSliceFlag{
+				Name:    "exclude",
+				Aliases: []string{"e"},
+				Usage:   "Comma-separated list of namespace names to exclude",
+			},
 		},
 		Action: func(c *cli.Context) error {
 			mod := c.Args().First()
@@ -43,7 +54,30 @@ func main() {
 				os.Exit(1)
 			}
 
-			doc := tsdoc.WriteDTS(ns)
+			incs := c.StringSlice("include")
+			excs := c.StringSlice("exclude")
+			incMap := make(map[string]bool)
+
+			if len(incs) == 0 {
+				for _, n := range ns {
+					incMap[n.Name] = true
+				}
+			} else {
+				for _, v := range incs {
+					name := strings.TrimSpace(v)
+					if name != "" {
+						incMap[name] = true
+					}
+				}
+			}
+			for _, v := range excs {
+				name := strings.TrimSpace(v)
+				if name != "" {
+					delete(incMap, name)
+				}
+			}
+
+			doc := tsdoc.WriteDTS(ns, incMap)
 
 			if c.String("output") != "" {
 				if err := os.MkdirAll(filepath.Dir(c.String("output")), 0755); err != nil {

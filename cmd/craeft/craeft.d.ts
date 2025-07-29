@@ -2,14 +2,16 @@
  * 
  * @doc
  * File system utilities.
+ *
  */
-declare module "fs"{
+declare module "fs" {
   /**
    * 
    * This function opens a file.
    * 
    * @param path The template string to render.
    * @returns A promise that resolves to the rendered string.
+   *
    */
   export function bytes (path: string): Promise<string>
   /**
@@ -18,6 +20,11 @@ declare module "fs"{
    * 
    * @param path The template string to render.
    * @returns A promise that resolves to the rendered string.
+   *
+   * @example
+   * 
+   * const text = await fs.text("files/hello.txt");
+   * console.log(text);
    */
   export function text (path: string): Promise<string>
   /**
@@ -26,6 +33,11 @@ declare module "fs"{
    * 
    * @param path The file path to read.
    * @returns A promise that resolves to the parsed JSON object.
+   *
+   * @example
+   * 
+   * const config = await fs.json("/path/to/config.json");
+   * console.log(config.apiKey);
    */
   export function json (path: string): Promise<Object>
 }
@@ -34,26 +46,273 @@ declare module "fs"{
  * @doc
  * Markdown parser and renderer module.
  * Provides a `Parser` class to parse Markdown into HTML.
+ *
  */
-declare module "md"{
+declare module "md" {
   /**
    * 
    * This config sets which extensions are enabled when parsing Markdown.
    * 
+   *
    */
-  export interface ParserOptions { /** Ignore emphasis markers inside words */ NoIntraEmphasis?: boolean; /** Parse tables */ Tables?: boolean; /** Parse fenced code blocks */ FencedCode?: boolean; /** Detect embedded URLs that are not explicitly marked */ Autolink?: boolean; /** Strikethrough text using ~~test~~ */ Strikethrough?: boolean; /** Loosen up HTML block parsing rules */ LaxHTMLBlocks?: boolean; /** Be strict about prefix heading rules */ SpaceHeadings?: boolean; /** Translate newlines into line breaks */ HardLineBreak?: boolean; /** Translate backspace spaces into non-blocking spaces */ NonBlockingSpace?: boolean; /** Expand tabs to eight spaces instead of four */ TabSizeEight?: boolean; /** Pandoc-style footnotes */ Footnotes?: boolean; /** No need to insert an empty line to start a block (code, quote, lists) */ NoEmptyLineBeforeBlock?: boolean; /** Specify heading IDs with {#id} */ HeadingIDs?: boolean; /** Titleblock ala pandoc */ Titleblock?: boolean; /** Create the heading ID from the text */ AutoHeadingIDs?: boolean; /** Translate trailing backslashes into line breaks */ BackslashLineBreak?: boolean; /** Parse definition lists */ DefinitionLists?: boolean; /** Parse MathJax */ MathJax?: boolean; /** Keep track of the first number when starting an ordered list */ OrderedListStart?: boolean; /** Block attributes */ Attributes?: boolean; /** Super- and subscript support: 2^10^, H~2~O */ SuperSubscript?: boolean; /** Two empty lines break out of a list */ EmptyLinesBreakList?: boolean; /** Support including other files */ Includes?: boolean; /** Support Mmark syntax (see https://mmark.miek.nl/post/syntax/) */ Mmark?: boolean; }
+  interface ParserOptions{
+    /**
+     * Ignore emphasis markers inside words
+     *
+     */
+    NoIntraEmphasis?: boolean
+    /**
+     * Parse tables
+     *
+     */
+    Tables?: boolean
+    /**
+     * Parse fenced code blocks
+     *
+     */
+    FencedCode?: boolean
+    /**
+     * Detect embedded URLs that are not explicitly marked
+     *
+     */
+    Autolink?: boolean
+    /**
+     * Strikethrough text using ~~test~~
+     *
+     */
+    Strikethrough?: boolean
+    /**
+     * Loosen up HTML block parsing rules
+     *
+     */
+    LaxHTMLBlocks?: boolean
+    /**
+     * Be strict about prefix heading rules
+     *
+     */
+    SpaceHeadings?: boolean
+    /**
+     * Translate newlines into line breaks
+     *
+     */
+    HardLineBreak?: boolean
+    /**
+     * Translate backspace spaces into non-blocking spaces
+     *
+     */
+    NonBlockingSpace?: boolean
+    /**
+     * Expand tabs to eight spaces instead of four
+     *
+     */
+    TabSizeEight?: boolean
+    /**
+     * Pandoc-style footnotes
+     *
+     */
+    Footnotes?: boolean
+    /**
+     * No need to insert an empty line to start a block (code, quote, lists)
+     *
+     */
+    NoEmptyLineBeforeBlock?: boolean
+    /**
+     * Specify heading IDs with {#id}
+     *
+     */
+    HeadingIDs?: boolean
+    /**
+     * Titleblock ala pandoc
+     *
+     */
+    Titleblock?: boolean
+    /**
+     * Create the heading ID from the text
+     *
+     */
+    AutoHeadingIDs?: boolean
+    /**
+     * Translate trailing backslashes into line breaks
+     *
+     */
+    BackslashLineBreak?: boolean
+    /**
+     * Parse definition lists
+     *
+     */
+    DefinitionLists?: boolean
+    /**
+     * Parse MathJax
+     *
+     */
+    MathJax?: boolean
+    /**
+     * Keep track of the first number when starting an ordered list
+     *
+     */
+    OrderedListStart?: boolean
+    /**
+     * Block attributes
+     *
+     */
+    Attributes?: boolean
+    /**
+     * Super- and subscript support: 2^10^, H~2~O
+     *
+     */
+    SuperSubscript?: boolean
+    /**
+     * Two empty lines break out of a list
+     *
+     */
+    EmptyLinesBreakList?: boolean
+    /**
+     * Support including other files
+     *
+     */
+    Includes?: boolean
+    /**
+     * Support Mmark syntax (see https://mmark.miek.nl/post/syntax/)
+     *
+     */
+    Mmark?: boolean
+  }
   /**
    * 
    * This config sets which extensions are enabled when rendering Markdown.
    * 
+   *
    */
-  export interface RendererOptions { /** Skip preformatted HTML blocks */ SkipHTML?: boolean; /** Skip embedded images */ SkipImages?: boolean; /** Skip all links */ SkipLinks?: boolean; /** Only link to trusted protocols */ Safelink?: boolean; /** Only link with rel="nofollow" */ NofollowLinks?: boolean; /** Only link with rel="noreferrer" */ NoreferrerLinks?: boolean; /** Only link with rel="noopener" */ NoopenerLinks?: boolean; /** Add a blank target */ HrefTargetBlank?: boolean; /** Generate a complete HTML page */ CompletePage?: boolean; /** Generate XHTML output instead of HTML */ UseXHTML?: boolean; /** Generate a link at the end of a footnote to return to the source */ FootnoteReturnLinks?: boolean; /** Do not output an HR after starting a footnote list */ FootnoteNoHRTag?: boolean; /** Enable smart punctuation substitutions */ Smartypants?: boolean; /** Enable smart fractions (with Smartypants) */ SmartypantsFractions?: boolean; /** Enable smart dashes (with Smartypants) */ SmartypantsDashes?: boolean; /** Enable LaTeX-style dashes (with Smartypants) */ SmartypantsLatexDashes?: boolean; /** Enable angled double quotes for double quotes rendering */ SmartypantsAngledQuotes?: boolean; /** Enable « French guillemets » (with Smartypants) */ SmartypantsQuotesNBSP?: boolean; /** Generate a table of contents */ TOC?: boolean; /** Include loading="lazy" with images */ LazyLoadImages?: boolean; }
+  interface RendererOptions{
+    /**
+     * Skip preformatted HTML blocks
+     *
+     */
+    SkipHTML?: boolean
+    /**
+     * Skip embedded images
+     *
+     */
+    SkipImages?: boolean
+    /**
+     * Skip all links
+     *
+     */
+    SkipLinks?: boolean
+    /**
+     * Only link to trusted protocols
+     *
+     */
+    Safelink?: boolean
+    /**
+     * Only link with rel="nofollow"
+     *
+     */
+    NofollowLinks?: boolean
+    /**
+     * Only link with rel="noreferrer"
+     *
+     */
+    NoreferrerLinks?: boolean
+    /**
+     * Only link with rel="noopener"
+     *
+     */
+    NoopenerLinks?: boolean
+    /**
+     * Add a blank target
+     *
+     */
+    HrefTargetBlank?: boolean
+    /**
+     * Generate a complete HTML page
+     *
+     */
+    CompletePage?: boolean
+    /**
+     * Generate XHTML output instead of HTML
+     *
+     */
+    UseXHTML?: boolean
+    /**
+     * Generate a link at the end of a footnote to return to the source
+     *
+     */
+    FootnoteReturnLinks?: boolean
+    /**
+     * Do not output an HR after starting a footnote list
+     *
+     */
+    FootnoteNoHRTag?: boolean
+    /**
+     * Enable smart punctuation substitutions
+     *
+     */
+    Smartypants?: boolean
+    /**
+     * Enable smart fractions (with Smartypants)
+     *
+     */
+    SmartypantsFractions?: boolean
+    /**
+     * Enable smart dashes (with Smartypants)
+     *
+     */
+    SmartypantsDashes?: boolean
+    /**
+     * Enable LaTeX-style dashes (with Smartypants)
+     *
+     */
+    SmartypantsLatexDashes?: boolean
+    /**
+     * Enable angled double quotes for double quotes rendering
+     *
+     */
+    SmartypantsAngledQuotes?: boolean
+    /**
+     * Enable « French guillemets » (with Smartypants)
+     *
+     */
+    SmartypantsQuotesNBSP?: boolean
+    /**
+     * Generate a table of contents
+     *
+     */
+    TOC?: boolean
+    /**
+     * Include loading="lazy" with images
+     *
+     */
+    LazyLoadImages?: boolean
+  }
   /**
    * 
    * This config sets which extensions are enabled when rendering Markdown.
    * 
+   *
    */
-  export interface Config { /** Parser options */ parser?: ParserOptions; /** Renderer options */ renderer?: RendererOptions; }
+  interface Config{
+    /**
+     * Generate a table of contents
+     *
+     */
+    parser?: ParserOptions
+    /**
+     * Renderer options
+     *
+     */
+    renderer?: RendererOptions
+  }
+  /**
+   * 
+   * Parses markdown to HTML.
+   * 
+   * @param markdown The Markdown content.
+   * @param options? Configuration object for the parser and renderer.
+   * @returns The rendered HTML string.
+   *
+   */
+  export function render (markdown: string, options?: Config): Promise<string>
   /**
    * 
    * Common options for markdown parsing and rendering.
@@ -75,38 +334,9 @@ declare module "md"{
    * - `SmartypantsFractions`
    * - `SmartypantsDashes`
    * - `SmartypantsLatexDashes`
-   * 
+   *
    */
-  export const commonOptions: Config;
-  /**
-   * 
-   * @doc
-   * Class for parsing and rendering Markdown.
-   * Configure with parser and renderer options.
-   * 
-   * @example
-   * const parser = new md.Parser({ parser: { Tables: true }, renderer: { Smartypants: true } });
-   * const html = parser.render("# Hello!");
-   * 
-   * Class for parsing and rendering Markdown.
-   * Configure with parser and renderer options.
-   * 
-   */
-  export class Parser{
-    /**
-     * @param options Configuration object for the parser and renderer.
-     * @returns A new instance of `md.Parser`.
-     */
-    constructor (options: Config)
-    /**
-     * 
-     * Parses markdown to HTML.
-     * 
-     * @param markdown The Markdown content.
-     * @returns The rendered HTML string.
-     */
-    render(markdown: string): Promise<string>
-  }
+  export const commonOptions: Config
 }
 /**
  * 
@@ -119,15 +349,23 @@ declare module "md"{
  * 
  * Functions available in this module include `render`, which renders a template string
  * using the provided variables, and other utilities that may support different use cases.
+ *
  */
-declare module "tpl"{
+declare module "tpl" {
   /**
    * 
    * Renders a template using the provided variables, leveraging the Plush template system.
    * 
    * @param template A template string with embedded dynamic content (e.g., "<%= name %>").
-   * @param variables value pairs to replace placeholders in the template.
+   * @param variables An object (map) containing key-value pairs to replace placeholders in the template.
    * @returns A promise that resolves to the rendered string with variables replaced.
+   *
+   * @example
+   * 
+   * ```javascript
+   * const result = await tpl.render("Hello, <%= name %>!", { name: "World" });
+   * console.log(result); // Output: "Hello, World!"
+   * ```
    */
-  export function render(template: string, variables: Record<string, any>): Promise<string>;
+  export function render (template: string, variables: Record<string, any>): Promise<string>
 }

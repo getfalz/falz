@@ -23,8 +23,9 @@ import (
 // @param options - RenderOptions - First argument called options of type RenderOptions
 // @returns void - Return type
 // @example
-//   const p = new Parser();
-//   p.render({ color: "red" });
+//
+//	const p = new Parser();
+//	p.render({ color: "red" });
 func Load(name string, printDebug bool) ([]*Namespace, error) {
 	cfg := &packages.Config{Mode: packages.NeedSyntax | packages.NeedFiles | packages.NeedName | packages.NeedDeps}
 	pkgs, err := packages.Load(cfg, name)
@@ -37,8 +38,12 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 		for _, file := range pkg.Syntax {
 			var comments []*ast.Comment
 
-			for _, cg := range file.Comments {
-				comments = append(comments, cg.List...)
+			for _, c := range file.Comments {
+				line := strings.TrimPrefix(c.Text(), "//")
+
+				if strings.HasPrefix(line, "@ts ") {
+					comments = append(comments, c.List...)
+				}
 			}
 
 			blocks := parseCommentBlocks(comments)
@@ -58,6 +63,9 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 						parseEntry(&cls.Methods[i])
 					}
 				}
+				for _, inter := range ns.Interfaces {
+					parseInterface(inter)
+				}
 			}
 
 			namespaces = append(namespaces, localNs...)
@@ -70,11 +78,13 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 	return namespaces, nil
 }
 
-func WriteDTS(ns []*Namespace) string {
+func WriteDTS(ns []*Namespace, inc map[string]bool) string {
 	var out strings.Builder
 
 	for _, n := range ns {
-		n.Render(&out, "")
+		if include, ok := inc[n.Name]; ok && include {
+			n.Render(&out, "")
+		}
 	}
 
 	return out.String()
@@ -84,7 +94,19 @@ func debug(ns []*Namespace) {
 	for _, ns := range ns {
 		fmt.Printf("Namespace: %s\n", ns.Name)
 
-		// Top-level functions, interfaces, etc.
+		for _, cls := range ns.Interfaces {
+			fmt.Printf("  Interface: %s\n", cls.Name)
+			if len(cls.DocLines) > 0 {
+				fmt.Printf("    Doc: %s\n", strings.Join(cls.DocLines, " "))
+			}
+			for _, method := range cls.Methods {
+				fmt.Printf("    Fields: %s\n", method.Header)
+				if len(method.DocLines) > 0 {
+					fmt.Printf("      Doc: %s\n", strings.Join(method.DocLines, " "))
+				}
+			}
+		}
+
 		for _, entry := range ns.Entries {
 			fmt.Printf("  [%s] %s\n", entry.Kind, entry.Header)
 			if len(entry.DocLines) > 0 {
@@ -102,7 +124,6 @@ func debug(ns []*Namespace) {
 			}
 		}
 
-		// Classes and methods
 		for _, cls := range ns.Classes {
 			fmt.Printf("  Class: %s\n", cls.Name)
 			if len(cls.DocLines) > 0 {
@@ -125,6 +146,7 @@ func debug(ns []*Namespace) {
 				}
 			}
 		}
+
 	}
 	fmt.Printf("\n")
 }
@@ -161,7 +183,7 @@ func parseCommentBlocks(comments []*ast.Comment) []CommentBlock {
 		} else if current != nil {
 			current.Content = append(current.Content, line)
 		}
-		// fmt.Printf("comment line: %q\n", line)
+		// fmt.Printf("+++comment line: %q\n", line)
 	}
 
 	if current != nil {
@@ -178,10 +200,11 @@ type Identifier struct {
 }
 
 type Namespace struct {
-	Name     string
-	DocLines []string
-	Entries  []TsEntry
-	Classes  []*TsClass
+	Name       string
+	DocLines   []string
+	Entries    []TsEntry
+	Classes    []*TsClass
+	Interfaces []*TsInterface
 }
 type ParamType struct {
 	Name string
@@ -194,10 +217,10 @@ type ReturnType struct {
 }
 
 type TsEntry struct {
-	Kind      string   // constructor, function, method
-	Header    string   // the header e.g. @ts function tpl
-	Content   []string // raw content
-	IsDefault bool
+	Kind       string // constructor, function, method
+	Header     string // the header e.g. @ts function tpl
+	RawContent []string
+	IsDefault  bool
 
 	DocLines  []string
 	Params    []ParamType
@@ -206,11 +229,19 @@ type TsEntry struct {
 	Signature string
 }
 
+type TsInterface struct {
+	Name       string
+	RawContent []string
+	DocLines   []string
+	Methods    []TsEntry
+	Type       string
+}
 type TsClass struct {
-	Name      string
-	DocLines  []string
-	Methods   []TsEntry
-	IsDefault bool
+	Name       string
+	RawContent []string
+	DocLines   []string
+	Methods    []TsEntry
+	IsDefault  bool
 }
 
 func parseIdentifier(id string) (*Identifier, error) {
@@ -249,10 +280,11 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 		ns, ok := nsMap[id.Namespace]
 		if !ok {
 			ns = &Namespace{
-				Name:     id.Namespace,
-				DocLines: []string{},
-				Entries:  []TsEntry{},
-				Classes:  []*TsClass{},
+				Name:       id.Namespace,
+				DocLines:   []string{},
+				Entries:    []TsEntry{},
+				Classes:    []*TsClass{},
+				Interfaces: []*TsInterface{},
 			}
 			nsMap[id.Namespace] = ns
 			namespaces = append(namespaces, ns)
@@ -262,20 +294,27 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 		case "namespace":
 			ns.DocLines = block.Content
 
+		case "interface":
+			inter := &TsInterface{
+				Name:       id.Class,
+				RawContent: block.Content,
+				Methods:    []TsEntry{},
+			}
+			ns.Interfaces = append(ns.Interfaces, inter)
 		case "class":
 			class := &TsClass{
-				Name:     id.Class,
-				DocLines: block.Content,
-				Methods:  []TsEntry{},
+				Name:       id.Class,
+				RawContent: block.Content,
+				Methods:    []TsEntry{},
 			}
 			ns.Classes = append(ns.Classes, class)
 		case "method":
 			for _, cls := range ns.Classes {
 				if cls.Name == id.Class {
 					cls.Methods = append(cls.Methods, TsEntry{
-						Kind:    "method",
-						Header:  block.TagLine,
-						Content: block.Content,
+						Kind:       "method",
+						Header:     block.TagLine,
+						RawContent: block.Content,
 					})
 					break
 				}
@@ -284,18 +323,18 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 			for _, cls := range ns.Classes {
 				if cls.Name == id.Class {
 					cls.Methods = append(cls.Methods, TsEntry{
-						Kind:    "constructor",
-						Header:  block.TagLine,
-						Content: block.Content,
+						Kind:       "constructor",
+						Header:     block.TagLine,
+						RawContent: block.Content,
 					})
 					break
 				}
 			}
-		default: // function, interface, ...
+		default:
 			ns.Entries = append(ns.Entries, TsEntry{
-				Kind:    tagType,
-				Header:  block.TagLine,
-				Content: block.Content,
+				Kind:       tagType,
+				Header:     block.TagLine,
+				RawContent: block.Content,
 			})
 		}
 	}
@@ -329,11 +368,16 @@ func parseEntry(entry *TsEntry) {
 				// constructor or method can't be default
 				entry.IsDefault = true
 			}
+		case "@type":
+			if entry.Kind == "var" || entry.Kind == "let" || entry.Kind == "const" {
+				t := strings.Join(buffer, " ")
+				entry.Signature = fmt.Sprintf("%s %s: %s", entry.Kind, getNameFromHeader(entry.Header), t)
+			}
 		}
 		buffer = nil
 	}
 
-	for _, line := range entry.Content {
+	for _, line := range entry.RawContent {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "@") {
 			flush()
@@ -368,7 +412,48 @@ func parseClass(cls *TsClass) {
 		buffer = nil
 	}
 
-	for _, line := range cls.DocLines {
+	for _, line := range cls.RawContent {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "@") {
+			flush()
+			currentTag = firstWord(line)
+			buffer = []string{strings.TrimSpace(line[len(currentTag):])}
+		} else if currentTag != "" {
+			buffer = append(buffer, line)
+		}
+	}
+	flush()
+}
+
+func parseInterface(inter *TsInterface) {
+	var currentTag string
+	var buffer []string
+
+	flush := func() {
+		switch currentTag {
+		case "@doc":
+			inter.DocLines = append(inter.DocLines, buffer...)
+		case "@type":
+			inter.Type = strings.Join(buffer, " ")
+		case "@field":
+			for _, line := range buffer {
+				parts := strings.SplitN(line, "-", 2)
+				sig := strings.TrimSpace(parts[0])
+				desc := ""
+				if len(parts) > 1 {
+					desc = strings.TrimSpace(parts[1])
+				}
+				inter.Methods = append(inter.Methods, TsEntry{
+					Kind:      "field",
+					Signature: sig,
+					DocLines:  []string{desc},
+				})
+			}
+		}
+		buffer = nil
+	}
+
+	for _, line := range inter.RawContent {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "@") {
 			flush()
@@ -487,7 +572,7 @@ func parseReturnLine(line string) *ReturnType {
 	}
 }
 
-func writeDoc(out *strings.Builder, indent string, docLines []string, params []ParamType, returns *ReturnType) {
+func writeDoc(out *strings.Builder, indent string, docLines []string, params []ParamType, returns *ReturnType, example string) {
 	if len(docLines) == 0 && len(params) == 0 && returns == nil {
 		return
 	}
@@ -506,13 +591,35 @@ func writeDoc(out *strings.Builder, indent string, docLines []string, params []P
 		fmt.Fprintf(out, "%s * @returns %s\n", indent, returns.Desc)
 	}
 
+	fmt.Fprintf(out, "%s *\n", indent)
+
+	if example != "" {
+		lines := strings.Split(example, "\n")
+		for i := range lines {
+			lines[i] = strings.TrimSpace(lines[i])
+			if lines[i] != "" {
+				lines[i] = fmt.Sprintf("%s * %s", indent, lines[i])
+			}
+		}
+		fmt.Fprintf(out, "%s * @example\n", indent)
+		fmt.Fprintf(out, "%s * %s\n", indent, strings.Join(lines, "\n"))
+	}
 	out.WriteString(indent + " */\n")
 }
 
 func (ns *Namespace) Render(out *strings.Builder, indent string) {
-	writeDoc(out, indent, ns.DocLines, nil, nil)
+	writeDoc(out, indent, ns.DocLines, nil, nil, "")
 
-	fmt.Fprintf(out, "%sdeclare module \"%s\"{\n", indent, ns.Name)
+	if ns.Name == "global" {
+		fmt.Fprintf(out, "export {};\n")
+		fmt.Fprintf(out, "%sdeclare %s {\n", indent, ns.Name)
+	} else {
+		fmt.Fprintf(out, "%sdeclare module \"%s\" {\n", indent, ns.Name)
+	}
+
+	for _, inter := range ns.Interfaces {
+		inter.Render(out, indent+"  ")
+	}
 
 	for _, entry := range ns.Entries {
 		entry.Render(out, indent+"  ")
@@ -527,13 +634,13 @@ func (ns *Namespace) Render(out *strings.Builder, indent string) {
 }
 
 func (e *TsEntry) Render(out *strings.Builder, indent string) {
-	writeDoc(out, indent, e.DocLines, e.Params, e.Returns)
+	writeDoc(out, indent, e.DocLines, e.Params, e.Returns, e.Example)
 
 	if e.Signature != "" {
 		if e.IsDefault {
 			out.WriteString(indent + "export default " + trimExportKeyword(e.Signature) + "\n")
 		} else {
-			if e.Kind == "constructor" || e.Kind == "method" {
+			if e.Kind == "constructor" || e.Kind == "method" || e.Kind == "field" {
 				out.WriteString(indent + trimExportKeyword(e.Signature) + "\n")
 			} else {
 				out.WriteString(indent + "export " + trimExportKeyword(e.Signature) + "\n")
@@ -543,7 +650,7 @@ func (e *TsEntry) Render(out *strings.Builder, indent string) {
 }
 
 func (cls *TsClass) Render(out *strings.Builder, indent string) {
-	writeDoc(out, indent, cls.DocLines, nil, nil)
+	writeDoc(out, indent, cls.DocLines, nil, nil, "")
 
 	if cls.IsDefault {
 		fmt.Fprintf(out, "%sexport default class %s{\n", indent, cls.Name)
@@ -556,4 +663,20 @@ func (cls *TsClass) Render(out *strings.Builder, indent string) {
 	}
 
 	fmt.Fprintf(out, "%s}\n", indent)
+}
+
+func (int *TsInterface) Render(out *strings.Builder, indent string) {
+	writeDoc(out, indent, int.DocLines, nil, nil, "")
+
+	if int.Type != "" {
+		fmt.Fprintf(out, "%s interface %s: %s\n", indent, int.Name, int.Type)
+	} else {
+		fmt.Fprintf(out, "%sinterface %s{\n", indent, int.Name)
+
+		for _, method := range int.Methods {
+			method.Render(out, indent+"  ")
+		}
+
+		fmt.Fprintf(out, "%s}\n", indent)
+	}
 }

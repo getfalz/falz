@@ -17,6 +17,9 @@ import (
 //go:embed craeft.d.ts
 var tsDoc string
 
+//go:embed global.d.ts
+var globalDoc string
+
 const (
 	pipeDir = "pipes"
 )
@@ -35,19 +38,20 @@ const (
     },
     "include": [
         "index.ts",
-        "../../types/craeft.d.ts"
+        "../../types/craeft.d.ts",
+        "../../types/global.d.ts"
     ]
 }`
 
 	indexTS = `import { Parser } from "md"
 
-async function transform(input: string): Promise<string>{
+async function transform(this: trfThis, input: string): Promise<string>{
     console.log(input)
 
     return input
 }
 
-async function index(input: string) {
+async function index(this: idxThis, input: string) {
     return {}
 }`
 )
@@ -94,6 +98,10 @@ func AddPipe(c *cli.Context) error {
 	if _, err := os.Stat(dtsPath); os.IsNotExist(err) {
 		if err := os.WriteFile(dtsPath, []byte(tsDoc), 0644); err != nil {
 			return fmt.Errorf("failed to write craeft.d.ts: %w", err)
+		}
+
+		if err := os.WriteFile(dtsPath, []byte(globalDoc), 0644); err != nil {
+			return fmt.Errorf("failed to write global.d.ts: %w", err)
 		}
 	}
 
