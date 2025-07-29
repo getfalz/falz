@@ -12,6 +12,7 @@ import (
 type MdApi struct {
 	parser   *parser.Parser
 	renderer *html.Renderer
+	ev       *EventLoop
 }
 
 // @ts namespace md
@@ -19,9 +20,9 @@ type MdApi struct {
 // @doc
 // Markdown parser and renderer module.
 // Provides a `Parser` class to parse Markdown into HTML.
-func GetMdModule(vm *goja.Runtime) *goja.Object {
-	module := vm.NewObject()
-	module.Set("Parser", NewParser(vm))
+func GetMdModule(ev *EventLoop) *goja.Object {
+	module := ev.vm.NewObject()
+	module.Set("render", func(call goja.FunctionCall) goja.Value { return MdRender(call, ev) })
 
 	commonOpts := MdApiConfig{
 		Parser:   commonParserOpts,
@@ -31,43 +32,73 @@ func GetMdModule(vm *goja.Runtime) *goja.Object {
 	return module
 }
 
-// @ts class md.Parser
+// @ts function md.render
 //
 // @doc
-// Class for parsing and rendering Markdown.
-// Configure with parser and renderer options.
+// Parses markdown to HTML.
 //
-// @example
-// const parser = new md.Parser({ parser: { Tables: true }, renderer: { Smartypants: true } });
-// const html = parser.render("# Hello!");
-func NewParser(vm *goja.Runtime) func(call goja.ConstructorCall) *goja.Object {
-	return func(call goja.ConstructorCall) *goja.Object {
-		if len(call.Arguments) < 1 {
-			panic(vm.ToValue("Parser requires a configuration object"))
+// @param markdown - string - The Markdown content.
+// @param options? - Config - Configuration object for the parser and renderer.
+// @returns Promise<string> - The rendered HTML string.
+func MdRender(call goja.FunctionCall, ev *EventLoop) goja.Value {
+	promise, resolve, reject := ev.vm.NewPromise()
+
+	arg0 := call.Argument(0)
+	arg1 := call.Argument(1)
+
+	go func() {
+		mdcontent, err := GetByteArg(ev.vm, arg0)
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(ev.vm.NewTypeError(
+					"First argument to md.render must be a string: %v", err,
+				))
+			})
+			return
 		}
 
-		optionsArg := call.Argument(0).ToObject(vm)
-		config := MdApiConfig{
-			Parser:   make(map[string]bool),
-			Renderer: make(map[string]bool),
+		objRaw, ok := arg1.(*goja.Object)
+		if !ok {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(ev.vm.NewTypeError(
+					"Second argument to md.render must be an object, got '%v'", arg1,
+				))
+			})
+			return
 		}
 
-		if parserConfig := optionsArg.Get("parser"); parserConfig != nil {
-			if parserObj, ok := parserConfig.ToObject(vm).Export().(map[string]bool); ok {
-				config.Parser = parserObj
-			}
+		htmlFlags, err := getRenderFlags(objRaw, ev.vm)
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(ev.vm.NewTypeError(
+					"could not get renderer flags: %v", err,
+				))
+			})
+			return
+		}
+		parserExt, err := getParserExtensions(objRaw, ev.vm)
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(ev.vm.NewTypeError(
+					"could not get parser extensions: %v", err,
+				))
+			})
+			return
 		}
 
-		if rendererConfig := optionsArg.Get("renderer"); rendererConfig != nil {
-			if rendererObj, ok := rendererConfig.ToObject(vm).Export().(map[string]bool); ok {
-				config.Renderer = rendererObj
-			}
-		}
+		pa := parser.NewWithExtensions(parserExt)
+		opts := html.RendererOptions{Flags: htmlFlags}
+		renderer := html.NewRenderer(opts)
 
-		mdApi := NewMdApi(vm, config)
+		doc := pa.Parse(mdcontent)
+		html := markdown.Render(doc, renderer)
 
-		return vm.ToValue(mdApi).ToObject(vm)
-	}
+		ev.RunOnLoop(func(vm *goja.Runtime) {
+			resolve(string(html))
+		})
+	}()
+
+	return ev.vm.ToValue(promise)
 }
 
 // @ts interface md.ParserOptions
@@ -75,182 +106,50 @@ func NewParser(vm *goja.Runtime) func(call goja.ConstructorCall) *goja.Object {
 // @doc
 // This config sets which extensions are enabled when parsing Markdown.
 //
-// @sig
-//
-//	interface ParserOptions {
-//	  /** Ignore emphasis markers inside words */
-//	  NoIntraEmphasis?: boolean;
-//	  /** Parse tables */
-//	  Tables?: boolean;
-//	  /** Parse fenced code blocks */
-//	  FencedCode?: boolean;
-//	  /** Detect embedded URLs that are not explicitly marked */
-//	  Autolink?: boolean;
-//	  /** Strikethrough text using ~~test~~ */
-//	  Strikethrough?: boolean;
-//	  /** Loosen up HTML block parsing rules */
-//	  LaxHTMLBlocks?: boolean;
-//	  /** Be strict about prefix heading rules */
-//	  SpaceHeadings?: boolean;
-//	  /** Translate newlines into line breaks */
-//	  HardLineBreak?: boolean;
-//	  /** Translate backspace spaces into non-blocking spaces */
-//	  NonBlockingSpace?: boolean;
-//	  /** Expand tabs to eight spaces instead of four */
-//	  TabSizeEight?: boolean;
-//	  /** Pandoc-style footnotes */
-//	  Footnotes?: boolean;
-//	  /** No need to insert an empty line to start a block (code, quote, lists) */
-//	  NoEmptyLineBeforeBlock?: boolean;
-//	  /** Specify heading IDs with {#id} */
-//	  HeadingIDs?: boolean;
-//	  /** Titleblock ala pandoc */
-//	  Titleblock?: boolean;
-//	  /** Create the heading ID from the text */
-//	  AutoHeadingIDs?: boolean;
-//	  /** Translate trailing backslashes into line breaks */
-//	  BackslashLineBreak?: boolean;
-//	  /** Parse definition lists */
-//	  DefinitionLists?: boolean;
-//	  /** Parse MathJax */
-//	  MathJax?: boolean;
-//	  /** Keep track of the first number when starting an ordered list */
-//	  OrderedListStart?: boolean;
-//	  /** Block attributes */
-//	  Attributes?: boolean;
-//	  /** Super- and subscript support: 2^10^, H~2~O */
-//	  SuperSubscript?: boolean;
-//	  /** Two empty lines break out of a list */
-//	  EmptyLinesBreakList?: boolean;
-//	  /** Support including other files */
-//	  Includes?: boolean;
-//	  /** Support Mmark syntax (see https://mmark.miek.nl/post/syntax/) */
-//	  Mmark?: boolean;
-//	}
+// @field NoIntraEmphasis?: boolean - Ignore emphasis markers inside words
+// @field Tables?: boolean - Parse tables
+// @field FencedCode?: boolean - Parse fenced code blocks
+// @field Autolink?: boolean - Detect embedded URLs that are not explicitly marked
+// @field Strikethrough?: boolean - Strikethrough text using ~~test~~
+// @field LaxHTMLBlocks?: boolean - Loosen up HTML block parsing rules
+// @field SpaceHeadings?: boolean - Be strict about prefix heading rules
+// @field HardLineBreak?: boolean - Translate newlines into line breaks
+// @field NonBlockingSpace?: boolean - Translate backspace spaces into non-blocking spaces
+// @field TabSizeEight?: boolean - Expand tabs to eight spaces instead of four
+// @field Footnotes?: boolean - Pandoc-style footnotes
+// @field NoEmptyLineBeforeBlock?: boolean - No need to insert an empty line to start a block (code, quote, lists)
+// @field HeadingIDs?: boolean - Specify heading IDs with {#id}
+// @field Titleblock?: boolean - Titleblock ala pandoc
+// @field AutoHeadingIDs?: boolean - Create the heading ID from the text
+// @field BackslashLineBreak?: boolean - Translate trailing backslashes into line breaks
+// @field DefinitionLists?: boolean - Parse definition lists
+// @field MathJax?: boolean - Parse MathJax
+// @field OrderedListStart?: boolean - Keep track of the first number when starting an ordered list
+// @field Attributes?: boolean - Block attributes
+// @field SuperSubscript?: boolean - Super- and subscript support: 2^10^, H~2~O
+// @field EmptyLinesBreakList?: boolean - Two empty lines break out of a list
+// @field Includes?: boolean - Support including other files
+// @field Mmark?: boolean - Support Mmark syntax (see https://mmark.miek.nl/post/syntax/)
+func getParserExtensions(arg *goja.Object, vm *goja.Runtime) (parser.Extensions, error) {
+	options := make(map[string]any)
 
-// @ts interface md.RendererOptions
-//
-// @doc
-// This config sets which extensions are enabled when rendering Markdown.
-//
-// @sig
-//
-//	interface RendererOptions {
-//	  /** Skip preformatted HTML blocks */
-//	  SkipHTML?: boolean;
-//	  /** Skip embedded images */
-//	  SkipImages?: boolean;
-//	  /** Skip all links */
-//	  SkipLinks?: boolean;
-//	  /** Only link to trusted protocols */
-//	  Safelink?: boolean;
-//	  /** Only link with rel="nofollow" */
-//	  NofollowLinks?: boolean;
-//	  /** Only link with rel="noreferrer" */
-//	  NoreferrerLinks?: boolean;
-//	  /** Only link with rel="noopener" */
-//	  NoopenerLinks?: boolean;
-//	  /** Add a blank target */
-//	  HrefTargetBlank?: boolean;
-//	  /** Generate a complete HTML page */
-//	  CompletePage?: boolean;
-//	  /** Generate XHTML output instead of HTML */
-//	  UseXHTML?: boolean;
-//	  /** Generate a link at the end of a footnote to return to the source */
-//	  FootnoteReturnLinks?: boolean;
-//	  /** Do not output an HR after starting a footnote list */
-//	  FootnoteNoHRTag?: boolean;
-//	  /** Enable smart punctuation substitutions */
-//	  Smartypants?: boolean;
-//	  /** Enable smart fractions (with Smartypants) */
-//	  SmartypantsFractions?: boolean;
-//	  /** Enable smart dashes (with Smartypants) */
-//	  SmartypantsDashes?: boolean;
-//	  /** Enable LaTeX-style dashes (with Smartypants) */
-//	  SmartypantsLatexDashes?: boolean;
-//	  /** Enable angled double quotes for double quotes rendering */
-//	  SmartypantsAngledQuotes?: boolean;
-//	  /** Enable « French guillemets » (with Smartypants) */
-//	  SmartypantsQuotesNBSP?: boolean;
-//	  /** Generate a table of contents */
-//	  TOC?: boolean;
-//	  /** Include loading="lazy" with images */
-//	  LazyLoadImages?: boolean;
-//	}
+	parserConfig, exception := GetSafe(vm, arg, "parser")
 
-// @ts interface md.Config
-//
-// @doc
-// This config sets which extensions are enabled when rendering Markdown.
-//
-// @sig
-//
-//	interface Config {
-//	  /** Parser options */
-//	  parser?: ParserOptions;
-//	  /** Renderer options */
-//	  renderer?: RendererOptions;
-//	}
-type MdApiConfig struct {
-	Parser   map[string]bool
-	Renderer map[string]bool
-}
+	if exception != nil {
+		return parser.NoExtensions, fmt.Errorf("could not get parser options: %v", exception)
+	}
 
-// @ts interface md.CommonOptions
-//
-// @doc
-// Common options for markdown parsing and rendering.
-//
-// **Parser flags**
-// - `NoIntraEmphasis`
-// - `Tables`
-// - `FencedCode`
-// - `Autolink`
-// - `Strikethrough`
-// - `SpaceHeadings`
-// - `HeadingIDs`
-// - `BackslashLineBreak`
-// - `DefinitionLists`
-// - `MathJax`
-//
-// **Renderer flags**
-// - `Smartypants`
-// - `SmartypantsFractions`
-// - `SmartypantsDashes`
-// - `SmartypantsLatexDashes`
-//
-// @sig
-// export const commonOptions: Config;
-var commonParserOpts = map[string]bool{
-	"NoIntraEmphasis":    true,
-	"Tables":             true,
-	"FencedCode":         true,
-	"Autolink":           true,
-	"Strikethrough":      true,
-	"SpaceHeadings":      true,
-	"HeadingIDs":         true,
-	"BackslashLineBreak": true,
-	"DefinitionLists":    true,
-	"MathJax":            true,
-}
+	if parserConfig != nil {
+		if parserObj, ok := parserConfig.ToObject(vm).Export().(map[string]any); ok {
+			options = parserObj
+		}
+	} else {
+		return parser.NoExtensions, fmt.Errorf("could not convert parser options to object, got: '%v'", parserConfig)
+	}
 
-var commonRendererOpts = map[string]bool{
-	"Smartypants":            true,
-	"SmartypantsFractions":   true,
-	"SmartypantsDashes":      true,
-	"SmartypantsLatexDashes": true,
-}
-
-// @ts constructor md.Parser.constructor
-//
-// @param options - Config - Configuration object for the parser and renderer.
-// @returns md.Parser - A new instance of `md.Parser`.
-func NewMdApi(vm *goja.Runtime, options MdApiConfig) *MdApi {
-	parserExtensions := parser.CommonExtensions
-	rendererFlags := html.CommonFlags
-
-	for key, enabled := range options.Parser {
-		if enabled {
+	parserExtensions := parser.NoExtensions
+	for key, enabled := range options {
+		if enabled, ok := enabled.(bool); ok && enabled {
 			switch key {
 			case "NoIntraEmphasis":
 				parserExtensions |= parser.NoIntraEmphasis
@@ -277,6 +176,7 @@ func NewMdApi(vm *goja.Runtime, options MdApiConfig) *MdApi {
 			case "NoEmptyLineBeforeBlock":
 				parserExtensions |= parser.NoEmptyLineBeforeBlock
 			case "HeadingIDs":
+				fmt.Println("getParserExtensions: enabling HeadingIDs")
 				parserExtensions |= parser.HeadingIDs
 			case "Titleblock":
 				parserExtensions |= parser.Titleblock
@@ -303,93 +203,152 @@ func NewMdApi(vm *goja.Runtime, options MdApiConfig) *MdApi {
 			}
 		}
 	}
+	return parserExtensions, nil
+}
 
-	for key, enabled := range options.Renderer {
-		if enabled {
+// @ts interface md.RendererOptions
+//
+// @doc
+// This config sets which extensions are enabled when rendering Markdown.
+//
+// @field SkipHTML?: boolean - Skip preformatted HTML blocks
+// @field SkipImages?: boolean - Skip embedded images
+// @field SkipLinks?: boolean - Skip all links
+// @field Safelink?: boolean - Only link to trusted protocols
+// @field NofollowLinks?: boolean - Only link with rel="nofollow"
+// @field NoreferrerLinks?: boolean - Only link with rel="noreferrer"
+// @field NoopenerLinks?: boolean - Only link with rel="noopener"
+// @field HrefTargetBlank?: boolean - Add a blank target
+// @field CompletePage?: boolean - Generate a complete HTML page
+// @field UseXHTML?: boolean - Generate XHTML output instead of HTML
+// @field FootnoteReturnLinks?: boolean - Generate a link at the end of a footnote to return to the source
+// @field FootnoteNoHRTag?: boolean - Do not output an HR after starting a footnote list
+// @field Smartypants?: boolean - Enable smart punctuation substitutions
+// @field SmartypantsFractions?: boolean - Enable smart fractions (with Smartypants)
+// @field SmartypantsDashes?: boolean - Enable smart dashes (with Smartypants)
+// @field SmartypantsLatexDashes?: boolean - Enable LaTeX-style dashes (with Smartypants)
+// @field SmartypantsAngledQuotes?: boolean - Enable angled double quotes for double quotes rendering
+// @field SmartypantsQuotesNBSP?: boolean - Enable « French guillemets » (with Smartypants)
+// @field TOC?: boolean - Generate a table of contents
+// @field LazyLoadImages?: boolean - Include loading="lazy" with images
+func getRenderFlags(arg *goja.Object, vm *goja.Runtime) (html.Flags, error) {
+	options := make(map[string]any)
+
+	parserConfig, exception := GetSafe(vm, arg, "renderer")
+	if exception != nil {
+		return html.FlagsNone, fmt.Errorf("could not get renderer options: %v", exception)
+	}
+
+	if parserConfig != nil {
+		if parserObj, ok := parserConfig.ToObject(vm).Export().(map[string]any); ok {
+			options = parserObj
+		}
+	} else {
+		return html.FlagsNone, fmt.Errorf("renderer options must be an object, got: '%v'", parserConfig)
+	}
+
+	renderFlags := html.FlagsNone
+	for key, enabled := range options {
+		if enabled, ok := enabled.(bool); ok && enabled {
 			switch key {
 			case "HrefTargetBlank":
-				rendererFlags |= html.HrefTargetBlank
+				renderFlags |= html.HrefTargetBlank
 			case "SkipHTML":
-				rendererFlags |= html.SkipHTML
+				renderFlags |= html.SkipHTML
 			case "SkipImages":
-				rendererFlags |= html.SkipImages
+				renderFlags |= html.SkipImages
 			case "SkipLinks":
-				rendererFlags |= html.SkipLinks
+				renderFlags |= html.SkipLinks
 			case "Safelink":
-				rendererFlags |= html.Safelink
+				renderFlags |= html.Safelink
 			case "NofollowLinks":
-				rendererFlags |= html.NofollowLinks
+				renderFlags |= html.NofollowLinks
 			case "NoreferrerLinks":
-				rendererFlags |= html.NoreferrerLinks
+				renderFlags |= html.NoreferrerLinks
 			case "NoopenerLinks":
-				rendererFlags |= html.NoopenerLinks
+				renderFlags |= html.NoopenerLinks
 			case "CompletePage":
-				rendererFlags |= html.CompletePage
+				renderFlags |= html.CompletePage
 			case "UseXHTML":
-				rendererFlags |= html.UseXHTML
+				renderFlags |= html.UseXHTML
 			case "FootnoteReturnLinks":
-				rendererFlags |= html.FootnoteReturnLinks
+				renderFlags |= html.FootnoteReturnLinks
 			case "FootnoteNoHRTag":
-				rendererFlags |= html.FootnoteNoHRTag
+				renderFlags |= html.FootnoteNoHRTag
 			case "Smartypants":
-				rendererFlags |= html.Smartypants
+				renderFlags |= html.Smartypants
 			case "SmartypantsFractions":
-				rendererFlags |= html.SmartypantsFractions
+				renderFlags |= html.SmartypantsFractions
 			case "SmartypantsDashes":
-				rendererFlags |= html.SmartypantsDashes
+				renderFlags |= html.SmartypantsDashes
 			case "SmartypantsLatexDashes":
-				rendererFlags |= html.SmartypantsLatexDashes
+				renderFlags |= html.SmartypantsLatexDashes
 			case "SmartypantsAngledQuotes":
-				rendererFlags |= html.SmartypantsAngledQuotes
+				renderFlags |= html.SmartypantsAngledQuotes
 			case "SmartypantsQuotesNBSP":
-				rendererFlags |= html.SmartypantsQuotesNBSP
+				renderFlags |= html.SmartypantsQuotesNBSP
 			case "TOC":
-				rendererFlags |= html.TOC
+				renderFlags |= html.TOC
 			case "LazyLoadImages":
-				rendererFlags |= html.LazyLoadImages
+				renderFlags |= html.LazyLoadImages
 			}
 		}
 	}
-
-	p := parser.NewWithExtensions(parserExtensions)
-	opts := html.RendererOptions{Flags: rendererFlags}
-	renderer := html.NewRenderer(opts)
-
-	return &MdApi{
-		parser:   p,
-		renderer: renderer,
-	}
+	return renderFlags, nil
 }
 
-// @ts method md.Parser.render
+// @ts interface md.Config
 //
 // @doc
-// Parses markdown to HTML.
+// This config sets which extensions are enabled when rendering Markdown.
 //
-// @param markdown - string - The Markdown content.
-// @returns Promise<string> - The rendered HTML string.
-func (m *MdApi) Render(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
+// @field parser?: ParserOptions - Generate a table of contents
+// @field renderer?: RendererOptions - Renderer options
+type MdApiConfig struct {
+	Parser   map[string]bool
+	Renderer map[string]bool
+}
 
-	go func() {
-		if len(call.Arguments) < 1 {
-			reject(fmt.Errorf("render requires a one argument"))
-			return
-		}
+// @ts const md.commonOptions
+//
+// @type Config
+//
+// @doc
+// Common options for markdown parsing and rendering.
+//
+// **Parser flags**
+// - `NoIntraEmphasis`
+// - `Tables`
+// - `FencedCode`
+// - `Autolink`
+// - `Strikethrough`
+// - `SpaceHeadings`
+// - `HeadingIDs`
+// - `BackslashLineBreak`
+// - `DefinitionLists`
+// - `MathJax`
+//
+// **Renderer flags**
+// - `Smartypants`
+// - `SmartypantsFractions`
+// - `SmartypantsDashes`
+// - `SmartypantsLatexDashes`
+var commonParserOpts = map[string]bool{
+	"NoIntraEmphasis":    true,
+	"Tables":             true,
+	"FencedCode":         true,
+	"Autolink":           true,
+	"Strikethrough":      true,
+	"SpaceHeadings":      true,
+	"HeadingIDs":         true,
+	"BackslashLineBreak": true,
+	"DefinitionLists":    true,
+	"MathJax":            true,
+}
 
-		arg := call.Arguments[0]
-
-		data, err := GetByteArg(vm, arg)
-		if err != nil {
-			reject(fmt.Errorf("render argument error: %w", err))
-			return
-		}
-
-		doc := m.parser.Parse(data)
-		html := markdown.Render(doc, m.renderer)
-
-		resolve(vm.ToValue(string(html)))
-	}()
-
-	return vm.ToValue(promise)
+var commonRendererOpts = map[string]bool{
+	"Smartypants":            true,
+	"SmartypantsFractions":   true,
+	"SmartypantsDashes":      true,
+	"SmartypantsLatexDashes": true,
 }

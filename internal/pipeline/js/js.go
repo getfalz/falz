@@ -133,7 +133,7 @@ func (env *JsEnv) setupRequire() {
 		case "http":
 			return GetFetchModule(env.loop.vm)
 		case "md":
-			return GetMdModule(env.loop.vm)
+			return GetMdModule(env.loop)
 		case "fasttpl":
 			return GetFastTplModule(env.loop.vm)
 		case "tpl":
@@ -262,6 +262,13 @@ func setupEnv(vm *goja.Runtime, pipelineName string, l zerolog.Logger) {
 	})
 
 	createConsoleObject(vm, pipelineName, l)
+
+	// mockup module/exports
+	moduleObj := vm.NewObject()
+    exportsObj := vm.NewObject()
+    moduleObj.Set("exports", exportsObj)
+    vm.Set("module", moduleObj)
+    vm.Set("exports", exportsObj)
 }
 
 func getLogger(pipelineName string) zerolog.Logger {
@@ -318,6 +325,16 @@ func getLogger(pipelineName string) zerolog.Logger {
 	return l
 }
 
+// @ts interface global.Console
+// @field log(...data: any[]): void; - Logs the provided arguments to the console with info level.
+// @field info(...data: any[]): void; - Logs the provided arguments to the console with info level.
+// @field warn(...data: any[]): void; - Logs the provided arguments to the console with warn level.
+// @field error(...data: any[]): void; - Logs the provided arguments to the console with error level.
+// @field dump(...data: any[]): void; - Dumps the provided arguments to the console with error level.
+
+// @ts var global.console
+// @type Console
+// @doc Console provides a simple logging interface for JavaScript pipelines.
 func createConsoleObject(vm *goja.Runtime, pipelineName string, l zerolog.Logger) {
 	console := vm.NewObject()
 

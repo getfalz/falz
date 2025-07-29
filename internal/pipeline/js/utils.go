@@ -28,9 +28,24 @@ func argMustObject(arg goja.Value) (*goja.Object, error) {
 	return nil, fmt.Errorf("argument must be an object")
 }
 
+func HasArg(vm *goja.Runtime, arg goja.Value) bool {
+	if arg == nil || goja.IsUndefined(arg) {
+		return false
+	}
+	return true
+}
+func GetSafe(vm *goja.Runtime, obj *goja.Object, key string) (goja.Value, *goja.Exception){
+	var val goja.Value
+	exception := vm.Try(func() {
+		val = obj.Get(key)
+	})
+
+	return val, exception
+
+}
 func GetByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
 	if arg == nil || goja.IsUndefined(arg) {
-		return nil, fmt.Errorf("data argument is required")
+		return nil, fmt.Errorf("argument is nil or undefined")
 	}
 
 	arrayBufferConstructor := vm.Get("ArrayBuffer").ToObject(vm)
