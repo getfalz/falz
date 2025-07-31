@@ -1,5 +1,7 @@
+ *
 export {};
 declare global {
+   *
   interface Console{
     /**
      * Logs the provided arguments to the console with info level.

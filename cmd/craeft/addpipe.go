@@ -45,13 +45,13 @@ const (
 
 	indexTS = `import { Parser } from "md"
 
-async function transform(this: trfThis, input: string): Promise<string>{
+async function transform(this: tCtx, input: string): Promise<string>{
     console.log(input)
 
     return input
 }
 
-async function index(this: idxThis, input: string) {
+async function index(this: iCtx, input: string) {
     return {}
 }`
 )

@@ -1,3 +1,35 @@
+ *
+declare module "fasttpl" {
+  /**
+   * 
+   * This config sets which extensions are enabled when rendering Markdown.
+   * 
+   *
+   */
+  interface Config{
+    /**
+     * Opening tag for variable substitution in templates. Defaults to "{{"
+     *
+     */
+    startTag: string
+    /**
+     * Closing tag for variable substitution in templates. Defaults to "}}"
+     *
+     */
+    endTag: string
+  }
+  /**
+   * 
+   * Renders a template using the provided variables.
+   * 
+   * @param template A template string with embedded dynamic content (e.g., "<%= name %>").
+   * @param variables An object (map) containing key-value pairs to replace placeholders in the template.
+   * @param config? An object (map) containing key-value pairs to replace placeholders in the template.
+   * @returns A promise that resolves to the rendered string with variables replaced.
+   *
+   */
+  export function compile (template: string, variables: Record<string, any>, config?: Config): Promise<string>
+}
 /**
  * 
  * @doc
@@ -44,8 +76,6 @@ declare module "fs" {
 /**
  * 
  * @doc
- * Markdown parser and renderer module.
- * Provides a `Parser` class to parse Markdown into HTML.
  *
  */
 declare module "md" {
@@ -308,11 +338,11 @@ declare module "md" {
    * Parses markdown to HTML.
    * 
    * @param markdown The Markdown content.
-   * @param options? Configuration object for the parser and renderer.
+   * @param options Configuration object for the parser and renderer.
    * @returns The rendered HTML string.
    *
    */
-  export function render (markdown: string, options?: Config): Promise<string>
+  export function toHtml (markdown: string, options: Config?): Promise<string>
   /**
    * 
    * Common options for markdown parsing and rendering.
@@ -360,12 +390,6 @@ declare module "tpl" {
    * @param variables An object (map) containing key-value pairs to replace placeholders in the template.
    * @returns A promise that resolves to the rendered string with variables replaced.
    *
-   * @example
-   * 
-   * ```javascript
-   * const result = await tpl.render("Hello, <%= name %>!", { name: "World" });
-   * console.log(result); // Output: "Hello, World!"
-   * ```
    */
-  export function render (template: string, variables: Record<string, any>): Promise<string>
+  export function compile (template: string, variables: Record<string, any>): Promise<string>
 }
