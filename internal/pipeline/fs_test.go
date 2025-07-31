@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bytes"
+	"craeft/internal/pipeline/js"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -10,14 +11,14 @@ import (
 	"time"
 )
 
-func getEnv(source string, t *testing.T) *JsEnv {
-	config := &JSConfig{
+func getEnv(source string, t *testing.T) *js.JsEnv {
+	config := &js.JSConfig{
 		Root:   "testdata",
 		Path:   "test_sync.js",
 		DBPath: "testdata/test.db",
 	}
 
-	env, err := NewJs(config, source)
+	env, err := js.NewJs(config, source)
 	if err != nil {
 		t.Fatal(err)
 	}

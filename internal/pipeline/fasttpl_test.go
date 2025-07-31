@@ -7,24 +7,24 @@ import (
 
 func TestFastTplRender(t *testing.T) {
 	jsFunction := `
-        async function testTemplate() {
-            const { Template } = require("fasttpl");
-            
-            const templateInstance = new Template({
-                startTag: '{{',
-                endTag: '}}'
-            });
+	       async function testTemplate() {
+	           const { Template } = require("fasttpl");
 
-            templateInstance.use("Hello, {{user}}! Current time is {{time}}. Unknown: {{unknown}}.");
+	           const templateInstance = new Template({
+	               startTag: '{{',
+	               endTag: '}}'
+	           });
 
-            templateInstance.setParameters({
-                user: "Alice",
-                time: () => new Date().toLocaleTimeString()
-            });
+	           templateInstance.use("Hello, {{user}}! Current time is {{time}}. Unknown: {{unknown}}.");
 
-            return await templateInstance.render();
-        }
-    `
+	           templateInstance.setParameters({
+	               user: "Alice",
+	               time: () => new Date().toLocaleTimeString()
+	           });
+
+	           return await templateInstance.render();
+	       }
+	   `
 
 	env := getEnv(jsFunction, t)
 	defer env.Close()

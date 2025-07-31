@@ -120,6 +120,7 @@ func (s *script) Index(input []byte, vars Vars) Vars {
 }
 
 func (s *script) Transform(input []byte, vars Vars) []map[string]string {
+	// TODO pass env
 	result, err := s.env.Call("transform", vars.ToGojaObject(s.env.VM()), s.env.ToValue(string(input)))
 
 	var results []map[string]string
