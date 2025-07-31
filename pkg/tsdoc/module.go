@@ -234,7 +234,7 @@ type TsInterface struct {
 	RawContent []string
 	DocLines   []string
 	Methods    []TsEntry
-	Type       string
+	Extends    string
 }
 type TsClass struct {
 	Name       string
@@ -243,6 +243,10 @@ type TsClass struct {
 	Methods    []TsEntry
 	IsDefault  bool
 }
+
+// TODO TsType, TsEnum
+// export type UserID = string | number;
+// export type User = { id: UserID; name: string };
 
 func parseIdentifier(id string) (*Identifier, error) {
 	parts := strings.Split(id, ".")
@@ -433,16 +437,24 @@ func parseInterface(inter *TsInterface) {
 		switch currentTag {
 		case "@doc":
 			inter.DocLines = append(inter.DocLines, buffer...)
-		case "@type":
-			inter.Type = strings.Join(buffer, " ")
+		case "@extends":
+			inter.Extends = strings.Join(buffer, " ")
 		case "@field":
 			for _, line := range buffer {
-				parts := strings.SplitN(line, "-", 2)
-				sig := strings.TrimSpace(parts[0])
-				desc := ""
-				if len(parts) > 1 {
-					desc = strings.TrimSpace(parts[1])
+				var sig, desc string
+				if idx := strings.Index(line, "-"); idx >= 0 {
+					sig = strings.TrimSpace(line[:idx])
+
+					desc = line[idx+1:]
+
+					desc = strings.TrimPrefix(desc, " ")
+					desc = strings.TrimRight(desc, "\r\n")
+					desc = strings.ReplaceAll(desc, `\n`, "\n")
+				} else {
+					sig = strings.TrimSpace(line)
+					desc = ""
 				}
+
 				inter.Methods = append(inter.Methods, TsEntry{
 					Kind:      "field",
 					Signature: sig,
@@ -573,11 +585,9 @@ func parseReturnLine(line string) *ReturnType {
 }
 
 func writeDoc(out *strings.Builder, indent string, docLines []string, params []ParamType, returns *ReturnType, example string) {
-	if len(docLines) == 0 && len(params) == 0 && returns == nil {
-		return
+	if len(docLines) > 0 || example != "" || len(params) > 0 || (returns != nil && returns.Desc != "") {
+		out.WriteString(indent + "/**\n")
 	}
-
-	out.WriteString(indent + "/**\n")
 
 	for _, line := range docLines {
 		fmt.Fprintf(out, "%s * %s\n", indent, strings.TrimSpace(line))
@@ -604,7 +614,10 @@ func writeDoc(out *strings.Builder, indent string, docLines []string, params []P
 		fmt.Fprintf(out, "%s * @example\n", indent)
 		fmt.Fprintf(out, "%s * %s\n", indent, strings.Join(lines, "\n"))
 	}
-	out.WriteString(indent + " */\n")
+
+	if len(docLines) > 0 || example != "" || len(params) > 0 || (returns != nil && returns.Desc != "") {
+		out.WriteString(indent + " */\n")
+	}
 }
 
 func (ns *Namespace) Render(out *strings.Builder, indent string) {
@@ -668,8 +681,8 @@ func (cls *TsClass) Render(out *strings.Builder, indent string) {
 func (int *TsInterface) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, int.DocLines, nil, nil, "")
 
-	if int.Type != "" {
-		fmt.Fprintf(out, "%s interface %s: %s\n", indent, int.Name, int.Type)
+	if int.Extends != "" {
+		fmt.Fprintf(out, "%s interface %s extends %s\n", indent, int.Name, int.Extends)
 	} else {
 		fmt.Fprintf(out, "%sinterface %s{\n", indent, int.Name)
 
