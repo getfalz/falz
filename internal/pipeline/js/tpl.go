@@ -20,11 +20,11 @@ import (
 // using the provided variables, and other utilities that may support different use cases.
 func GetTplModule(ev *EventLoop) *goja.Object {
 	module := ev.vm.NewObject()
-	module.Set("render", func(call goja.FunctionCall) goja.Value { return TplRender(call, ev) })
+	module.Set("compile", func(call goja.FunctionCall) goja.Value { return Compile(call, ev) })
 	return module
 }
 
-// @ts function tpl.render
+// @ts function tpl.compile
 //
 // @doc
 // Renders a template using the provided variables, leveraging the Plush template system.
@@ -32,13 +32,7 @@ func GetTplModule(ev *EventLoop) *goja.Object {
 // @param template - string - A template string with embedded dynamic content (e.g., "<%= name %>").
 // @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
 // @returns Promise<string> - A promise that resolves to the rendered string with variables replaced.
-//
-// @example
-// ```javascript
-// const result = await tpl.render("Hello, <%= name %>!", { name: "World" });
-// console.log(result); // Output: "Hello, World!"
-// ```
-func TplRender(call goja.FunctionCall, ev *EventLoop) goja.Value {
+func Compile(call goja.FunctionCall, ev *EventLoop) goja.Value {
 	promise, resolve, reject := ev.vm.NewPromise()
 
 	arg0 := call.Argument(0)
@@ -65,7 +59,7 @@ func TplRender(call goja.FunctionCall, ev *EventLoop) goja.Value {
 			return
 		}
 		ctx := plush.NewContextWith(vars)
-		res, err := plush.Render(string(tpl), ctx)
+		res, err := plush.Render(tpl, ctx)
 		if err != nil {
 			ev.RunOnLoop(func(vm *goja.Runtime) {
 				reject(ev.vm.NewGoError(fmt.Errorf(

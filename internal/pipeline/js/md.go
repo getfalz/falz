@@ -9,20 +9,12 @@ import (
 	"github.com/gomarkdown/markdown/parser"
 )
 
-type MdApi struct {
-	parser   *parser.Parser
-	renderer *html.Renderer
-	ev       *EventLoop
-}
-
 // @ts namespace md
 //
 // @doc
-// Markdown parser and renderer module.
-// Provides a `Parser` class to parse Markdown into HTML.
 func GetMdModule(ev *EventLoop) *goja.Object {
 	module := ev.vm.NewObject()
-	module.Set("render", func(call goja.FunctionCall) goja.Value { return MdRender(call, ev) })
+	module.Set("toHtml", func(call goja.FunctionCall) goja.Value { return ToHtml(call, ev) })
 
 	commonOpts := MdApiConfig{
 		Parser:   commonParserOpts,
@@ -32,15 +24,15 @@ func GetMdModule(ev *EventLoop) *goja.Object {
 	return module
 }
 
-// @ts function md.render
+// @ts function md.toHtml
 //
 // @doc
 // Parses markdown to HTML.
 //
 // @param markdown - string - The Markdown content.
-// @param options? - Config - Configuration object for the parser and renderer.
+// @param options - Config? - Configuration object for the parser and renderer.
 // @returns Promise<string> - The rendered HTML string.
-func MdRender(call goja.FunctionCall, ev *EventLoop) goja.Value {
+func ToHtml(call goja.FunctionCall, ev *EventLoop) goja.Value {
 	promise, resolve, reject := ev.vm.NewPromise()
 
 	arg0 := call.Argument(0)

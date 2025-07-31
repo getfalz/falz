@@ -9,201 +9,182 @@ import (
 	"github.com/valyala/fasttemplate"
 )
 
-type FastTplApi struct {
-	template   *fasttemplate.Template
-	startTag   string
-	endTag     string
-	parameters map[string]func() string
-}
+// @ts namespace fasttpl
+func GetFastTplModule(ev *EventLoop) *goja.Object {
+	module := ev.vm.NewObject()
+	module.Set("compile", func(call goja.FunctionCall) goja.Value { return FastCompile(call, ev) })
 
-func GetFastTplModule(vm *goja.Runtime) *goja.Object {
-	module := vm.NewObject()
-	module.Set("Template", NewFastTplApiConstructor(vm))
 	return module
 }
 
-func NewFastTplApiConstructor(vm *goja.Runtime) func(call goja.ConstructorCall) *goja.Object {
-	return func(call goja.ConstructorCall) *goja.Object {
-		if len(call.Arguments) < 1 {
-			panic(vm.ToValue("TemplateApi requires a configuration object"))
+// @ts function fasttpl.compile
+//
+// @doc
+// Renders a template using the provided variables.
+//
+// @param template - string - A template string with embedded dynamic content (e.g., "<%= name %>").
+// @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
+// @param config? - Config - An object (map) containing key-value pairs to replace placeholders in the template.
+// @returns Promise<string> - A promise that resolves to the rendered string with variables replaced.
+func FastCompile(call goja.FunctionCall, ev *EventLoop) goja.Value {
+	promise, resolve, reject := ev.vm.NewPromise()
+
+	arg0 := call.Argument(0)
+	arg1 := call.Argument(1)
+	arg2 := call.Argument(2)
+
+	go func() {
+		tpl, err := GetByteArg(ev.vm, arg0)
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(ev.vm.NewTypeError(
+					"First argument to fasttpl.compile must be a string: %w", err,
+				))
+			})
+			return
 		}
 
-		optionsArg := call.Argument(0).ToObject(vm)
-		config := FastTplApiConfig{
-			StartTag: "{{",
-			EndTag:   "}}",
+		params, ok := arg1.(*goja.Object)
+		if !ok {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(ev.vm.NewTypeError(
+					"Second argument to fasttpl.compile must be an object, got '%v'", arg1.Export(),
+				))
+			})
+			return
 		}
 
-		if startTag := optionsArg.Get("startTag"); startTag != nil {
-			config.StartTag = startTag.String()
-		}
-		if endTag := optionsArg.Get("endTag"); endTag != nil {
-			config.EndTag = endTag.String()
+		config, err := getFtplConfig(ev.vm, arg2)
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(vm.NewTypeError("Third argument to fasttpl.compile could not be parsed: %w", err))
+			})
+			return
 		}
 
-		templateApi := NewFastTplApi(vm, config)
+		tmpl, err := fasttemplate.NewTemplate(string(tpl), config.StartTag, config.EndTag)
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(vm.NewTypeError("Error creating template: %w", err))
+			})
+			return
+		}
 
-		return vm.ToValue(templateApi).ToObject(vm)
-	}
+		var keys []string
+		if exc := ev.vm.Try(func() {
+			keys = params.Keys()
+		}); exc != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(exc)
+			})
+			return
+		}
+
+		parameters := make(map[string]func() string)
+		for _, currKey := range keys {
+			key := currKey
+
+			val, exc := GetSafe(ev.vm, params, key)
+			if exc != nil {
+				ev.RunOnLoop(func(vm *goja.Runtime) {
+					reject(vm.NewTypeError("could not get value of %q, %s", key, exc.Error()))
+				})
+				return
+			}
+
+			if fn, isFn := goja.AssertFunction(val); isFn {
+				f := fn
+				parameters[key] = func() string {
+					result, err := f(goja.Undefined())
+					if err != nil {
+						ev.RunOnLoop(func(vm *goja.Runtime) {
+							reject(ev.vm.NewTypeError(
+								"error calling function for key %q: %s", key, err.Error(),
+							))
+						})
+						return ""
+					}
+					str, ok := result.Export().(string)
+					if !ok {
+						ev.RunOnLoop(func(vm *goja.Runtime) {
+							reject(vm.NewTypeError(
+								"function for key %q must return a string", key,
+							))
+						})
+						return ""
+					}
+					return str
+				}
+			} else {
+				str, ok := val.Export().(string)
+				if !ok {
+					ev.RunOnLoop(func(vm *goja.Runtime) {
+						reject(vm.NewTypeError(
+							"value for key %q must be a string or a function returning string", key,
+						))
+					})
+					return
+				}
+				s := str
+				parameters[key] = func() string {
+					return s
+				}
+			}
+		}
+
+		var builder strings.Builder
+		_, err = tmpl.ExecuteFunc(&builder, func(w io.Writer, tag string) (int, error) {
+			if value, ok := parameters[tag]; ok {
+				return w.Write([]byte(value()))
+			}
+			return fmt.Fprintf(w, "%s%s%s", config.StartTag, tag, config.EndTag)
+		})
+
+		if err != nil {
+			ev.RunOnLoop(func(vm *goja.Runtime) {
+				reject(vm.NewTypeError("Error rendering template: %w", err))
+			})
+			return
+		}
+
+		ev.RunOnLoop(func(vm *goja.Runtime) {
+			resolve(builder.String())
+		})
+	}()
+
+	return ev.vm.ToValue(promise)
 }
 
+// @ts interface fasttpl.Config
+//
+// @doc
+// This config sets which extensions are enabled when rendering Markdown.
+//
+// @field startTag: string - Opening tag for variable substitution in templates. Defaults to "{{"
+// @field endTag: string - Closing tag for variable substitution in templates. Defaults to "}}"
 type FastTplApiConfig struct {
 	StartTag string
 	EndTag   string
 }
 
-func NewFastTplApi(vm *goja.Runtime, options FastTplApiConfig) *FastTplApi {
-	return &FastTplApi{
-		startTag:   options.StartTag,
-		endTag:     options.EndTag,
-		parameters: make(map[string]func() string),
+func getFtplConfig(vm *goja.Runtime, val goja.Value) (*FastTplApiConfig, error) {
+	config := &FastTplApiConfig{
+		StartTag: "{{",
+		EndTag:   "}}",
 	}
-}
+	if HasArg(vm, val) {
+		opts, ok := val.(*goja.Object)
+		if !ok {
+			return nil, fmt.Errorf("argument expected to be an object, got '%v'", val.Export())
+		}
 
-func (t *FastTplApi) Use(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	if len(call.Arguments) < 1 {
-		panic(vm.NewTypeError("Use requires a template string"))
-	}
-
-	arg := call.Argument(0)
-	templateStr, err := t.getByteArg(vm, arg)
-	if err != nil {
-		panic(vm.NewTypeError(err))
-	}
-
-	tmpl, err := fasttemplate.NewTemplate(string(templateStr), t.startTag, t.endTag)
-	if err != nil {
-		panic(vm.NewTypeError(fmt.Sprintf("Error creating template: %s", err)))
-	}
-
-	t.template = tmpl
-	return vm.ToValue(nil)
-}
-
-func (t *FastTplApi) getByteArg(vm *goja.Runtime, arg goja.Value) ([]byte, error) {
-	if arg == nil || goja.IsUndefined(arg) {
-		return nil, fmt.Errorf("data argument is required")
-	}
-
-	arrayBufferConstructor := vm.Get("ArrayBuffer").ToObject(vm)
-	if arrayBufferConstructor != nil {
-		if vm.InstanceOf(arg, arrayBufferConstructor) {
-			buffer, ok := arg.Export().(goja.ArrayBuffer)
-			if !ok {
-				return nil, fmt.Errorf("failed to convert ArrayBuffer")
-			}
-			return buffer.Bytes(), nil
+		if exc := vm.Try(func() {
+			config.StartTag = opts.Get("startTag").Export().(string)
+			config.EndTag = opts.Get("endTag").Export().(string)
+		}); exc != nil {
+			return nil, fmt.Errorf("error reading template options: %w", exc)
 		}
 	}
 
-	uint8ArrayConstructor := vm.Get("Uint8Array").ToObject(vm)
-	if uint8ArrayConstructor != nil {
-		if vm.InstanceOf(arg, uint8ArrayConstructor) {
-			obj := arg.ToObject(vm)
-
-			bufferProp := obj.Get("buffer")
-			bufferObj := bufferProp.ToObject(vm)
-			buffer, ok := bufferObj.Export().(goja.ArrayBuffer)
-			if !ok {
-				return nil, fmt.Errorf("failed to retrieve ArrayBuffer from Uint8Array")
-			}
-
-			byteOffsetProp := obj.Get("byteOffset")
-			byteLengthProp := obj.Get("byteLength")
-			byteOffset := int(byteOffsetProp.ToInteger())
-			byteLength := int(byteLengthProp.ToInteger())
-
-			bufferBytes := buffer.Bytes()
-			if byteOffset < 0 || byteLength < 0 || byteOffset+byteLength > len(bufferBytes) {
-				return nil, fmt.Errorf("invalid byteOffset or byteLength")
-			}
-
-			data := bufferBytes[byteOffset : byteOffset+byteLength]
-			return data, nil
-		}
-	}
-
-	if str, ok := arg.Export().(string); ok {
-		return []byte(str), nil
-	}
-
-	return nil, fmt.Errorf("data must be a Uint8Array, ArrayBuffer, or string")
-}
-
-func (t *FastTplApi) SetParameters(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	if len(call.Arguments) < 1 {
-		panic(vm.NewTypeError("SetParameters requires a parameters object"))
-	}
-
-	arg0 := call.Argument(0)
-	if arg0 == goja.Undefined() {
-		panic(vm.NewTypeError("SetParameters requires a parameters object"))
-	}
-	params := arg0.ToObject(vm)
-	for _, key := range params.Keys() {
-		val := params.Get(key)
-
-		if fn, isFunction := goja.AssertFunction(val); isFunction {
-			t.parameters[key] = func() string {
-				result, err := fn(goja.Undefined())
-				if err != nil {
-					panic(vm.NewTypeError("Error calling function for key '%s': %v", key, err))
-				}
-				if str, ok := result.Export().(string); ok {
-					return str
-				}
-				panic(vm.NewTypeError("Function for key '%s' must return a string", key))
-			}
-		} else {
-			if str, ok := val.Export().(string); ok {
-				t.parameters[key] = func() string {
-					return str
-				}
-			} else {
-				panic(vm.NewTypeError("Value for key '%s' must be a string or a function returning a string", key))
-			}
-		}
-	}
-
-	return vm.ToValue(nil)
-}
-
-func (t *FastTplApi) Render(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	if t.template == nil {
-		panic(vm.ToValue("Template not set"))
-	}
-
-	var builder strings.Builder
-	_, err := t.template.ExecuteFunc(&builder, func(w io.Writer, tag string) (int, error) {
-		if value, ok := t.parameters[tag]; ok {
-			return w.Write([]byte(value()))
-		}
-		return fmt.Fprintf(w, "%s%s%s", t.startTag, tag, t.endTag)
-	})
-
-	if err != nil {
-		panic(vm.ToValue(fmt.Sprintf("Error rendering template: %s", err)))
-	}
-
-	return vm.ToValue(builder.String())
-}
-
-func (t *FastTplApi) Get(key string) goja.Value {
-	return nil
-}
-
-func (t *FastTplApi) Set(key string, val goja.Value) bool {
-	return false
-}
-
-func (t *FastTplApi) Has(key string) bool {
-	return false
-}
-
-func (t *FastTplApi) Delete(key string) bool {
-	return false
-}
-
-func (t *FastTplApi) Keys() []string {
-	return []string{}
+	return config, nil
 }

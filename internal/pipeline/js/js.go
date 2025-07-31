@@ -135,7 +135,7 @@ func (env *JsEnv) setupRequire() {
 		case "md":
 			return GetMdModule(env.loop)
 		case "fasttpl":
-			return GetFastTplModule(env.loop.vm)
+			return GetFastTplModule(env.loop)
 		case "tpl":
 			return GetTplModule(env.loop)
 		}

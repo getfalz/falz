@@ -29,7 +29,7 @@ func argMustObject(arg goja.Value) (*goja.Object, error) {
 }
 
 func HasArg(vm *goja.Runtime, arg goja.Value) bool {
-	if arg == nil || goja.IsUndefined(arg) {
+	if arg == nil || goja.IsUndefined(arg) || goja.IsNull(arg){
 		return false
 	}
 	return true
