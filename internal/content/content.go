@@ -34,7 +34,7 @@ func New(name, path string, pl pipeline.PipelineScript, variables any) (*Content
 	target := pl.Config().SourceSuffixRe.ReplaceAllString(fileName, "."+pl.Config().TargetSuffix)
 
 	vars := pipeline.NewVars(target)
-	vars.Set("variables", variables)
+	vars.Set("vars", variables)
 	return &Content{
 		name:     name,
 		path:     path,
@@ -43,6 +43,9 @@ func New(name, path string, pl pipeline.PipelineScript, variables any) (*Content
 	}, nil
 }
 
+// @ts type global.IndexContext
+// @doc Context passed into the `index` function.
+// @field vars: Record<string, unknown> - Variables set in the config.yaml file. Custom key/value mappings loaded from `config.yaml`. Values may include environment‑variable references (e.g. `$HOME/docs`), which will be expanded at runtime.
 func (c *Content) LoadIndex() error {
 	var vars map[string]any
 
@@ -69,6 +72,10 @@ func (c *Content) LoadIndex() error {
 	return nil
 }
 
+// @ts type global.TransformContext
+// @doc Context passed into the `transform` function.
+// @pred IndexContext &
+// @field index: Record<string, unknown>
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	file, err := os.ReadFile(c.path)
 	if err != nil {

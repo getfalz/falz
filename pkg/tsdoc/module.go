@@ -66,6 +66,9 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 				for _, inter := range ns.Interfaces {
 					parseInterface(inter)
 				}
+				for _, ty := range ns.Types {
+					parseType(ty)
+				}
 			}
 
 			namespaces = append(namespaces, localNs...)
@@ -99,11 +102,22 @@ func debug(ns []*Namespace) {
 			if len(cls.DocLines) > 0 {
 				fmt.Printf("    Doc: %s\n", strings.Join(cls.DocLines, " "))
 			}
-			for _, method := range cls.Methods {
-				fmt.Printf("    Fields: %s\n", method.Header)
-				if len(method.DocLines) > 0 {
-					fmt.Printf("      Doc: %s\n", strings.Join(method.DocLines, " "))
-				}
+			for _, method := range cls.Fields {
+				fmt.Printf("    Fields: %s\n", method.Signature)
+				fmt.Printf("      Doc: %s\n", method.Desc)
+			}
+		}
+
+		for _, t := range ns.Types {
+			fmt.Printf("  Type: %s\n", t.Name)
+			if len(t.DocLines) > 0 {
+				fmt.Printf("    Doc: %s\n", strings.Join(t.DocLines, " "))
+			}
+			fmt.Printf("    Definition: %s\n", t.Definition)
+			fmt.Printf("    Pred: %s\n", t.Pred)
+			for _, f := range t.Fields {
+				fmt.Printf("    Field: %s\n", f.Signature)
+				fmt.Printf("      Doc: %s\n", f.Desc)
 			}
 		}
 
@@ -193,55 +207,90 @@ func parseCommentBlocks(comments []*ast.Comment) []CommentBlock {
 	return tags
 }
 
+// Identifier represents a TypeScript identifier in the format:
+// namespace.Class.Member
 type Identifier struct {
 	Namespace string
 	Class     string
 	Member    string
 }
 
+// @ts namespace md
 type Namespace struct {
 	Name       string
 	DocLines   []string
 	Entries    []TsEntry
 	Classes    []*TsClass
 	Interfaces []*TsInterface
+	Types      []*TsType
 }
+
+// @param markdown - string - The Markdown content.
 type ParamType struct {
 	Name string
 	Type string
 	Desc string
 }
+
+// @field NoIntraEmphasis?: boolean - Ignore emphasis markers inside words
+type FieldType struct {
+	Signature string
+	Desc      string
+	InDoc     bool
+}
+
+// @returns Promise<string> - The rendered HTML string.
 type ReturnType struct {
 	Type string
 	Desc string
 }
 
+// @ts function md.toHtml
+// @ts var global.console
+// @ts const md.commonOptions
+// @ts method md.Parser.render
 type TsEntry struct {
 	Kind       string // constructor, function, method
 	Header     string // the header e.g. @ts function tpl
 	RawContent []string
-	IsDefault  bool
+	DocLines   []string
 
-	DocLines  []string
+	IsDefault bool
 	Params    []ParamType
 	Returns   *ReturnType
 	Example   string
 	Signature string
 }
 
+// @ts interface md.ParserOptions
 type TsInterface struct {
 	Name       string
 	RawContent []string
 	DocLines   []string
-	Methods    []TsEntry
-	Extends    string
+
+	Extends string
+	Fields  []FieldType
 }
+
+// @ts class md.Parser
 type TsClass struct {
 	Name       string
 	RawContent []string
 	DocLines   []string
-	Methods    []TsEntry
-	IsDefault  bool
+
+	Methods   []TsEntry
+	IsDefault bool
+}
+
+// @ts type global.IndexContext
+type TsType struct {
+	Name       string
+	RawContent []string
+	DocLines   []string
+
+	Fields     []FieldType
+	Definition string
+	Pred       string
 }
 
 // TODO TsType, TsEnum
@@ -302,7 +351,7 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 			inter := &TsInterface{
 				Name:       id.Class,
 				RawContent: block.Content,
-				Methods:    []TsEntry{},
+				Fields:     []FieldType{},
 			}
 			ns.Interfaces = append(ns.Interfaces, inter)
 		case "class":
@@ -334,6 +383,13 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 					break
 				}
 			}
+		case "type":
+			t := &TsType{
+				Name:       id.Class,
+				RawContent: block.Content,
+				Fields:     []FieldType{},
+			}
+			ns.Types = append(ns.Types, t)
 		default:
 			ns.Entries = append(ns.Entries, TsEntry{
 				Kind:       tagType,
@@ -357,9 +413,7 @@ func parseEntry(entry *TsEntry) {
 		case "@param":
 			for _, line := range buffer {
 				param := parseParamLine(line)
-				if param != nil {
-					entry.Params = append(entry.Params, *param)
-				}
+				entry.Params = append(entry.Params, param)
 			}
 		case "@returns":
 			entry.Returns = parseReturnLine(strings.Join(buffer, " "))
@@ -440,32 +494,44 @@ func parseInterface(inter *TsInterface) {
 		case "@extends":
 			inter.Extends = strings.Join(buffer, " ")
 		case "@field":
-			for _, line := range buffer {
-				var sig, desc string
-				if idx := strings.Index(line, "-"); idx >= 0 {
-					sig = strings.TrimSpace(line[:idx])
-
-					desc = line[idx+1:]
-
-					desc = strings.TrimPrefix(desc, " ")
-					desc = strings.TrimRight(desc, "\r\n")
-					desc = strings.ReplaceAll(desc, `\n`, "\n")
-				} else {
-					sig = strings.TrimSpace(line)
-					desc = ""
-				}
-
-				inter.Methods = append(inter.Methods, TsEntry{
-					Kind:      "field",
-					Signature: sig,
-					DocLines:  []string{desc},
-				})
-			}
+			field := parseFieldLine(strings.Join(buffer, " "))
+			inter.Fields = append(inter.Fields, field)
 		}
 		buffer = nil
 	}
 
 	for _, line := range inter.RawContent {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "@") {
+			flush()
+			currentTag = firstWord(line)
+			buffer = []string{strings.TrimSpace(line[len(currentTag):])}
+		} else if currentTag != "" {
+			buffer = append(buffer, line)
+		}
+	}
+	flush()
+}
+
+// TODO parse all documentation equally
+// also, take into account multiple lines
+func parseType(t *TsType) {
+	var currentTag string
+	var buffer []string
+	flush := func() {
+		switch currentTag {
+		case "@doc":
+			t.DocLines = append(t.DocLines, buffer...)
+		case "@pred":
+			t.Pred = strings.Join(buffer, " ")
+		case "@field":
+			field := parseFieldLine(strings.Join(buffer, " "))
+
+			t.Fields = append(t.Fields, field)
+		}
+		buffer = nil
+	}
+	for _, line := range t.RawContent {
 		line = strings.TrimSpace(line)
 		if strings.HasPrefix(line, "@") {
 			flush()
@@ -527,12 +593,29 @@ func trimExportKeyword(sig string) string {
 	return sig
 }
 
-func parseParamLine(line string) *ParamType {
+// @method log(...data: any[]): void; - Logs the provided arguments to the console with info level.
+func parseFieldLine(line string) FieldType {
+	parts := strings.SplitN(line, "-", 2)
+	sigPart := strings.TrimSpace(parts[0])
+
+	desc := ""
+	if len(parts) == 2 {
+		desc = strings.TrimSpace(parts[1])
+	}
+
+	return FieldType{
+		Signature: sigPart,
+		Desc:      desc,
+	}
+}
+
+// @param markdown - string - The Markdown content.
+func parseParamLine(line string) ParamType {
 	parts := strings.SplitN(line, "-", 3)
 
 	if len(parts) < 2 {
 		fmt.Printf("Warning: param line malformed: %q\n", line)
-		return nil
+		return ParamType{}
 	}
 
 	name := strings.TrimSpace(parts[0])
@@ -547,13 +630,15 @@ func parseParamLine(line string) *ParamType {
 		desc = strings.TrimSpace(parts[2])
 	}
 
-	return &ParamType{
+	return ParamType{
 		Name: name,
 		Type: typ,
 		Desc: desc,
 	}
 }
 
+// similar to parseParamLine, but return values have no name
+// @returns Promise<string> - The rendered HTML string.
 func parseReturnLine(line string) *ReturnType {
 	if line == "" {
 		return &ReturnType{
@@ -585,7 +670,9 @@ func parseReturnLine(line string) *ReturnType {
 }
 
 func writeDoc(out *strings.Builder, indent string, docLines []string, params []ParamType, returns *ReturnType, example string) {
-	if len(docLines) > 0 || example != "" || len(params) > 0 || (returns != nil && returns.Desc != "") {
+	hasDoc := len(docLines) > 0 || example != "" || len(params) > 0 || (returns != nil && returns.Desc != "")
+	
+	if hasDoc {
 		out.WriteString(indent + "/**\n")
 	}
 
@@ -601,7 +688,9 @@ func writeDoc(out *strings.Builder, indent string, docLines []string, params []P
 		fmt.Fprintf(out, "%s * @returns %s\n", indent, returns.Desc)
 	}
 
-	fmt.Fprintf(out, "%s *\n", indent)
+	if hasDoc {
+		fmt.Fprintf(out, "%s *\n", indent)
+	}
 
 	if example != "" {
 		lines := strings.Split(example, "\n")
@@ -615,7 +704,7 @@ func writeDoc(out *strings.Builder, indent string, docLines []string, params []P
 		fmt.Fprintf(out, "%s * %s\n", indent, strings.Join(lines, "\n"))
 	}
 
-	if len(docLines) > 0 || example != "" || len(params) > 0 || (returns != nil && returns.Desc != "") {
+	if hasDoc {
 		out.WriteString(indent + " */\n")
 	}
 }
@@ -640,6 +729,9 @@ func (ns *Namespace) Render(out *strings.Builder, indent string) {
 
 	for _, cls := range ns.Classes {
 		cls.Render(out, indent+"  ")
+	}
+	for _, t := range ns.Types {
+		t.Render(out, indent+"  ")
 	}
 
 	fmt.Fprintf(out, "%s}\n", indent)
@@ -682,14 +774,52 @@ func (int *TsInterface) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, int.DocLines, nil, nil, "")
 
 	if int.Extends != "" {
-		fmt.Fprintf(out, "%s interface %s extends %s\n", indent, int.Name, int.Extends)
+		fmt.Fprintf(out, "%s interface %s extends %s", indent, int.Name, int.Extends)
 	} else {
-		fmt.Fprintf(out, "%sinterface %s{\n", indent, int.Name)
+		fmt.Fprintf(out, "%sinterface %s", indent, int.Name)
+	}
 
-		for _, method := range int.Methods {
+	if len(int.Fields) > 0 {
+		fmt.Fprintf(out, " {\n")
+		for _, method := range int.Fields {
 			method.Render(out, indent+"  ")
 		}
 
 		fmt.Fprintf(out, "%s}\n", indent)
+	} else {
+		fmt.Fprintf(out, " {}\n")
+	}
+}
+
+func (p FieldType) Render(out *strings.Builder, indent string) {
+
+	if p.Desc != "" {
+		out.WriteString(indent + "/**\n")
+
+		fmt.Fprintf(out, "%s * %s\n", indent, p.Desc)
+		// TODO: support multiple line comments
+		out.WriteString(indent + " */\n")
+	}
+
+	fmt.Fprintf(out, "%s%s\n", indent, p.Signature)
+}
+
+func (t *TsType) Render(out *strings.Builder, indent string) {
+	writeDoc(out, indent, t.DocLines, nil, nil, "")
+	if len(t.Fields) > 0 {
+		prefix := t.Pred
+		if prefix != "" {
+			prefix += " "
+		}
+
+		fmt.Fprintf(out, "%stype %s = %s{\n", indent, t.Name, prefix)
+
+		for _, f := range t.Fields {
+			f.Render(out, indent+"  ")
+		}
+
+		fmt.Fprintf(out, "%s};\n", indent)
+	} else {
+		fmt.Fprintf(out, "%stype %s = %s;\n", indent, t.Name, t.Pred)
 	}
 }

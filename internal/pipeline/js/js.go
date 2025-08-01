@@ -326,11 +326,11 @@ func getLogger(pipelineName string) zerolog.Logger {
 }
 
 // @ts interface global.Console
-// @field log(...data: any[]): void; - Logs the provided arguments to the console with info level.
-// @field info(...data: any[]): void; - Logs the provided arguments to the console with info level.
-// @field warn(...data: any[]): void; - Logs the provided arguments to the console with warn level.
-// @field error(...data: any[]): void; - Logs the provided arguments to the console with error level.
-// @field dump(...data: any[]): void; - Dumps the provided arguments to the console with error level.
+// @field log(...data: any[]): void - Logs the provided arguments to the console with info level.
+// @field info(...data: any[]): void - Logs the provided arguments to the console with info level.
+// @field warn(...data: any[]): void - Logs the provided arguments to the console with warn level.
+// @field error(...data: any[]): void - Logs the provided arguments to the console with error level.
+// @field dump(...data: any[]): void - Dumps the provided arguments to the console with error level.
 
 // @ts var global.console
 // @type Console

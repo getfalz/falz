@@ -30,7 +30,7 @@ func GetMdModule(ev *EventLoop) *goja.Object {
 // Parses markdown to HTML.
 //
 // @param markdown - string - The Markdown content.
-// @param options - Config? - Configuration object for the parser and renderer.
+// @param options? - Config - Configuration object for the parser and renderer.
 // @returns Promise<string> - The rendered HTML string.
 func ToHtml(call goja.FunctionCall, ev *EventLoop) goja.Value {
 	promise, resolve, reject := ev.vm.NewPromise()
