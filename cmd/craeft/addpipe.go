@@ -20,6 +20,9 @@ var tsDoc string
 //go:embed global.d.ts
 var globalDoc string
 
+//go:embed env.d.ts
+var envDoc string
+
 const (
 	pipeDir = "pipes"
 )
@@ -102,6 +105,9 @@ func AddPipe(c *cli.Context) error {
 
 		if err := os.WriteFile(dtsPath, []byte(globalDoc), 0644); err != nil {
 			return fmt.Errorf("failed to write global.d.ts: %w", err)
+		}
+		if err := os.WriteFile(dtsPath, []byte(envDoc), 0644); err != nil {
+			return fmt.Errorf("failed to write env.d.ts: %w", err)
 		}
 	}
 
