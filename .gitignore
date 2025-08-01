@@ -1,2 +1,4 @@
 example/dist
 gendoc/api.d.ts
+bin/craeft
+bin/gendoc
