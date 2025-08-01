@@ -12,7 +12,6 @@ require (
 	github.com/gobuffalo/plush v3.8.3+incompatible
 	github.com/gomarkdown/markdown v0.0.0-20240730141124-034f12af3bf6
 	github.com/gorilla/websocket v1.5.3
-	github.com/manifoldco/promptui v0.9.0
 	github.com/mattn/go-zglob v0.0.6
 	github.com/rjeczalik/notify v0.9.3
 	github.com/rs/zerolog v1.33.0
@@ -27,7 +26,6 @@ require (
 require (
 	github.com/BurntSushi/toml v1.3.2 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
-	github.com/chzyer/readline v1.5.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/fatih/structs v1.1.0 // indirect

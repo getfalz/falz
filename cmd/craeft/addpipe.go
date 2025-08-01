@@ -9,7 +9,6 @@ import (
 
 	"craeft/internal/pipeline"
 
-	"github.com/manifoldco/promptui"
 	"github.com/urfave/cli/v2"
 	"gopkg.in/yaml.v3"
 )
@@ -71,8 +70,7 @@ func AddPipe(c *cli.Context) error {
 		return fmt.Errorf("failed to create .craeft/pipes directory: %w", err)
 	}
 
-	name := c.Args().First()
-	config, err := buildPipeConfig(name)
+	config, err := buildPipeConfig(c)
 	if err != nil {
 		return fmt.Errorf("failed to build pipe config: %w", err)
 	}
@@ -127,83 +125,42 @@ func AddPipe(c *cli.Context) error {
 		return fmt.Errorf("failed to write package.json: %w", err)
 	}
 
-	activatePrompt := promptui.Prompt{
-		Label:     "Would you like to activate this pipe now?",
-		IsConfirm: true,
-	}
-	output, err := activatePrompt.Run()
-	if err != nil {
-		return fmt.Errorf("prompt failed: %w", err)
-	}
-
-	fmt.Printf("output: %s", output)
-
-	if strings.ToLower(output) == "y" || strings.ToLower(output) == "yes" {
-
-	}
-
 	return nil
 }
 
-func buildPipeConfig(name string) (*pipeline.PipelineConfig, error) {
-	config := &pipeline.PipelineConfig{
-		PipelineName: name,
+func buildPipeConfig(c *cli.Context) (*pipeline.PipelineConfig, error) {
+	name := c.Args().First()
+	if name == "" {
+		return nil, fmt.Errorf("pipeline name is required as the first argument")
+	}
+	entry := c.String("entrypoint")
+	if entry == "" {
+		return nil, fmt.Errorf("entry point cannot be empty")
+	}
+	if !strings.HasSuffix(entry, ".ts") {
+		return nil, fmt.Errorf("entry point must end with .ts")
 	}
 
-	entryPrompt := promptui.Prompt{
-		Label:   "Entry point TS file (e.g. index.ts)",
-		Default: "index.ts",
-		Validate: func(input string) error {
-			if input == "" {
-				return fmt.Errorf("entry point cannot be empty")
-			}
-			if !strings.HasSuffix(input, ".ts") {
-				return fmt.Errorf("entry point must end with .ts")
-			}
-			return nil
-		},
+	source := c.String("source")
+	if source == "" {
+		return nil, fmt.Errorf("source suffix cannot be empty")
 	}
-	entry, err := entryPrompt.Run()
-	if err != nil {
-		return nil, fmt.Errorf("entry point prompt failed: %w", err)
+	if strings.HasPrefix(source, ".") {
+		return nil, fmt.Errorf("source suffix must not start with a dot")
 	}
-	config.EntryPoint = entry
 
-	sourcePrompt := promptui.Prompt{
-		Label: "Source file suffix (e.g. md, yaml)",
-		Validate: func(input string) error {
-			if input == "" {
-				return fmt.Errorf("source suffix cannot be empty")
-			}
-			if strings.HasPrefix(input, ".") {
-				return fmt.Errorf("do not include a leading dot")
-			}
-			return nil
-		},
+	target := c.String("target")
+	if target == "" {
+		return nil, fmt.Errorf("target suffix cannot be empty")
 	}
-	source, err := sourcePrompt.Run()
-	if err != nil {
-		return nil, fmt.Errorf("source suffix prompt failed: %w", err)
+	if strings.HasPrefix(target, ".") {
+		return nil, fmt.Errorf("target suffix must not start with a dot")
 	}
-	config.SourceSuffix = source
 
-	targetPrompt := promptui.Prompt{
-		Label: "Target file suffix (e.g. html, txt)",
-		Validate: func(input string) error {
-			if input == "" {
-				return fmt.Errorf("target suffix cannot be empty")
-			}
-			if strings.HasPrefix(input, ".") {
-				return fmt.Errorf("do not include a leading dot")
-			}
-			return nil
-		},
-	}
-	target, err := targetPrompt.Run()
-	if err != nil {
-		return nil, fmt.Errorf("target suffix prompt failed: %w", err)
-	}
-	config.TargetSuffix = target
-
-	return config, nil
+	return &pipeline.PipelineConfig{
+		PipelineName: c.String("name"),
+		EntryPoint:   entry,
+		SourceSuffix: source,
+		TargetSuffix: target,
+	}, nil
 }

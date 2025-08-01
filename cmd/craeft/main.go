@@ -138,16 +138,45 @@ func main() {
 				Action: Config,
 			},
 			{
-				Name:   "init",
-				Usage:  "Generate a default config and initialize the project",
+				Name:  "init",
+				Usage: "Generate a default config and initialize the project",
+				Flags: []cli.Flag{
+					&cli.StringFlag{
+						Name:    "output",
+						Usage:   "Output directory",
+						Value:   "dist",
+					},
+					&cli.StringFlag{
+						Name:  "activate",
+						Usage: `Which default pipes to activate? Comma-separated list of "md", "tpl"`,
+						Value: "md",
+					},
+				},
 				Action: Init,
 			},
 			{
 				Name: "add",
 				Subcommands: []*cli.Command{
 					{
-						Name:   "pipe",
-						Usage:  "Add a new pipe to the project",
+						Name:  "pipe",
+						Usage: "Add a new pipe to the project",
+						Flags: []cli.Flag{
+							&cli.StringFlag{
+								Name:  "entrypoint",
+								Usage: "Entry point TS file (must end in .ts)",
+								Value: "index.ts",
+							},
+							&cli.StringFlag{
+								Name:     "source",
+								Usage:    "Source file suffix (e.g. md, yaml) — no leading dot",
+								Required: true,
+							},
+							&cli.StringFlag{
+								Name:     "target",
+								Usage:    "Target file suffix (e.g. html, txt) — no leading dot",
+								Required: true,
+							},
+						},
 						Action: AddPipe,
 					},
 				},
