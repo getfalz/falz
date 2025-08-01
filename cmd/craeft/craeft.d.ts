@@ -1,4 +1,3 @@
- *
 declare module "fasttpl" {
   /**
    * 
@@ -6,15 +5,13 @@ declare module "fasttpl" {
    * 
    *
    */
-  interface Config{
+  interface Config {
     /**
      * Opening tag for variable substitution in templates. Defaults to "{{"
-     *
      */
     startTag: string
     /**
      * Closing tag for variable substitution in templates. Defaults to "}}"
-     *
      */
     endTag: string
   }
@@ -85,125 +82,101 @@ declare module "md" {
    * 
    *
    */
-  interface ParserOptions{
+  interface ParserOptions {
     /**
      * Ignore emphasis markers inside words
-     *
      */
     NoIntraEmphasis?: boolean
     /**
      * Parse tables
-     *
      */
     Tables?: boolean
     /**
      * Parse fenced code blocks
-     *
      */
     FencedCode?: boolean
     /**
      * Detect embedded URLs that are not explicitly marked
-     *
      */
     Autolink?: boolean
     /**
      * Strikethrough text using ~~test~~
-     *
      */
     Strikethrough?: boolean
     /**
      * Loosen up HTML block parsing rules
-     *
      */
     LaxHTMLBlocks?: boolean
     /**
      * Be strict about prefix heading rules
-     *
      */
     SpaceHeadings?: boolean
     /**
      * Translate newlines into line breaks
-     *
      */
     HardLineBreak?: boolean
     /**
      * Translate backspace spaces into non-blocking spaces
-     *
      */
     NonBlockingSpace?: boolean
     /**
      * Expand tabs to eight spaces instead of four
-     *
      */
     TabSizeEight?: boolean
     /**
      * Pandoc-style footnotes
-     *
      */
     Footnotes?: boolean
     /**
      * No need to insert an empty line to start a block (code, quote, lists)
-     *
      */
     NoEmptyLineBeforeBlock?: boolean
     /**
      * Specify heading IDs with {#id}
-     *
      */
     HeadingIDs?: boolean
     /**
      * Titleblock ala pandoc
-     *
      */
     Titleblock?: boolean
     /**
      * Create the heading ID from the text
-     *
      */
     AutoHeadingIDs?: boolean
     /**
      * Translate trailing backslashes into line breaks
-     *
      */
     BackslashLineBreak?: boolean
     /**
      * Parse definition lists
-     *
      */
     DefinitionLists?: boolean
     /**
      * Parse MathJax
-     *
      */
     MathJax?: boolean
     /**
      * Keep track of the first number when starting an ordered list
-     *
      */
     OrderedListStart?: boolean
     /**
      * Block attributes
-     *
      */
     Attributes?: boolean
     /**
      * Super- and subscript support: 2^10^, H~2~O
-     *
      */
     SuperSubscript?: boolean
     /**
      * Two empty lines break out of a list
-     *
      */
     EmptyLinesBreakList?: boolean
     /**
      * Support including other files
-     *
      */
     Includes?: boolean
     /**
      * Support Mmark syntax (see https://mmark.miek.nl/post/syntax/)
-     *
      */
     Mmark?: boolean
   }
@@ -213,105 +186,85 @@ declare module "md" {
    * 
    *
    */
-  interface RendererOptions{
+  interface RendererOptions {
     /**
      * Skip preformatted HTML blocks
-     *
      */
     SkipHTML?: boolean
     /**
      * Skip embedded images
-     *
      */
     SkipImages?: boolean
     /**
      * Skip all links
-     *
      */
     SkipLinks?: boolean
     /**
      * Only link to trusted protocols
-     *
      */
     Safelink?: boolean
     /**
      * Only link with rel="nofollow"
-     *
      */
     NofollowLinks?: boolean
     /**
      * Only link with rel="noreferrer"
-     *
      */
     NoreferrerLinks?: boolean
     /**
      * Only link with rel="noopener"
-     *
      */
     NoopenerLinks?: boolean
     /**
      * Add a blank target
-     *
      */
     HrefTargetBlank?: boolean
     /**
      * Generate a complete HTML page
-     *
      */
     CompletePage?: boolean
     /**
      * Generate XHTML output instead of HTML
-     *
      */
     UseXHTML?: boolean
     /**
      * Generate a link at the end of a footnote to return to the source
-     *
      */
     FootnoteReturnLinks?: boolean
     /**
      * Do not output an HR after starting a footnote list
-     *
      */
     FootnoteNoHRTag?: boolean
     /**
      * Enable smart punctuation substitutions
-     *
      */
     Smartypants?: boolean
     /**
      * Enable smart fractions (with Smartypants)
-     *
      */
     SmartypantsFractions?: boolean
     /**
      * Enable smart dashes (with Smartypants)
-     *
      */
     SmartypantsDashes?: boolean
     /**
      * Enable LaTeX-style dashes (with Smartypants)
-     *
      */
     SmartypantsLatexDashes?: boolean
     /**
      * Enable angled double quotes for double quotes rendering
-     *
      */
     SmartypantsAngledQuotes?: boolean
     /**
      * Enable « French guillemets » (with Smartypants)
-     *
      */
     SmartypantsQuotesNBSP?: boolean
     /**
      * Generate a table of contents
-     *
      */
     TOC?: boolean
     /**
      * Include loading="lazy" with images
-     *
      */
     LazyLoadImages?: boolean
   }
@@ -321,15 +274,13 @@ declare module "md" {
    * 
    *
    */
-  interface Config{
+  interface Config {
     /**
      * Generate a table of contents
-     *
      */
     parser?: ParserOptions
     /**
      * Renderer options
-     *
      */
     renderer?: RendererOptions
   }
@@ -338,11 +289,11 @@ declare module "md" {
    * Parses markdown to HTML.
    * 
    * @param markdown The Markdown content.
-   * @param options Configuration object for the parser and renderer.
+   * @param options? Configuration object for the parser and renderer.
    * @returns The rendered HTML string.
    *
    */
-  export function toHtml (markdown: string, options: Config?): Promise<string>
+  export function toHtml (markdown: string, options?: Config): Promise<string>
   /**
    * 
    * Common options for markdown parsing and rendering.

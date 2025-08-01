@@ -43,7 +43,7 @@ func New(name, path string, pl pipeline.PipelineScript, variables any) (*Content
 	}, nil
 }
 
-// @ts type global.IndexContext
+// @ts type global.iCtx
 // @doc Context passed into the `index` function.
 // @field vars: Record<string, unknown> - Variables set in the config.yaml file. Custom key/value mappings loaded from `config.yaml`. Values may include environment‑variable references (e.g. `$HOME/docs`), which will be expanded at runtime.
 func (c *Content) LoadIndex() error {
@@ -72,9 +72,9 @@ func (c *Content) LoadIndex() error {
 	return nil
 }
 
-// @ts type global.TransformContext
+// @ts type global.tCtx
 // @doc Context passed into the `transform` function.
-// @pred IndexContext &
+// @pred iCtx &
 // @field index: Record<string, unknown>
 func (c Content) Build(layoutTpl string) ([]ContentResult, error) {
 	file, err := os.ReadFile(c.path)

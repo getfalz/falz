@@ -41,20 +41,19 @@ const (
     },
     "include": [
         "index.ts",
-        "../../types/craeft.d.ts",
-        "../../types/global.d.ts"
+        "../../types/*.d.ts",
     ]
 }`
 
 	indexTS = `import { Parser } from "md"
 
-async function transform(this: tCtx, input: string): Promise<string>{
+export async function transform(this: tCtx, input: string): Promise<string>{
     console.log(input)
 
     return input
 }
 
-async function index(this: iCtx, input: string) {
+export async function index(this: iCtx, input: string) {
     return {}
 }`
 )
