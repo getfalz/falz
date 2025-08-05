@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"runtime"
 
 	"craeft/internal/log"
 	"craeft/internal/project"
@@ -17,8 +19,12 @@ func Build(c *cli.Context) error {
 	}
 
 	// TODO Build could be done parallel. First check for cache access
-	if err := p.Build(true); err != nil {
+	ctx := context.Background()
+	opt := project.BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
+	stats, err := p.Build(ctx, opt)
+	if err != nil {
 		log.Fatal(fmt.Sprintf("Can't build project: %v", err))
 	}
+	fmt.Printf("Build finished in %s\n", stats.AssetsBuilt)
 	return nil
 }

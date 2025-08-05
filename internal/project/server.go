@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -31,6 +32,7 @@ type Server struct {
 }
 
 func NewServer(p *Project) *Server {
+
 	s := &Server{
 		config:      p.Config,
 		project:     p,
@@ -117,20 +119,21 @@ func (s *Server) WatchFiles() {
 
 			log.Trace(fmt.Sprintf("File changed. UPDATE: %s", relPath))
 
-			newPath, err := s.project.BuildPath(relPath)
-			if err != nil {
-				log.Error(err)
-				continue
-			}
-
-			newUrl, err := filepath.Rel(s.config.OutputPath, newPath)
-			if err != nil {
-				log.Error(err)
-				continue
-			}
+			// newPath, err := s.project.BuildPath(relPath)
+			// if err != nil {
+			// 	log.Error(err)
+			// 	continue
+			// }
+			//
+			// newUrl, err := filepath.Rel(s.config.OutputPath, newPath)
+			// if err != nil {
+			// 	log.Error(err)
+			// 	continue
+			// }
 
 			if s.config.FsWatcher.HotReload {
-				message := HotReloadMsg{Url: fmt.Sprintf("/%s", newUrl), Reload: false}
+				// message := HotReloadMsg{Url: fmt.Sprintf("/%s", newUrl), Reload: false}
+				message := HotReloadMsg{Url: fmt.Sprintf("/%s", ""), Reload: false}
 				s.sendToClient(message)
 			}
 
@@ -158,7 +161,11 @@ func (s *Server) WatchTheme() {
 		// TODO for now, we just rebuild all files. We could do better, and just rebuild the affected files
 		log.Trace(fmt.Sprintf("Theme changed. Reloading file: %s", ei.Path()))
 		atomic.StoreInt32(&s.ignoreWrite, 1)
-		s.project.Build(false)
+
+		ctx := context.Background()
+		opt := BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
+
+		s.project.Build(ctx, opt)
 		atomic.StoreInt32(&s.ignoreWrite, 0)
 
 		if s.config.FsWatcher.HotReload {
@@ -191,8 +198,12 @@ func (s *Server) WatchPipes() {
 		for _ = range s.config.Pipes {
 			atomic.StoreInt32(&s.ignoreWrite, 1)
 			log.Trace(fmt.Sprintf("Pipeline changed. Reloading file: %s", ei.Path()))
-			s.project.pipelines.LoadPipelines()
-			s.project.Build(false)
+			s.project.pipelines.LoadAll()
+
+			ctx := context.Background()
+			opt := BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
+
+			s.project.Build(ctx, opt)
 			atomic.StoreInt32(&s.ignoreWrite, 0)
 		}
 

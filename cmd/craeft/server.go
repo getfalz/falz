@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"craeft/internal/log"
 	"craeft/internal/project"
+	"fmt"
+	"runtime"
 
 	"github.com/urfave/cli/v2"
 )
@@ -13,7 +16,14 @@ func Server(c *cli.Context) error {
 		log.Fatal("Project not found in context.")
 	}
 
-	p.Build(true)
+	ctx := context.Background()
+	opt := project.BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
+	stats, err := p.Build(ctx, opt)
+	if err != nil {
+		log.Fatal(fmt.Sprintf("Can't build project: %v", err))
+	}
+
+	fmt.Printf("Build finished in %s\n", stats.AssetsBuilt)
 
 	if p.Config.FsWatcher.Content {
 		go p.Server.WatchFiles()

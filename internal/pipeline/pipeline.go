@@ -1,26 +1,97 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 
-	"craeft/internal/log"
 	"craeft/internal/pipeline/js"
 )
 
 type PipelineScript interface {
-	Index(input []byte, vars Vars) Vars
-	Transform(input []byte, vars Vars) []map[string]string
+	Index(ctx context.Context, input []byte, vars Vars) (Vars, error)
+	Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error)
 	Config() PipelineConfig
 }
 
+type envPool struct {
+	name    string
+	path    string
+	code    string
+	cfg     *js.JSConfig
+	ch      chan *script
+	closing atomic.Bool
+	size    int
+}
+
+func newEnvPool(name, path, code string, cfg *js.JSConfig, n int) (*envPool, error) {
+	p := &envPool{
+		name: name, path: path, code: code, cfg: cfg,
+		ch: make(chan *script, n), size: n,
+	}
+	for i := 0; i < n; i++ {
+		w, err := NewScript(name, path, cfg, code)
+		if err != nil {
+			for {
+				select {
+				case s := <-p.ch:
+					_ = s.env.Close()
+				default:
+					return nil, err
+				}
+			}
+		}
+		p.ch <- w
+	}
+	return p, nil
+}
+
+func (p *envPool) acquire(ctx context.Context) (*script, error) {
+	select {
+	case w := <-p.ch:
+		return w, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (p *envPool) release(w *script) {
+	if p.closing.Load() {
+		_ = w.env.Close()
+		return
+	}
+	select {
+	case p.ch <- w:
+	default:
+		// pool full (shouldn't happen) — drop
+		_ = w.env.Close()
+	}
+}
+
+func (p *envPool) close() {
+	if !p.closing.CompareAndSwap(false, true) {
+		return
+	}
+loop:
+	for {
+		select {
+		case w := <-p.ch:
+			_ = w.env.Close()
+		default:
+			break loop
+		}
+	}
+	close(p.ch)
+}
+
 type Pipeline struct {
-	*script
+	entry  *envPool
 	config *PipelineConfig
 }
 
-func New(path string, jsconfig *js.JSConfig) (*Pipeline, error) {
+func NewPipeline(path string, jsconfig *js.JSConfig, poolSize int) (*Pipeline, error) {
 
 	configPath := filepath.Join(path, "config.yaml")
 	config, err := loadConfig(configPath)
@@ -29,84 +100,40 @@ func New(path string, jsconfig *js.JSConfig) (*Pipeline, error) {
 	}
 
 	scriptPath := filepath.Join(path, config.EntryPoint)
-	script, err := NewScript(scriptPath, jsconfig)
+	if _, err := os.Stat(scriptPath); err != nil {
+		return nil, fmt.Errorf("entry not found: %w", err)
+	}
+
+	code, err := loadScript(filepath.Dir(scriptPath), filepath.Base(scriptPath))
+	if err != nil {
+		return nil, err
+	}
+	pool, err := newEnvPool(jsconfig.Name, scriptPath, code, jsconfig, poolSize)
 	if err != nil {
 		return nil, err
 	}
 
-	return &Pipeline{
-		script: script,
-		config: config,
-	}, nil
+	return &Pipeline{entry: pool, config: config}, nil
 }
 
 func (p *Pipeline) Config() PipelineConfig {
 	return *p.config
 }
 
-type RegistryConfig struct {
-	Pipelines       []string
-	PipelinesPath   string
-	SourceDirectory string
-}
-type Registry struct {
-	pipelines map[string]*Pipeline
-	config    *RegistryConfig
-	defaults  map[string]PipelineScript
+func (p *Pipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
+	w, err := p.entry.acquire(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer p.entry.release(w)
+	return w.Index(ctx, input, vars)
 }
 
-func NewRegistry(config *RegistryConfig) *Registry {
-	return &Registry{
-		pipelines: make(map[string]*Pipeline),
-		config:    config,
-		defaults: map[string]PipelineScript{
-			"tpl": &TplPipeline{},
-			"md":  &MdPipeline{},
-			"nop": &NopPipeline{},
-		},
+func (p *Pipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
+	w, err := p.entry.acquire(ctx)
+	if err != nil {
+		return nil, err
 	}
-}
-
-func (r *Registry) LoadPipelines() error {
-	for _, pipelineName := range r.config.Pipelines {
-		pipelinePath := filepath.Join(r.config.PipelinesPath, pipelineName)
-
-		if info, err := os.Stat(pipelinePath); os.IsNotExist(err) || !info.IsDir() {
-			if _, ok := r.defaults[pipelineName]; ok {
-				continue
-			}
-			log.Warn(fmt.Sprintf("Pipeline directory does not exist or is not a directory: %s", pipelinePath))
-			continue
-		}
-
-		config := &js.JSConfig{
-			Name: pipelineName,
-			Root: r.config.SourceDirectory,
-		}
-		pipeline, err := New(pipelinePath, config)
-		if err != nil {
-			log.Warn(fmt.Sprintf("Error loading pipeline %s: %v", pipelineName, err))
-			continue
-		}
-
-		log.Trace(fmt.Sprintf("Pipeline loaded %s from %s", pipelineName, pipelinePath))
-		r.pipelines[pipelineName] = pipeline
-	}
-
-	return nil
-}
-
-func (r *Registry) Get(name string) (PipelineScript, error) {
-	if pipeline, ok := r.pipelines[name]; ok {
-		return pipeline, nil
-	}
-
-	// if name == "" {
-	// 	return r.defaults["nop"], nil
-	// }
-	if defaultPipeline, ok := r.defaults[name]; ok {
-		return defaultPipeline, nil
-	}
-
-	return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found. using default", name)
+	defer p.entry.release(w)
+	return w.Transform(ctx, input, vars)
 }

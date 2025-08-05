@@ -1,10 +1,9 @@
 package pipeline
 
 import (
+	"context"
 	"fmt"
 	"regexp"
-
-	"craeft/internal/log"
 
 	"github.com/gobuffalo/plush"
 	"github.com/gomarkdown/markdown"
@@ -25,17 +24,17 @@ func (d *NopPipeline) Config() PipelineConfig {
 		TargetSuffix:   "",
 	}
 }
-func (d *NopPipeline) Index(input []byte, vars Vars) Vars {
-	return map[string]any{}
+func (d *NopPipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
+	return map[string]any{}, nil
 }
-func (d *NopPipeline) Transform(input []byte, vars Vars) []map[string]string {
+func (d *NopPipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
 	results := []map[string]string{
 		{
 			"filename": vars["target"].(string),
 			"result":   string(input),
 		},
 	}
-	return results
+	return results, nil
 }
 
 type MdPipeline struct {
@@ -53,10 +52,10 @@ func (m *MdPipeline) Config() PipelineConfig {
 		SourceSuffixRe: re,
 	}
 }
-func (m *MdPipeline) Index(input []byte, vars Vars) Vars {
-	return map[string]any{}
+func (m *MdPipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
+	return map[string]any{}, nil
 }
-func (m *MdPipeline) Transform(input []byte, vars Vars) []map[string]string {
+func (m *MdPipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
 
 	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
 	p := parser.NewWithExtensions(extensions)
@@ -73,7 +72,7 @@ func (m *MdPipeline) Transform(input []byte, vars Vars) []map[string]string {
 			"result":   string(result),
 		},
 	}
-	return results
+	return results, nil
 }
 
 type TplPipeline struct {
@@ -92,15 +91,19 @@ func (t TplPipeline) Config() PipelineConfig {
 		SourceSuffixRe: re,
 	}
 }
-func (t TplPipeline) Index(input []byte, vars Vars) Vars {
-	return map[string]any{}
+func (t TplPipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
+	return map[string]any{}, nil
 }
-func (t TplPipeline) Transform(input []byte, vars Vars) []map[string]string {
-	ctx := plush.NewContextWith(vars)
-	result, err := plush.Render(string(input), ctx)
+func (t TplPipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
+	pctx := plush.NewContextWith(vars)
+	result, err := plush.Render(string(input), pctx)
 	if err != nil {
-		log.Error(fmt.Errorf("error transforming template %s: %s", vars["target"], err))
-		result = string(input)
+		return []map[string]string{
+			{
+				"filename": vars["target"].(string),
+				"result":   string(input),
+			},
+		}, fmt.Errorf("error transforming template %s: %s", vars["target"], err)
 	}
 
 	results := []map[string]string{
@@ -109,5 +112,5 @@ func (t TplPipeline) Transform(input []byte, vars Vars) []map[string]string {
 			"result":   result,
 		},
 	}
-	return results
+	return results, nil
 }

@@ -53,6 +53,7 @@ type Layout struct {
 	name         string
 	path         string
 	pipelines    *pipeline.Registry
+	root         *os.Root
 	useHotReload bool
 
 	// Children
@@ -66,6 +67,7 @@ type Layout struct {
 
 type Fragment struct {
 	pipeline pipeline.PipelineScript
+	root     *os.Root
 
 	XMLName xml.Name `xml:"Fragment"`
 	Name    string   `xml:"name,attr"`
@@ -97,36 +99,42 @@ func parseTpl(tpl string, data map[string]any) string {
 }
 
 // Fragment struct loads and renders raw HTML from a file
-func (f Fragment) Render(ctx context.Context) (string, error) {
+func (f Fragment) Render(ctx context.Context) (string, string, error) {
 	basePath := getValue(ctx, ctxBasePath)
 	renderPath := getValue(ctx, ctxRenderPath)
 
 	files, err := utils.FindFile(basePath, renderPath, f.Source)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	if len(files) == 0 {
-		return "", fmt.Errorf("no files found for fragment %s", f.Source)
+		return "", "", fmt.Errorf("no files found for fragment %s", f.Source)
 	}
 
 	var content []byte
-	content, err = os.ReadFile(filepath.Join(basePath, files[0]))
+	fragment := filepath.ToSlash(filepath.Join(basePath, files[0]))
+	// TODO use schemeRoot.Open()
+	content, err = os.ReadFile(fragment)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 
 	vars := pipeline.NewVars("")
-	result := f.pipeline.Transform(content, vars)
+	// TODO pass global context
+	result, err := f.pipeline.Transform(ctx, content, vars)
+	if err != nil {
+		return "", "", fmt.Errorf("pipeline %s: %w", f.pipeline.Config().PipelineName, err)
+	}
 
 	if len(result) == 0 {
-		return "", fmt.Errorf("pipeline '%s' for fragment '%s' returned an empty result", f.pipeline.Config().PipelineName, f.Name)
+		return "", "", fmt.Errorf("pipeline '%s' for fragment '%s' returned an empty result", f.pipeline.Config().PipelineName, f.Name)
 	}
 	if len(result) > 1 {
 		log.Warn(fmt.Sprintf("Fragments pipeline %s returned more than one result. Using the first one", f.pipeline.Config().PipelineName), log.Tag{Key: log.PipelineTag, Value: f.Name})
 	}
 
-	return result[0]["result"], nil
+	return result[0]["result"], fragment, nil
 }
 
 func (f Fragment) Validate() error {
@@ -198,7 +206,8 @@ func (a Asset) Validate() error {
 }
 
 // Render layout. The fragments will be searched first in the given base path
-func (l *Layout) Render(path string) (string, error) {
+func (l *Layout) RenderWithDeps(base string, schemeRoot *os.Root) (rendered string, deps []string, err error) {
+	// func (l *Layout) Render(path string) (string, error) {
 	// TODO render websocket script only when the development flag is set
 	// but find a way to define the variables placeholders. maybe use fasttemplate?
 
@@ -206,26 +215,35 @@ func (l *Layout) Render(path string) (string, error) {
 	if l.Tpl != "" {
 		tmpl = []byte(l.Tpl)
 	} else {
-		tplPaths, err := utils.FindFile(l.basePath, path, l.TplPath)
+		tplPaths, err := utils.FindFile(l.basePath, base, l.TplPath)
 		if err != nil {
-			return "", fmt.Errorf("can't find layout template: %w", err)
+			return "", nil, fmt.Errorf("can't find layout template: %w", err)
 		}
 
-		tmpl, err = os.ReadFile(filepath.Join(l.basePath, tplPaths[0]))
+		p := filepath.ToSlash(tplPaths[0])
+		f, err := schemeRoot.Open(p)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
+		b, rerr := io.ReadAll(f)
+		_ = f.Close()
+		if rerr != nil {
+			return "", nil, rerr
+		}
+		tmpl = b
+		deps = append(deps, p)
+
 	}
 
 	ctx := context.WithValue(context.Background(), ctxBasePath, l.basePath)
-	ctx = context.WithValue(ctx, ctxRenderPath, path)
+	ctx = context.WithValue(ctx, ctxRenderPath, base)
 	ctx = context.WithValue(ctx, ctxLayoutPath, l.path)
 
 	tplVariables := make(map[string]any)
 	for _, asset := range l.assets {
 		output, err := asset.Render(ctx)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		tplVariables[asset.Name] = output
 	}
@@ -233,17 +251,18 @@ func (l *Layout) Render(path string) (string, error) {
 	for _, c := range l.contents {
 		content, err := c.Render(ctx)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		tplVariables[c.Name] = content
 	}
 
 	for _, f := range l.fragments {
-		output, err := f.Render(ctx)
+		output, fragmentPath, err := f.Render(ctx)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		tplVariables[f.Name] = output
+		deps = append(deps, fragmentPath)
 	}
 
 	if l.useHotReload {
@@ -253,7 +272,7 @@ func (l *Layout) Render(path string) (string, error) {
 	log.Trace(fmt.Sprintf("Rendering layout %q with variables: %v", l.Tpl, tplVariables))
 	result := parseTpl(string(tmpl), tplVariables)
 
-	return result, nil
+	return result, deps, nil
 }
 
 func (l Layout) Validate() error {
@@ -374,6 +393,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 					return err
 				}
 				f.pipeline, err = l.pipelines.Get(f.Pipe)
+				f.root = l.root
 				if err != nil {
 					log.Warn(
 						fmt.Sprintf("pipeline '%s' not found for fragment %s, err: %s", f.Pipe, f.Name, err),
@@ -437,14 +457,20 @@ func (l Layout) MatchContent(path string) bool {
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
 func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
+	r, err := os.OpenRoot(basePath)
+	if err != nil {
+		return nil, err
+	}
+
 	layout := &Layout{
 		basePath:     basePath,
 		path:         filepath.Dir(path),
 		pipelines:    pipeReg,
 		name:         filepath.Base(path),
 		useHotReload: useHotReload,
+		root:         r,
 	}
-	err := xml.Unmarshal(data, layout)
+	err = xml.Unmarshal(data, layout)
 	if err != nil {
 		return nil, err
 	}

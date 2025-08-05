@@ -1,6 +1,7 @@
 package js
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -143,7 +144,7 @@ func (env *JsEnv) setupRequire() {
 	})
 }
 
-func (env *JsEnv) Call(name string, ctx, vars goja.Value) (goja.Value, error) {
+func (env *JsEnv) Call(ctx context.Context, name string, ctxVal, vars goja.Value) (goja.Value, error) {
 	v := env.loop.vm.Get(name)
 	fn, ok := goja.AssertFunction(v)
 	if !ok {
@@ -155,30 +156,40 @@ func (env *JsEnv) Call(name string, ctx, vars goja.Value) (goja.Value, error) {
 
 	switch p.Get("name").String() {
 	case "Function":
-		return env.callFunc(fn, name, ctx, vars)
+		return env.callFunc(ctx, fn, name, ctxVal, vars)
 	case "AsyncFunction":
-		return env.callAsyncFunc(fn, name, ctx, vars)
+		return env.callAsyncFunc(ctx, fn, name, ctxVal, vars)
 	default:
 		return nil, fmt.Errorf("unsupported function type %s", p.Get("name").String())
 	}
 }
 
-func (env *JsEnv) callFunc(fn goja.Callable, name string, ctx, vars goja.Value) (goja.Value, error) {
-	result, err := fn(ctx, vars)
+func (env *JsEnv) callFunc(ctx context.Context, fn goja.Callable, name string, ctxVal, vars goja.Value) (goja.Value, error) {
+	stop := bindContextCancel(env.loop, env.loop.vm, ctx)
+	defer stop()
+
+	result, err := fn(ctxVal, vars)
 	if err != nil {
+		var ie *goja.InterruptedError
+		if errors.As(err, &ie) && ctx != nil && ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
 		return vars, fmt.Errorf("%s return error %s", name, err)
 	}
 
 	return result, nil
 }
 
-func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Value) (goja.Value, error) {
+func (env *JsEnv) callAsyncFunc(ctx context.Context, fn goja.Callable, name string, ctxVal, vars goja.Value) (goja.Value, error) {
 	var result goja.Value
 	var err error
 	done := make(chan struct{})
 
 	env.loop.Start()
 	defer env.loop.Stop()
+
+	stop := bindContextCancel(env.loop, env.loop.vm, ctx)
+	defer stop()
 
 	env.loop.RunOnLoop(func(vm *goja.Runtime) {
 		defer func() {
@@ -190,11 +201,10 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 
 				err = fmt.Errorf("loop.run panic: %v\nStack Trace:\n%s", r, strings.Join(stackLines, "\n"))
 				close(done)
-				return
 			}
 		}()
 
-		promise, errr := fn(ctx, vars)
+		promise, errr := fn(ctxVal, vars)
 		if errr != nil {
 			err = fmt.Errorf("loop.run %s return error %s", name, errr)
 			close(done)
@@ -204,7 +214,6 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 		go func() {
 			if p, ok := promise.Export().(*goja.Promise); ok {
 				for {
-					time.Sleep(time.Millisecond * 100)
 					switch p.State() {
 					case goja.PromiseStateRejected:
 						val := p.Result()
@@ -219,9 +228,13 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 						close(done)
 						return
 					case goja.PromiseStatePending:
+						time.Sleep(time.Millisecond * 10)
 						continue
 					default:
-						panic("unexpected promise state pending")
+						err = fmt.Errorf("unexpected promise state")
+						env.loop.StopNoWait()
+						close(done)
+						return
 					}
 				}
 			} else {
@@ -233,12 +246,41 @@ func (env *JsEnv) callAsyncFunc(fn goja.Callable, name string, ctx, vars goja.Va
 	select {
 	case <-done:
 		if err != nil {
+			if ctx != nil && ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return nil, err
 		}
 		return result, nil
-	case <-time.After(5 * time.Second):
-		env.loop.StopNoWait()
-		return nil, fmt.Errorf("async operation timed out")
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func bindContextCancel(loop *EventLoop, vm *goja.Runtime, ctx context.Context) (stop func()) {
+	if ctx == nil {
+		return func() {}
+	}
+	done := make(chan struct{})
+	go func() {
+		select {
+		case <-ctx.Done():
+			if vm != nil {
+				vm.Interrupt(ctx.Err())
+			}
+			if loop != nil {
+				loop.Terminate()
+			}
+		case <-done:
+			return
+		}
+	}()
+
+	return func() {
+		close(done)
+		if vm != nil {
+			vm.ClearInterrupt()
+		}
 	}
 }
 
@@ -265,10 +307,10 @@ func setupEnv(vm *goja.Runtime, pipelineName string, l zerolog.Logger) {
 
 	// mockup module/exports
 	moduleObj := vm.NewObject()
-    exportsObj := vm.NewObject()
-    moduleObj.Set("exports", exportsObj)
-    vm.Set("module", moduleObj)
-    vm.Set("exports", exportsObj)
+	exportsObj := vm.NewObject()
+	moduleObj.Set("exports", exportsObj)
+	vm.Set("module", moduleObj)
+	vm.Set("exports", exportsObj)
 }
 
 func getLogger(pipelineName string) zerolog.Logger {
@@ -385,11 +427,15 @@ func (env *JsEnv) addClosable(resource Closable) {
 	env.resources = append(env.resources, resource)
 }
 
-func (env *JsEnv) Close() {
+func (env *JsEnv) Close() error {
 	env.rm.Lock()
 	defer env.rm.Unlock()
+	var errs []error
 	for _, resource := range env.resources {
-		_ = resource.Close()
+		err := resource.Close()
+		errs = append(errs, err)
 	}
 	env.resources = nil
+
+	return errors.Join(errs...)
 }
