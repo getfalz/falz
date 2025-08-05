@@ -93,19 +93,15 @@ func AddPipe(c *cli.Context) error {
 		return fmt.Errorf("failed to create types directory: %w", err)
 	}
 
-	dtsPath := filepath.Join(typesDir, "craeft.d.ts")
+	if err := os.WriteFile(filepath.Join(typesDir, "craeft.d.ts"), []byte(tsDoc), 0644); err != nil {
+		return fmt.Errorf("failed to write craeft.d.ts: %w", err)
+	}
 
-	if _, err := os.Stat(dtsPath); os.IsNotExist(err) {
-		if err := os.WriteFile(dtsPath, []byte(tsDoc), 0644); err != nil {
-			return fmt.Errorf("failed to write craeft.d.ts: %w", err)
-		}
-
-		if err := os.WriteFile(dtsPath, []byte(globalDoc), 0644); err != nil {
-			return fmt.Errorf("failed to write global.d.ts: %w", err)
-		}
-		if err := os.WriteFile(dtsPath, []byte(envDoc), 0644); err != nil {
-			return fmt.Errorf("failed to write env.d.ts: %w", err)
-		}
+	if err := os.WriteFile(filepath.Join(typesDir, "global.d.ts"), []byte(globalDoc), 0644); err != nil {
+		return fmt.Errorf("failed to write global.d.ts: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(typesDir, "env.d.ts"), []byte(envDoc), 0644); err != nil {
+		return fmt.Errorf("failed to write env.d.ts: %w", err)
 	}
 
 	if err := os.WriteFile(filepath.Join(currPipeDir, "tsconfig.json"), []byte(tsconfig), 0644); err != nil {
@@ -158,7 +154,7 @@ func buildPipeConfig(c *cli.Context) (*pipeline.PipelineConfig, error) {
 	}
 
 	return &pipeline.PipelineConfig{
-		PipelineName: c.String("name"),
+		PipelineName: name,
 		EntryPoint:   entry,
 		SourceSuffix: source,
 		TargetSuffix: target,
