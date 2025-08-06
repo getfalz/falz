@@ -4,7 +4,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"github.com/mattn/go-zglob"
 )
@@ -56,6 +58,44 @@ func FindFile(basePath, targetPath, pattern string) ([]string, error) {
 	}
 
 	return results, nil
+}
+
+type mkdirer interface {
+	Mkdir(name string, perm os.FileMode) error
+}
+
+func MkdirAllFS(fs mkdirer, p string, perm os.FileMode) error {
+	p = filepath.Clean(p)
+	if p == "." {
+		return nil
+	}
+
+	cur := filepath.VolumeName(p)
+	if filepath.IsAbs(p) {
+		cur += string(filepath.Separator)
+		p = strings.TrimPrefix(p, cur)
+	}
+
+	for part := range strings.SplitSeq(p, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		cur = filepath.Join(cur, part)
+		if err := fs.Mkdir(cur, perm); err != nil && !errors.Is(err, os.ErrExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+func NormRel(p string) string {
+	// Your matches from fs.Glob are slash-separated already, but normalize anyway.
+	p = strings.ReplaceAll(p, "\\", "/") // just in case
+	p = path.Clean(p)
+	if p == "." {
+		return "."
+	}
+	return strings.TrimPrefix(p, "./")
 }
 
 // NormalizePath returns an absolute path relative to the given basePath

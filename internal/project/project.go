@@ -19,6 +19,7 @@ import (
 	"craeft/internal/utils"
 
 	"github.com/mattn/go-zglob"
+	"github.com/sanity-io/litter"
 	"github.com/valyala/fasttemplate"
 )
 
@@ -104,6 +105,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		Pipelines:       config.Pipes,
 		PipelinesPath:   config.PipesPath,
 		SourceDirectory: srcAbs,
+		// TODO set poolsize in config?
 		PoolSize:        runtime.NumCPU(),
 	})
 	if err := reg.LoadAll(); err != nil {
@@ -127,7 +129,8 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 	start := time.Now()
 	stats := BuildStats{}
 
-	plan, err := p.plan(opt.UseCache)
+	plan, err := p.plan()
+	litter.Dump(plan)
 	if err != nil {
 		fmt.Printf("Build failed in %s\n", time.Since(start))
 		return stats, err
@@ -136,8 +139,8 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 	if n := len(plan.Assets); n > 0 {
 		stats.AssetsPlanned = n
 		assets := make([]executor.Task, 0, n)
-		for i := range plan.Assets {
-			assets = append(assets, AssetTask{P: p, Asset: plan.Assets[i], Counter: &stats.AssetsBuilt})
+		for _, a := range plan.Assets {
+			assets = append(assets, AssetTask{P: p, Asset: a, Counter: &stats.AssetsBuilt})
 		}
 		_ = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, assets)
 	}
@@ -199,31 +202,33 @@ func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, erro
 	return p.layouts.GetOrBuild(p.schemeRoot, key, (*layout.Layout)(lyt))
 }
 
-func (p *Project) writeFileAtomic(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
-	dst = filepath.ToSlash(dst)
+// TODO: write file atomically:
+// wait for go1.25: https://github.com/golang/go/issues/73041
+func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
+	dst = filepath.Clean(filepath.ToSlash(dst))
 
-	tmp := dst + ".tmp-*"
-	f, err := root.OpenFile(tmp, os.O_CREATE|os.O_RDWR|os.O_EXCL, 0o600)
-	if err != nil {
-		return err
+	if err := utils.MkdirAllFS(root, filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("mkdir %q: %w", filepath.Dir(dst), err)
 	}
-	tmpName := f.Name()
+
+	f, err := root.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open %q: %w", dst, err)
+	}
 	if _, err := f.Write(data); err != nil {
 		f.Close()
-		_ = root.Remove(tmpName)
-		return err
+		return fmt.Errorf("write %q: %w", dst, err)
 	}
-	if err := f.Close(); err != nil {
-		_ = root.Remove(tmpName)
-		return err
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return fmt.Errorf("chmod %q: %w", dst, err)
 	}
-	if err := os.Chmod(filepath.Join(root.Name(), tmpName), perm); err != nil {
-		_ = root.Remove(tmpName)
-		return err
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("fsync %q: %w", dst, err)
 	}
-	return os.Rename(filepath.Join(root.Name(), tmpName), filepath.Join(root.Name(), dst))
+	return f.Close()
 }
-
 // // BuildPath builds a single page from a given path
 // // The path should be relative to the project source
 //
@@ -359,8 +364,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 	return out, nil
 }
 
-//
-// func (p Project) writeResults(base string, results []content.ContentResult) (string, error) {
+// func (p Project) writeResults(base string, results []ContentResult) (string, error) {
 // 	var outputPath string
 // 	targetDir := filepath.Join(p.Config.OutputPath, base)
 // 	if err := os.MkdirAll(targetDir, 0755); err != nil {
@@ -378,6 +382,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 //
 // 	return outputPath, nil
 // }
+
 //
 // func (p *Project) getContent(name, path string, pipeline string) (*content.Content, error) {
 // 	// var page *content.Content

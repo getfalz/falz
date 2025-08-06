@@ -15,6 +15,12 @@ type LayoutKey struct {
 	BaseDir       string
 }
 
+type assetKey struct {
+    From string
+    Pipe string
+    Rel  string // normalized, slash-separated, no leading "./"
+}
+
 type entry struct {
 	tpl  *fasttemplate.Template
 	deps []string

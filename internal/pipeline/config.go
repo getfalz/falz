@@ -15,7 +15,7 @@ type PipelineConfig struct {
 	EntryPoint     string `yaml:"entry_point" default:"index.js"`
 	SourceSuffix   string `yaml:"source_suffix"`
 	TargetSuffix   string `yaml:"target_suffix"`
-	SourceSuffixRe *regexp.Regexp
+	SourceSuffixRe *regexp.Regexp `yaml:"-"`
 }
 
 func loadConfig(configFile string) (*PipelineConfig, error) {
@@ -36,6 +36,7 @@ func loadConfig(configFile string) (*PipelineConfig, error) {
 		return nil, err
 	}
 
+	fmt.Printf("Loaded pipeline config: %+v\n", config)
 	config.SourceSuffixRe, err = regexp.Compile(fmt.Sprintf(`\.(%s)\b`, config.SourceSuffix))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile source_suffix pattern: %s", err)

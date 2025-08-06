@@ -92,7 +92,6 @@ type Pipeline struct {
 }
 
 func NewPipeline(path string, jsconfig *js.JSConfig, poolSize int) (*Pipeline, error) {
-
 	configPath := filepath.Join(path, "config.yaml")
 	config, err := loadConfig(configPath)
 	if err != nil {
