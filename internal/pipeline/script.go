@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -107,13 +108,17 @@ func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) ([]m
 	}
 }
 
-func loadScript(entryDir, entryFile string) (string, error) {
+func loadScript(scriptPath, entryFile string) (string, error) {
+	entryDir := filepath.Dir(scriptPath)
+	name := filepath.Base(scriptPath)
+	ext := filepath.Ext(name)
+
 	// TODO minify syntax dont work, because the entry functions will be renamed
 	// use transform instead of build?
 	result := api.Build(api.BuildOptions{
 		EntryPoints:      []string{entryFile},
 		AbsWorkingDir:    entryDir,
-		Outfile:          "out.js",
+		Outfile:          name,
 		Format:           api.FormatCommonJS,
 		Bundle:           true,
 		Write:            false,
@@ -140,10 +145,9 @@ func loadScript(entryDir, entryFile string) (string, error) {
 		return "", fmt.Errorf("esbuild produced no output")
 	}
 
-	// TODO this could be written to debug files
-	// log.Trace(fmt.Sprintf("esbuild generated: %s", result.OutputFiles[0].Contents))
-	fmt.Println("saving debug file to %s", result.OutputFiles[0].Path)
-	_ = os.WriteFile(result.OutputFiles[0].Path, []byte(result.OutputFiles[0].Contents), 0o644)
+	// TODO save debug only if debug is enabled
+	fmt.Println("saving debug file to %s", strings.TrimSuffix(name, ext)+".dbg"+ext)
+	_ = os.WriteFile(strings.TrimSuffix(name, ext)+".dbg"+ext, []byte(result.OutputFiles[0].Contents), 0o644)
 
 	return string(result.OutputFiles[0].Contents), nil
 }

@@ -83,12 +83,6 @@ func (s *Server) ServeFiles(ctx context.Context) error {
 	s.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		log.Info(fmt.Sprintf("Requested: %s", r.URL.Path))
 
-		// if _, err := os.Stat(s.config.OutputPath + r.URL.Path); os.IsNotExist(err) {
-		// 	http.NotFound(w, r)
-		// 	return
-		// }
-
-		// w.Header().Add("Cache-Control", "max-age=604800")
 		fs.ServeHTTP(w, r)
 	})
 
@@ -224,7 +218,7 @@ func (s *Server) WatchFiles(ctx context.Context) error {
 				continue
 			}
 
-			log.Trace(fmt.Sprintf("File changed. UPDATE: %s", relPath))
+			log.Trace(fmt.Sprintf("watch file update: %s", relPath))
 
 			s.pool.Submit(rebuildTask{s: s, rel: relPath})
 
@@ -259,6 +253,8 @@ func (s *Server) WatchTheme(ctx context.Context) error {
 			}
 			rel = filepath.ToSlash(rel)
 
+			log.Trace(fmt.Sprintf("watch theme update: %s", rel))
+
 			keys := s.project.Layouts().InvalidateAndGetAffected(rel)
 			paths := s.project.AffectedByLayoutKeys(keys)
 
@@ -286,9 +282,6 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 		return err
 	}
 
-	// TODO: start a watcher for each pipe folder. this way, we can:
-	// * selectively watch for pipes in ~/.config and .craeft/pipes
-	// * when a pipe change, we can use the pipe information to just rebuild files transformed by the pipe
 	if err := notify.Watch(absPipes+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("watch pipes: %w", err)
 	}
@@ -306,12 +299,17 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 			if err != nil {
 				continue
 			}
+
 			rel = filepath.ToSlash(rel)
 			parts := strings.Split(rel, "/")
 			if len(parts) == 0 || parts[0] == "" {
 				continue
 			}
 			pipeName := parts[0]
+
+			if !s.project.pipelines.HasPipeline(pipeName) {
+				continue
+			}
 
 			if err := s.project.Pipelines().Reload(pipeName); err != nil {
 				log.Warn(fmt.Sprintf("reload pipeline %s: %v", pipeName, err))

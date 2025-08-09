@@ -31,7 +31,7 @@ func NewRegistry(cfg *RegistryConfig) *Registry {
 		defaults: map[string]PipelineScript{
 			"tpl": &TplPipeline{},
 			"md":  &MdPipeline{},
-			"": &NopPipeline{},
+			"":    &NopPipeline{},
 		},
 	}
 }
@@ -47,6 +47,11 @@ func (r *Registry) LoadAll() error {
 		}
 	}
 	return firstErr
+}
+
+func (r *Registry) HasPipeline(name string) bool {
+	_, ok := r.active.Load(name)
+	return ok
 }
 
 func (r *Registry) Reload(name string) error {

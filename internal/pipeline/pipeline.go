@@ -103,7 +103,7 @@ func NewPipeline(path string, jsconfig *js.JSConfig, poolSize int) (*Pipeline, e
 		return nil, fmt.Errorf("entry not found: %w", err)
 	}
 
-	code, err := loadScript(filepath.Dir(scriptPath), filepath.Base(scriptPath))
+	code, err := loadScript(scriptPath, filepath.Base(scriptPath))
 	if err != nil {
 		return nil, err
 	}

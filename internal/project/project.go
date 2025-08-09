@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"sync"
 	"time"
 
@@ -17,13 +19,16 @@ import (
 	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
-	"github.com/mattn/go-zglob"
 	"github.com/sanity-io/litter"
 	"github.com/valyala/fasttemplate"
 )
 
 var (
-	blackList = []string{fmt.Sprintf("%s/**", projectRootFolder), projectRootFolder, "config.yaml"}
+	blackList = []string{
+		fmt.Sprintf("%s/**", projectRootFolder),
+		"config.yaml",
+		"*.dbg.*",
+	}
 )
 
 type Project struct {
@@ -86,7 +91,6 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	outputBase := filepath.Base(outAbs)
 	config.Ignore = append(config.Ignore,
-		filepath.ToSlash(outputBase),
 		filepath.ToSlash(filepath.Join(outputBase, "**")),
 	)
 	config.Ignore = append(config.Ignore, blackList...)
@@ -342,19 +346,37 @@ func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.File
 	return f.Close()
 }
 
-func (p *Project) ignoreFile(path string) bool {
-	path = filepath.Clean(path)
-	for _, pat := range p.Config.Ignore {
-		match, err := zglob.Match(pat, path)
-		if err != nil {
-			log.Error(err)
-			return false
+func (p *Project) ignoreFile(name string) bool {
+	name = filepath.ToSlash(filepath.Clean(name))
+
+	for _, raw := range p.Config.Ignore {
+		pat := filepath.ToSlash(strings.TrimSpace(raw))
+		if pat == "" {
+			continue
 		}
-		if match {
+
+		if strings.HasSuffix(pat, "/**") {
+			prefix := strings.TrimSuffix(pat, "/**")
+			if name == prefix || strings.HasPrefix(name, prefix+"/") {
+				return true
+			}
+			continue
+		}
+		if !strings.ContainsAny(pat, "*?[]") {
+			if name == pat || strings.HasPrefix(name, pat+"/") {
+				return true
+			}
+			continue
+		}
+
+		ok, err := path.Match(pat, name)
+		if err != nil {
+			continue
+		}
+		if ok {
 			return true
 		}
 	}
-
 	return false
 }
 
