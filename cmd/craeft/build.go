@@ -4,10 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
-	"os/signal"
 	"runtime"
-	"syscall"
 	"time"
 
 	"craeft/internal/log"
@@ -24,17 +21,8 @@ func Build(c *cli.Context) error {
 
 	defer p.Close()
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	ctx, stop := setupSignalHandler()
 	defer stop()
-
-	second := make(chan os.Signal, 1)
-	signal.Notify(second, os.Interrupt, syscall.SIGTERM)
-	go func() {
-		<-ctx.Done()
-		<-second
-		fmt.Fprintln(os.Stderr, "Force exiting…")
-		os.Exit(130)
-	}()
 
 	start := time.Now()
 	opt := project.BuildOptions{

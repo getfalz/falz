@@ -4,8 +4,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"craeft/internal/log"
 	"craeft/internal/project"
@@ -142,9 +145,9 @@ func main() {
 				Usage: "Generate a default config and initialize the project",
 				Flags: []cli.Flag{
 					&cli.StringFlag{
-						Name:    "output",
-						Usage:   "Output directory",
-						Value:   "dist",
+						Name:  "output",
+						Usage: "Output directory",
+						Value: "dist",
 					},
 					&cli.StringFlag{
 						Name:  "activate",
@@ -248,4 +251,24 @@ func setLogLevel(verbosity int, silence bool) {
 	default:
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	}
+}
+
+func setupSignalHandler() (context.Context, context.CancelFunc) {
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		<-ctx.Done()
+
+		fmt.Fprintln(os.Stderr, "Shutting down gracefully… Press Ctrl+C again to force.")
+
+		second := make(chan os.Signal, 1)
+		signal.Notify(second, os.Interrupt, syscall.SIGTERM)
+		defer signal.Stop(second)
+
+		<-second
+		fmt.Fprintln(os.Stderr, "Force exiting…")
+		os.Exit(130)
+	}()
+
+	return ctx, stop
 }

@@ -81,7 +81,7 @@ func (t BuildTask) Run(ctx context.Context) error {
 	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(t.Page.RelContent), "."+cfg.TargetSuffix)
 	vars := pipeline.NewVars(target)
 	vars.Set("vars", t.P.Config.Variables)
-	vars.Set("index", t.Idx(t.Page.RelContent))
+	// vars.Set("index", t.Idx(t.Page.RelContent))
 
 	transformed, err := pl.Transform(ctx, data, vars)
 	if err != nil {
@@ -95,7 +95,7 @@ func (t BuildTask) Run(ctx context.Context) error {
 			outs = append(outs, ContentResult{Filename: fn, Result: out})
 		}
 	}
-	dir := filepath.ToSlash(filepath.Join(t.Page.BaseDir))
+	dir := filepath.ToSlash(t.Page.BaseDir)
 
 	for _, r := range outs {
 		dst := filepath.ToSlash(filepath.Join(dir, r.Filename))

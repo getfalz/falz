@@ -240,13 +240,12 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 		return nil, nil
 	}
 
-	// TODO use readRoot
-	body, err := fs.ReadFile(p.srcRoot.FS(), rel)
+	body, err := p.readSource(rel)
 	if err != nil {
 		return nil, fmt.Errorf("read content %q: %w", rel, err)
 	}
 
-	var outs []string
+	var newPaths []string
 	for _, m := range matches {
 		tpl, err := p.templateForLayout(LayoutKey{RelLayoutPath: m.ldir, BaseDir: base})
 		if err != nil {
@@ -257,46 +256,43 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 		if err != nil {
 			log.Warn(fmt.Sprintf("pipeline '%s' not found for %s: %v", m.pipe, rel, err))
 		}
-		target := filename
-		if cfg := pl.Config(); cfg.TargetSuffix != "" && cfg.SourceSuffixRe != nil {
-			target = cfg.SourceSuffixRe.ReplaceAllString(filename, "."+cfg.TargetSuffix)
-		}
+		cfg := pl.Config()
+		target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(rel), "."+cfg.TargetSuffix)
+
 		vars := pipeline.NewVars(target)
 		vars.Set("vars", p.Config.Variables)
 
 		_, _ = pl.Index(ctx, body, vars)
 
-		results, err := pl.Transform(ctx, body, vars)
+		transformed, err := pl.Transform(ctx, body, vars)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("transform %s: %w", rel, err)
 		}
-		if len(results) == 0 {
+		if len(transformed) == 0 {
 			continue
 		}
 
-		for _, r := range results {
-			outVars := map[string]any{
-				m.name: r["result"],
-				"vars": p.Config.Variables,
+		outs := make([]ContentResult, 0, len(transformed))
+		for _, r := range transformed {
+			if fn := r["filename"]; fn != "" {
+				vars.Set(m.name, r["result"])
+				out := tpl.ExecuteString(vars)
+				outs = append(outs, ContentResult{Filename: fn, Result: out})
 			}
-			rendered := tpl.ExecuteString(outVars)
-
-			outRel := filepath.ToSlash(filepath.Join(base, r["filename"]))
-			f, err := p.outRoot.OpenFile(outRel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-			if err != nil {
-				return nil, fmt.Errorf("write %q: %w", outRel, err)
-			}
-			if _, err := f.Write([]byte(rendered)); err != nil {
-				_ = f.Close()
-				return nil, err
-			}
-			_ = f.Close()
-
-			outs = append(outs, filepath.Join(p.Config.OutputPath, filepath.FromSlash(outRel)))
 		}
+		dir := filepath.ToSlash(filepath.Join(base))
+
+		for _, r := range outs {
+			dst := filepath.ToSlash(filepath.Join(dir, r.Filename))
+			if err := p.writeFile(p.outRoot, dst, []byte(r.Result), 0o644); err != nil {
+				return nil, fmt.Errorf("write %s: %w", dst, err)
+			}
+		}
+
+		newPaths = append(newPaths, filepath.Join(p.Config.OutputPath, filepath.FromSlash(rel)))
 	}
 
-	return outs, nil
+	return newPaths, nil
 }
 
 func (p *Project) Pipelines() *pipeline.Registry { return p.pipelines }
