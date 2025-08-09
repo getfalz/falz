@@ -6,25 +6,14 @@ import (
 	"craeft/internal/pipeline"
 	"fmt"
 	"path/filepath"
-	"sync"
 	"sync/atomic"
 
 	"github.com/valyala/fasttemplate"
 )
 
-type indexSink struct {
-	mu sync.Mutex
-	m  map[string]pipeline.Vars
-}
-
-func newIndexSink(n int) *indexSink                { return &indexSink{m: make(map[string]pipeline.Vars, n)} }
-func (s *indexSink) set(k string, v pipeline.Vars) { s.mu.Lock(); s.m[k] = v; s.mu.Unlock() }
-func (s *indexSink) get(k string) pipeline.Vars    { s.mu.Lock(); v := s.m[k]; s.mu.Unlock(); return v }
-
 type IndexTask struct {
 	P    *Project
 	Page PagePlan
-	Sink *indexSink
 }
 
 func (t IndexTask) Key() string { return "index:" + t.Page.RelContent }
@@ -43,11 +32,9 @@ func (t IndexTask) Run(ctx context.Context) error {
 	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(t.Page.RelContent), "."+cfg.TargetSuffix)
 	vars := pipeline.NewVars(target)
 	vars.Set("vars", t.P.Config.Variables)
-	iv, err := pl.Index(ctx, data, vars)
-	if err != nil {
+	if err := pl.Index(ctx, data, vars); err != nil {
 		return fmt.Errorf("index %s: %w", t.Page.RelContent, err)
 	}
-	t.Sink.set(t.Page.RelContent, iv)
 	return nil
 }
 
@@ -81,7 +68,6 @@ func (t BuildTask) Run(ctx context.Context) error {
 	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(t.Page.RelContent), "."+cfg.TargetSuffix)
 	vars := pipeline.NewVars(target)
 	vars.Set("vars", t.P.Config.Variables)
-	// vars.Set("index", t.Idx(t.Page.RelContent))
 
 	transformed, err := pl.Transform(ctx, data, vars)
 	if err != nil {

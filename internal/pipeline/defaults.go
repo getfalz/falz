@@ -24,8 +24,8 @@ func (d *NopPipeline) Config() PipelineConfig {
 		TargetSuffix:   "",
 	}
 }
-func (d *NopPipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
-	return map[string]any{}, nil
+func (d *NopPipeline) Index(ctx context.Context, input []byte, vars Vars) error {
+	return nil
 }
 func (d *NopPipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
 	results := []map[string]string{
@@ -52,8 +52,8 @@ func (m *MdPipeline) Config() PipelineConfig {
 		SourceSuffixRe: re,
 	}
 }
-func (m *MdPipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
-	return map[string]any{}, nil
+func (m *MdPipeline) Index(ctx context.Context, input []byte, vars Vars) error {
+	return nil
 }
 func (m *MdPipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
 
@@ -91,8 +91,8 @@ func (t TplPipeline) Config() PipelineConfig {
 		SourceSuffixRe: re,
 	}
 }
-func (t TplPipeline) Index(ctx context.Context, input []byte, vars Vars) (Vars, error) {
-	return map[string]any{}, nil
+func (t TplPipeline) Index(ctx context.Context, input []byte, vars Vars) error {
+	return nil
 }
 func (t TplPipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
 	pctx := plush.NewContextWith(vars)

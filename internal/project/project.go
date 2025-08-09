@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"craeft/internal/executor"
@@ -34,8 +33,6 @@ type Project struct {
 	srcRoot    *os.Root
 	schemeRoot *os.Root
 	outRoot    *os.Root
-
-	closed atomic.Bool
 
 	layouts *LayoutCache
 
@@ -167,11 +164,9 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 		}
 		stats.PagesPlanned += len(pages)
 
-		// TODO dont pass index vars to build
-		sink := newIndexSink(len(pages))
 		idxTasks := make([]executor.Task, 0, len(pages))
 		for i := range pages {
-			idxTasks = append(idxTasks, IndexTask{P: p, Page: pages[i], Sink: sink})
+			idxTasks = append(idxTasks, IndexTask{P: p, Page: pages[i]})
 		}
 		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, idxTasks)
 
@@ -194,7 +189,6 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 				P:       p,
 				Page:    pages[i],
 				Tpl:     tpl,
-				Idx:     sink.get,
 				Counter: &stats.PagesBuilt,
 			})
 		}
@@ -262,7 +256,9 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 		vars := pipeline.NewVars(target)
 		vars.Set("vars", p.Config.Variables)
 
-		_, _ = pl.Index(ctx, body, vars)
+		if err := pl.Index(ctx, body, vars); err != nil {
+			return nil, fmt.Errorf("index %s: %w", rel, err)
+		}
 
 		transformed, err := pl.Transform(ctx, body, vars)
 		if err != nil {
@@ -346,60 +342,6 @@ func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.File
 	return f.Close()
 }
 
-// // BuildPath builds a single page from a given path
-// // The path should be relative to the project source
-//
-//	func (p *Project) BuildPath(path string) (string, error) {
-//		base := filepath.Dir(path)
-//		fileName := filepath.Base(path)
-//
-//		// TODO: check if the path is withing the project
-//
-//		layouts, err := p.getLayouts(base, false)
-//		if err != nil {
-//			return "", err
-//		}
-//
-//		var outputPath string
-//		for _, lyt := range layouts {
-//			if lyt.MatchContent(fileName) {
-//				for _, contentConf := range lyt.Contents() {
-//					if contentConf.MatchContent(fileName) {
-//
-//						layoutTpl, err := lyt.Render(base)
-//						if err != nil {
-//							return "", err
-//						}
-//
-//						// Index
-//						page, err := p.getContent(contentConf.Name, path, contentConf.Pipe)
-//						if err != nil {
-//							return "", err
-//						}
-//
-//						page.LoadIndex()
-//
-//						// Build
-//						results, err := page.Build(layoutTpl)
-//						if err != nil {
-//							return "", err
-//						}
-//
-//						outputPath, err = p.writeResults(base, results)
-//						if err != nil {
-//							return "", err
-//						}
-//
-//					}
-//				}
-//
-//			}
-//
-//		}
-//
-//		// For multiple files, it returns the last one
-//		return outputPath, nil
-//	}
 func (p *Project) ignoreFile(path string) bool {
 	path = filepath.Clean(path)
 	for _, pat := range p.Config.Ignore {
@@ -481,106 +423,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 	return out, nil
 }
 
-// func (p Project) writeResults(base string, results []ContentResult) (string, error) {
-// 	var outputPath string
-// 	targetDir := filepath.Join(p.Config.OutputPath, base)
-// 	if err := os.MkdirAll(targetDir, 0755); err != nil {
-// 		return "", err
-// 	}
-//
-// 	for _, r := range results {
-// 		outputPath = filepath.Join(targetDir, r.Filename)
-// 		err := os.WriteFile(outputPath, []byte(r.Result), 0644)
-// 		if err != nil {
-// 			return "", err
-// 		}
-// 		log.Trace(fmt.Sprintf("content %s succesfuly written to: %s", r.Filename, outputPath))
-// 	}
-//
-// 	return outputPath, nil
-// }
-
-//
-// func (p *Project) getContent(name, path string, pipeline string) (*content.Content, error) {
-// 	// var page *content.Content
-// 	// if cached, ok := caches.contents.Load(path); ok {
-// 	// 	page = cached.(*content.Content)
-// 	// 	log.Infof("[del] Got page cache: %+v", page)
-// 	// } else {
-// 	pl, err := p.pipelines.Get(pipeline)
-// 	if err != nil {
-// 		if pipeline != "" {
-// 			log.Warn(fmt.Sprintf("pipeline '%s' not found for content '%s': %s", pipeline, path, err))
-// 		}
-// 	}
-// 	page, err := content.New(name, path, pl, p.Config.Variables)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	caches.contents.Store(path, page)
-// 	// }
-//
-// 	return page, nil
-// }
-//
-// type assetData struct {
-// 	path     string
-// 	from     string
-// 	pipeline string
-// }
-//
-// // TODO remove err return
-// func (p *Project) getAsset(path string, pipeline string) (*content.Asset, error) {
-// 	var asset *content.Asset
-// 	// if cached, ok := caches.contents.Load(path); ok {
-// 	// 	page = cached.(*content.Content)
-// 	// 	log.Infof("[del] Got page cache: %+v", page)
-// 	// } else {
-// 	pl, err := p.pipelines.Get(pipeline)
-// 	if err != nil {
-// 		log.Warn(fmt.Sprintf("pipeline %s not found for asset %s: %w", pipeline, path, err))
-// 	}
-// 	asset = content.NewAsset(path, pl)
-// 	// caches.contents.Store(path, page)
-// 	// }
-//
-// 	return asset, nil
-// }
-//
-// // walk walks the project source directory and calls the callback for each file
-// var SkipFile = errors.New("skip this file")
-//
-// func (p *Project) walk(callback func(path string, d fs.DirEntry) error) error {
-// 	return filepath.WalkDir(p.Config.SourcePath, func(path string, d fs.DirEntry, err error) error {
-//
-// 		rel, err := filepath.Rel(p.Config.SourcePath, path)
-// 		if err != nil {
-// 			return err
-// 		}
-//
-// 		if p.ignoreFile(rel) {
-// 			if d.IsDir() {
-// 				return fs.SkipDir
-// 			} else {
-// 				return nil
-// 			}
-// 		}
-//
-// 		if err := callback(rel, d); err != nil {
-// 			if err == SkipFile {
-// 				return nil
-// 			}
-// 			return err
-// 		}
-//
-// 		return nil
-// 	})
-// }
-
-func (p Project) Close() error {
-	if !p.closed.CompareAndSwap(false, true) {
-		return nil
-	}
+func (p *Project) Close() error {
 	var err error
 	if p.srcRoot != nil {
 		if e := p.srcRoot.Close(); e != nil {

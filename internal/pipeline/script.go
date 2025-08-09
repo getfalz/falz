@@ -43,23 +43,23 @@ func NewScript(name, path string, config *js.JSConfig, code string) (*script, er
 	return s, nil
 }
 
-func (s *script) Index(parCtx context.Context, input []byte, vars Vars) (Vars, error) {
+func (s *script) Index(parCtx context.Context, input []byte, vars Vars) error {
 	// TODO set timeout in config
 	ctx, cancel := context.WithTimeout(parCtx, 1*time.Second)
 	defer cancel()
 
-	result, err := s.env.Call(ctx, "index", vars.ToGojaObject(s.env.VM()), s.env.ToValue(input))
+	_, err := s.env.Call(ctx, "index", vars.ToGojaObject(s.env.VM()), s.env.ToValue(input))
 	if err != nil {
 		log.Error(fmt.Errorf("%s:index error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
 	}
 
-	if objRaw, ok := result.(*goja.Object); ok {
-		if obj, ok := objRaw.Export().(map[string]any); ok {
-			return obj, nil
-		}
-	}
+	// if objRaw, ok := result.(*goja.Object); ok {
+	// 	if obj, ok := objRaw.Export().(map[string]any); ok {
+	// 		return obj, nil
+	// 	}
+	// }
 
-	return map[string]any{}, nil
+	return nil
 }
 
 func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
