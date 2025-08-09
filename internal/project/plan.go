@@ -101,13 +101,134 @@ func (p *Project) plan() (Plan, error) {
 		}
 		return nil
 	})
+	p.setLastPlan(res)
 	return res, err
 }
 
-func baseFrom(baseDir, src string) string {
-	dir := filepath.Dir(filepath.ToSlash(src))
-	if dir == "." {
-		return baseDir
+type planSnapshot struct {
+	pages  map[LayoutKey][]PagePlan
+	assets map[assetKey]AssetPlan
+}
+
+func (p *Project) setLastPlan(pl Plan) {
+	p.lastPlanMu.Lock()
+	p.lastPlan = planSnapshot{
+		pages:  pl.PagesByLayout,
+		assets: pl.Assets,
 	}
-	return filepath.ToSlash(filepath.Join(baseDir, dir))
+	p.lastPlanMu.Unlock()
+}
+
+func (p *Project) snapshotPlan() planSnapshot {
+	p.lastPlanMu.RLock()
+	defer p.lastPlanMu.RUnlock()
+	// shallow copy maps to avoid external mutation
+	pages := make(map[LayoutKey][]PagePlan, len(p.lastPlan.pages))
+	for k, v := range p.lastPlan.pages {
+		vc := make([]PagePlan, len(v))
+		copy(vc, v)
+		pages[k] = vc
+	}
+	assets := make(map[assetKey]AssetPlan, len(p.lastPlan.assets))
+	for k, v := range p.lastPlan.assets {
+		assets[k] = v
+	}
+	return planSnapshot{pages: pages, assets: assets}
+}
+
+func (p *Project) updatePlanSnapshot(rel string) {
+	rel = filepath.ToSlash(rel)
+	base := filepath.ToSlash(filepath.Dir(rel))
+	name := filepath.Base(rel)
+
+	lmap, _ := p.getLayouts(base)
+	type m struct{ ldir, nm, pipe string }
+	var matches []m
+	for ldir, lyt := range lmap {
+		if !lyt.MatchContent(name) {
+			continue
+		}
+		for _, c := range lyt.Contents() {
+			if c.MatchContent(name) {
+				matches = append(matches, m{ldir, c.Name, c.Pipe})
+			}
+		}
+	}
+
+	var newPlan []PagePlan
+	for _, mm := range matches {
+		key := LayoutKey{RelLayoutPath: mm.ldir, BaseDir: base}
+		newPlan = append(newPlan, PagePlan{
+			BaseDir:    base,
+			RelContent: rel,
+			Name:       mm.nm,
+			Pipe:       mm.pipe,
+			LayoutKey:  key,
+		})
+	}
+
+	p.lastPlanMu.Lock()
+	defer p.lastPlanMu.Unlock()
+
+	for k, arr := range p.lastPlan.pages {
+		// reuse the slice to avoid allocations.
+		// reset the slice to zero length
+		w := arr[:0]
+		for _, pp := range arr {
+			if filepath.ToSlash(pp.RelContent) != rel {
+				w = append(w, pp)
+			}
+		}
+		if len(w) == 0 {
+			delete(p.lastPlan.pages, k)
+		} else {
+			p.lastPlan.pages[k] = w
+		}
+	}
+	for _, pp := range newPlan {
+		p.lastPlan.pages[pp.LayoutKey] = append(p.lastPlan.pages[pp.LayoutKey], pp)
+	}
+}
+
+func (p *Project) AffectedByPipeline(name string) []string {
+	snap := p.snapshotPlan()
+	seen := make(map[string]struct{})
+	var out []string
+	for _, pages := range snap.pages {
+		for _, pg := range pages {
+			if pg.Pipe != name {
+				continue
+			}
+			r := filepath.ToSlash(pg.RelContent)
+			if _, ok := seen[r]; ok {
+				continue
+			}
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func (p *Project) AffectedByLayoutKeys(keys []LayoutKey) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+
+	snap := p.snapshotPlan()
+	seen := make(map[string]struct{})
+	out := make([]string, 0, 32)
+
+	for _, k := range keys {
+		pages := snap.pages[k]
+		for _, pg := range pages {
+			r := filepath.ToSlash(pg.RelContent)
+			if _, dup := seen[r]; dup {
+				continue
+			}
+			seen[r] = struct{}{}
+			out = append(out, r)
+		}
+	}
+	return out
 }

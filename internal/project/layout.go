@@ -18,7 +18,7 @@ type LayoutKey struct {
 type assetKey struct {
     From string
     Pipe string
-    Rel  string // normalized, slash-separated, no leading "./"
+    Rel  string
 }
 
 type entry struct {
@@ -26,7 +26,7 @@ type entry struct {
 	deps []string
 }
 
-type depIndex map[LayoutKey]struct{} // small set
+type depIndex map[LayoutKey]struct{}
 
 type LayoutCache struct {
 	mu      sync.RWMutex
@@ -42,7 +42,6 @@ func NewLayoutCache() *LayoutCache {
 	}
 }
 
-// GetOrBuild compiles & stores layout.Render output.
 func (lc *LayoutCache) GetOrBuild(
 	schemeRoot *os.Root,
 	key LayoutKey,
@@ -97,18 +96,29 @@ func (lc *LayoutCache) get(k LayoutKey) *fasttemplate.Template {
 	return nil
 }
 
-// InvalidatePaths is called by the watcher with changed scheme-relative paths.
-func (lc *LayoutCache) InvalidatePaths(paths ...string) {
+func (lc *LayoutCache) InvalidateAndGetAffected(paths ...string) []LayoutKey {
 	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	seen := make(map[LayoutKey]struct{})
 	for _, p := range paths {
 		p = filepath.ToSlash(p)
-		for k := range lc.reverse[p] {
+		keys := lc.reverse[p]
+		for k := range keys {
+			seen[k] = struct{}{}
 			delete(lc.data, k)
-			for _, e := range lc.reverse {
-				delete(e, k)
+			// remove k from every reverse bucket
+			for dep, idx := range lc.reverse {
+				delete(idx, k)
+				if len(idx) == 0 {
+					delete(lc.reverse, dep)
+				}
 			}
 		}
 		delete(lc.reverse, p)
 	}
-	lc.mu.Unlock()
+	out := make([]LayoutKey, 0, len(seen))
+	for k := range seen {
+		out = append(out, k)
+	}
+	return out
 }

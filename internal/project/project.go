@@ -24,7 +24,7 @@ import (
 )
 
 var (
-	blackList = []string{fmt.Sprintf("%s/**", projectRootFolder), projectRootFolder}
+	blackList = []string{fmt.Sprintf("%s/**", projectRootFolder), projectRootFolder, "config.yaml"}
 )
 
 type Project struct {
@@ -43,6 +43,9 @@ type Project struct {
 	parsedMu   sync.RWMutex
 	parsed     map[string]parsedLayoutEntry
 	pipelines  *pipeline.Registry
+
+	lastPlanMu sync.RWMutex
+	lastPlan   planSnapshot
 }
 
 type BuildOptions struct {
@@ -209,6 +212,95 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 
 	return stats, errors.Join(stats.Errors...)
 }
+
+func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
+	rel = filepath.ToSlash(rel)
+	base := filepath.ToSlash(filepath.Dir(rel))
+	filename := filepath.Base(rel)
+
+	lmap, err := p.getLayouts(base)
+	if err != nil {
+		return nil, err
+	}
+
+	type match struct{ ldir, name, pipe string }
+	var matches []match
+
+	for ldir, lyt := range lmap {
+		if lyt.MatchContent(filename) {
+			for _, c := range lyt.Contents() {
+				if c.MatchContent(filename) {
+					matches = append(matches, match{ldir: ldir, name: c.Name, pipe: c.Pipe})
+				}
+			}
+		}
+	}
+
+	if len(matches) == 0 {
+		return nil, nil
+	}
+
+	// TODO use readRoot
+	body, err := fs.ReadFile(p.srcRoot.FS(), rel)
+	if err != nil {
+		return nil, fmt.Errorf("read content %q: %w", rel, err)
+	}
+
+	var outs []string
+	for _, m := range matches {
+		tpl, err := p.templateForLayout(LayoutKey{RelLayoutPath: m.ldir, BaseDir: base})
+		if err != nil {
+			return nil, err
+		}
+
+		pl, err := p.pipelines.Get(m.pipe)
+		if err != nil {
+			log.Warn(fmt.Sprintf("pipeline '%s' not found for %s: %v", m.pipe, rel, err))
+		}
+		target := filename
+		if cfg := pl.Config(); cfg.TargetSuffix != "" && cfg.SourceSuffixRe != nil {
+			target = cfg.SourceSuffixRe.ReplaceAllString(filename, "."+cfg.TargetSuffix)
+		}
+		vars := pipeline.NewVars(target)
+		vars.Set("vars", p.Config.Variables)
+
+		_, _ = pl.Index(ctx, body, vars)
+
+		results, err := pl.Transform(ctx, body, vars)
+		if err != nil {
+			return nil, err
+		}
+		if len(results) == 0 {
+			continue
+		}
+
+		for _, r := range results {
+			outVars := map[string]any{
+				m.name: r["result"],
+				"vars": p.Config.Variables,
+			}
+			rendered := tpl.ExecuteString(outVars)
+
+			outRel := filepath.ToSlash(filepath.Join(base, r["filename"]))
+			f, err := p.outRoot.OpenFile(outRel, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
+			if err != nil {
+				return nil, fmt.Errorf("write %q: %w", outRel, err)
+			}
+			if _, err := f.Write([]byte(rendered)); err != nil {
+				_ = f.Close()
+				return nil, err
+			}
+			_ = f.Close()
+
+			outs = append(outs, filepath.Join(p.Config.OutputPath, filepath.FromSlash(outRel)))
+		}
+	}
+
+	return outs, nil
+}
+
+func (p *Project) Pipelines() *pipeline.Registry { return p.pipelines }
+func (p *Project) Layouts() *LayoutCache         { return p.layouts }
 
 func (p *Project) readSource(rel string) ([]byte, error) {
 	return fs.ReadFile(p.srcRoot.FS(), filepath.ToSlash(rel))
