@@ -36,7 +36,6 @@ func loadConfig(configFile string) (*PipelineConfig, error) {
 		return nil, err
 	}
 
-	fmt.Printf("Loaded pipeline config: %+v\n", config)
 	config.SourceSuffixRe, err = regexp.Compile(fmt.Sprintf(`\.(%s)\b`, config.SourceSuffix))
 	if err != nil {
 		return nil, fmt.Errorf("failed to compile source_suffix pattern: %s", err)

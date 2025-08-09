@@ -31,7 +31,7 @@ func NewRegistry(cfg *RegistryConfig) *Registry {
 		defaults: map[string]PipelineScript{
 			"tpl": &TplPipeline{},
 			"md":  &MdPipeline{},
-			"nop": &NopPipeline{},
+			"": &NopPipeline{},
 		},
 	}
 }
@@ -84,11 +84,13 @@ func (r *Registry) Reload(name string) error {
 }
 
 func (r *Registry) Get(name string) (PipelineScript, error) {
-	if v, ok := r.active.Load(name); ok {
-		return v.(*Pipeline), nil
-	}
 	if d, ok := r.defaults[name]; ok {
 		return d, nil
 	}
-	return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found, using default", name)
+
+	if v, ok := r.active.Load(name); ok {
+		return v.(*Pipeline), nil
+	}
+	// return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found, using default", name)
+	return nil, fmt.Errorf("pipeline '%s' not found", name)
 }

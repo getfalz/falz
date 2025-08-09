@@ -47,6 +47,7 @@ func (e BatchExecutor) Run(ctx context.Context, tasks []Task) error {
 			return nil
 		})
 	}
+
 	_ = g.Wait()
 	return errors.Join(errs...)
 }

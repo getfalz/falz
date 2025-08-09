@@ -31,7 +31,10 @@ func (t IndexTask) Key() string { return "index:" + t.Page.RelContent }
 func (t IndexTask) Run(ctx context.Context) error {
 	log.Debug(fmt.Sprintf("Indexing %q", t.Page.RelContent))
 
-	pl, _ := t.P.pipelines.Get(t.Page.Pipe)
+	pl, err := t.P.pipelines.Get(t.Page.Pipe)
+	if err != nil {
+		return fmt.Errorf("index pipeline %s: %w", t.Page.RelContent, err)
+	}
 	data, err := t.P.readSource(t.Page.RelContent)
 	if err != nil {
 		return fmt.Errorf("index read %s: %w", t.Page.RelContent, err)
@@ -65,7 +68,11 @@ func (t BuildTask) Key() string { return "build:" + t.Page.RelContent }
 func (t BuildTask) Run(ctx context.Context) error {
 	log.Debug(fmt.Sprintf("Building %q", t.Page.RelContent))
 
-	pl, _ := t.P.pipelines.Get(t.Page.Pipe)
+	pl, err := t.P.pipelines.Get(t.Page.Pipe)
+	if err != nil {
+		return fmt.Errorf("build pipeline %s: %w", t.Page.RelContent, err)
+	}
+
 	data, err := t.P.readSource(t.Page.RelContent)
 	if err != nil {
 		return fmt.Errorf("build read %s: %w", t.Page.RelContent, err)
@@ -125,10 +132,12 @@ func (t AssetTask) Run(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	pl, _ := t.P.pipelines.Get(t.Asset.PipelineID)
+	pl, err := t.P.pipelines.Get(t.Asset.PipelineID)
+	if err != nil {
+		return fmt.Errorf("asset pipeline %s: %w", t.Asset.SourceRel, err)
+	}
 
 	cfg := pl.Config()
-	fmt.Printf("source rel: %s, base: %s, target: %s\n", t.Asset.SourceRel, filepath.Base(t.Asset.SourceRel), cfg.TargetSuffix)
 	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(t.Asset.SourceRel), "."+cfg.TargetSuffix)
 
 	vars := pipeline.NewVars(target)

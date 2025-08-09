@@ -51,10 +51,16 @@ type BuildOptions struct {
 }
 
 type BuildStats struct {
-	PagesPlanned  int
+	Duration time.Duration
+
 	AssetsPlanned int
-	PagesBuilt    int64
 	AssetsBuilt   int64
+
+	PagesPlanned int
+	PagesBuilt   int64
+
+	// TODO use a custom BuildError?
+	Errors []error
 }
 
 func New(config *CraeftConfig) (*Project, error) {
@@ -106,7 +112,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		PipelinesPath:   config.PipesPath,
 		SourceDirectory: srcAbs,
 		// TODO set poolsize in config?
-		PoolSize:        runtime.NumCPU(),
+		PoolSize: runtime.NumCPU(),
 	})
 	if err := reg.LoadAll(); err != nil {
 		_ = srcRoot.Close()
@@ -142,7 +148,14 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 		for _, a := range plan.Assets {
 			assets = append(assets, AssetTask{P: p, Asset: a, Counter: &stats.AssetsBuilt})
 		}
-		_ = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, assets)
+		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, assets)
+		if err != nil {
+			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+			} else {
+				log.Error(fmt.Errorf("assets batch executor: %w", err))
+			}
+		}
 	}
 
 	for key, pages := range plan.PagesByLayout {
@@ -157,7 +170,15 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 		for i := range pages {
 			idxTasks = append(idxTasks, IndexTask{P: p, Page: pages[i], Sink: sink})
 		}
-		_ = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, idxTasks)
+		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, idxTasks)
+
+		if err != nil {
+			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+			} else {
+				log.Error(fmt.Errorf("index batch executor: %w", err))
+			}
+		}
 
 		tpl, err := p.templateForLayout(key)
 		if err != nil {
@@ -174,12 +195,19 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 				Counter: &stats.PagesBuilt,
 			})
 		}
-		_ = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, buildTasks)
+		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, buildTasks)
+		if err != nil {
+			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+			} else {
+				log.Error(fmt.Errorf("build batch executor: %w", err))
+			}
+		}
 	}
 
-	fmt.Printf("Build took %s (pages %d/%d, assets %d/%d)\n",
-		time.Since(start), stats.PagesBuilt, stats.PagesPlanned, stats.AssetsBuilt, stats.AssetsPlanned)
-	return stats, nil
+	stats.Duration = time.Since(start)
+
+	return stats, errors.Join(stats.Errors...)
 }
 
 func (p *Project) readSource(rel string) ([]byte, error) {
@@ -229,6 +257,7 @@ func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.File
 	}
 	return f.Close()
 }
+
 // // BuildPath builds a single page from a given path
 // // The path should be relative to the project source
 //

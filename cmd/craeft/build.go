@@ -57,7 +57,7 @@ func Build(c *cli.Context) error {
 		return nil
 
 	default:
-		log.Error(fmt.Errorf("build failed after %s: %v", dur, err))
+		log.Error(fmt.Errorf("build failed after %s:\n%v", dur, err))
 		return err
 	}
 }
