@@ -16,11 +16,51 @@ var (
 	once   sync.Once
 )
 
+func init() {
+	once.Do(func() {
+
+		var writer io.Writer
+		writer = &LevelWriter{os.Stdout, os.Stderr}
+		if term.IsTerminal(int(os.Stdout.Fd())) {
+			writer = zerolog.ConsoleWriter{Out: writer}
+		}
+
+		logger = zerolog.New(writer).With().Timestamp().Logger()
+		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
+	})
+}
+
+func Logger() *zerolog.Logger { return &logger }
+
+type LevelWriter struct {
+	io.Writer
+	ErrorWriter io.Writer
+}
+
+func (lw *LevelWriter) WriteLevel(l zerolog.Level, p []byte) (n int, err error) {
+	w := lw.Writer
+	if l == zerolog.ErrorLevel {
+		w = lw.ErrorWriter
+	}
+	return w.Write(p)
+}
+
+func Print(msg string, args ...any) {
+	msg = strings.TrimSpace(msg)
+	msg = " ➤ " + msg + "\n"
+	fmt.Printf(msg, args...)
+}
+
 type TagKey int
 
 const (
 	SrcTag TagKey = iota
 	PipelineTag
+
+	None
+	Pipeline
+	Build
+	Index
 )
 
 var tagLabels = map[TagKey]string{
@@ -32,11 +72,31 @@ func (tk TagKey) String() string {
 	return tagLabels[tk]
 }
 
+func DDebug(tag TagKey) *zerolog.Event {
+	l := logger.With().Str("component", tag.String()).Logger()
+	return l.Debug()
+}
+
+func TTrace(tag TagKey) *zerolog.Event {
+	l := logger.With().Str("component", tag.String()).Logger()
+	return l.Trace()
+}
+func IInfo(tag TagKey) *zerolog.Event {
+	l := logger.With().Str("component", tag.String()).Logger()
+	return l.Info()
+}
+
+func EError(tag TagKey) *zerolog.Event {
+	l := logger.With().Str("component", tag.String()).Logger()
+	return l.Error()
+}
+
 type Tag struct {
 	Key   TagKey
 	Value string
 }
 
+// TODO deprecate
 func applyTags(event *zerolog.Event, tags ...Tag) *zerolog.Event {
 	for _, tag := range tags {
 		event = event.Str(tag.Key.String(), tag.Value)
@@ -75,37 +135,4 @@ func Fatal(msg string, tags ...Tag) {
 func Panic(msg string, tags ...Tag) {
 	event := logger.Panic()
 	applyTags(event, tags...).Msg(msg)
-}
-
-func init() {
-	once.Do(func() {
-
-		var writer io.Writer
-		writer = &LevelWriter{os.Stdout, os.Stderr}
-		if term.IsTerminal(int(os.Stdout.Fd())) {
-			writer = zerolog.ConsoleWriter{Out: writer}
-		}
-
-		logger = zerolog.New(writer).With().Timestamp().Logger()
-		zerolog.TimeFieldFormat = zerolog.TimeFormatUnix
-	})
-}
-
-type LevelWriter struct {
-	io.Writer
-	ErrorWriter io.Writer
-}
-
-func (lw *LevelWriter) WriteLevel(l zerolog.Level, p []byte) (n int, err error) {
-	w := lw.Writer
-	if l == zerolog.ErrorLevel {
-		w = lw.ErrorWriter
-	}
-	return w.Write(p)
-}
-
-func Print(msg string, args ...interface{}) {
-	msg = strings.TrimSpace(msg)
-	msg = " ➤ " + msg + "\n"
-	fmt.Printf(msg, args...)
 }

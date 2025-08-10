@@ -108,7 +108,7 @@ func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) ([]m
 	}
 }
 
-func loadScript(scriptPath, entryFile string) (string, error) {
+func loadScript(scriptPath, entryFile string, debug bool) (string, error) {
 	entryDir := filepath.Dir(scriptPath)
 	name := filepath.Base(scriptPath)
 	ext := filepath.Ext(name)
@@ -145,9 +145,10 @@ func loadScript(scriptPath, entryFile string) (string, error) {
 		return "", fmt.Errorf("esbuild produced no output")
 	}
 
-	// TODO save debug only if debug is enabled
-	fmt.Println("saving debug file to %s", strings.TrimSuffix(name, ext)+".dbg"+ext)
-	_ = os.WriteFile(strings.TrimSuffix(name, ext)+".dbg"+ext, []byte(result.OutputFiles[0].Contents), 0o644)
+	if debug {
+		log.DDebug(log.None).Msgf("saving debug file to %s", strings.TrimSuffix(name, ext)+".dbg"+ext)
+		_ = os.WriteFile(strings.TrimSuffix(name, ext)+".dbg"+ext, []byte(result.OutputFiles[0].Contents), 0o644)
+	}
 
 	return string(result.OutputFiles[0].Contents), nil
 }

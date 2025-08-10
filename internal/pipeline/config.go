@@ -11,10 +11,11 @@ import (
 
 // TODO validate
 type PipelineConfig struct {
-	PipelineName   string `yaml:"name"`
-	EntryPoint     string `yaml:"entry_point" default:"index.js"`
-	SourceSuffix   string `yaml:"source_suffix"`
-	TargetSuffix   string `yaml:"target_suffix"`
+	PipelineName   string         `yaml:"name"`
+	EntryPoint     string         `yaml:"entry_point" default:"index.js"`
+	SourceSuffix   string         `yaml:"source_suffix"`
+	TargetSuffix   string         `yaml:"target_suffix"`
+	Debug          bool           `yaml:"debug" default:"false"`
 	SourceSuffixRe *regexp.Regexp `yaml:"-"`
 }
 

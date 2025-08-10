@@ -13,6 +13,7 @@ import (
 
 	"craeft/internal/executor"
 	"craeft/internal/log"
+	"craeft/internal/utils"
 
 	"github.com/gorilla/websocket"
 	"github.com/rjeczalik/notify"
@@ -47,14 +48,19 @@ func NewServer(p *Project, pool *executor.PoolExecutor) *Server {
 }
 
 func RunServer(c context.Context, p *Project) error {
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
 	//TODO set with args
 	concurrency := runtime.GOMAXPROCS(0)
 	pool := executor.NewPoolExecutor(concurrency, 1024, executor.NewTimerDebouncer(120*time.Millisecond))
 	pool.Start(ctx)
-	defer pool.Stop()
+	defer func() {
+		_ = utils.StopComponent(ctx, "worker-pool", func(context.Context) error {
+			pool.Stop()
+			return nil
+		})
+	}()
 
 	opt := BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
 	if _, err := p.Build(ctx, opt); err != nil && !errors.Is(err, context.Canceled) {
@@ -95,7 +101,7 @@ func (s *Server) ServeFiles(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		_ = s.httpServer.Shutdown(context.Background())
+		_ = s.Shutdown(ctx)
 	}()
 
 	log.Info(fmt.Sprintf("Server started at port %d", s.config.Server.Port))
@@ -198,7 +204,12 @@ func (s *Server) WatchFiles(ctx context.Context) error {
 	if err := notify.Watch(absPath+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("can't watch files for change: %w", err)
 	}
-	defer notify.Stop(events)
+	defer func() {
+		_ = utils.StopComponent(ctx, "source-watcher", func(context.Context) error {
+			notify.Stop(events)
+			return nil
+		})
+	}()
 
 	for {
 		select {
@@ -237,7 +248,12 @@ func (s *Server) WatchTheme(ctx context.Context) error {
 	if err := notify.Watch(absScheme+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("watch theme: %w", err)
 	}
-	defer notify.Stop(events)
+	defer func() {
+		_ = utils.StopComponent(ctx, "scheme-watcher", func(context.Context) error {
+			notify.Stop(events)
+			return nil
+		})
+	}()
 
 	for {
 		select {
@@ -285,7 +301,12 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 	if err := notify.Watch(absPipes+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("watch pipes: %w", err)
 	}
-	defer notify.Stop(events)
+	defer func() {
+		_ = utils.StopComponent(ctx, "pipe-watcher", func(context.Context) error {
+			notify.Stop(events)
+			return nil
+		})
+	}()
 
 	for {
 		select {
@@ -326,12 +347,36 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 	}
 }
 
-func (s *Server) Shutdown() {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+func (s *Server) Shutdown(ctx context.Context) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
-	if err := s.httpServer.Shutdown(ctx); err != nil {
-		log.Fatal(fmt.Sprintf("Server Shutdown Failed:%+v", err))
+	var errs []error
+
+	if s.httpServer != nil {
+		if err := utils.StopComponent(ctx, "http", func(c context.Context) error {
+			return s.httpServer.Shutdown(c)
+		}); err != nil {
+			errs = append(errs, err)
+		}
 	}
-	log.Print("Server exited gracefully")
+
+	if err := utils.StopComponent(ctx, "hot-reload", func(context.Context) error {
+		s.wsclientsMutex.Lock()
+		clients := make([]*websocket.Conn, 0, len(s.wsclients))
+		for c := range s.wsclients {
+			clients = append(clients, c)
+		}
+		s.wsclients = make(map[*websocket.Conn]bool)
+		s.wsclientsMutex.Unlock()
+		for _, c := range clients {
+			_ = c.WriteControl(websocket.CloseMessage, websocket.FormatCloseMessage(websocket.CloseNormalClosure, "server shutting down"), time.Now().Add(2*time.Second))
+			_ = c.Close()
+		}
+		return nil
+	}); err != nil {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
 }

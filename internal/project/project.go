@@ -19,7 +19,6 @@ import (
 	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
-	"github.com/sanity-io/litter"
 	"github.com/valyala/fasttemplate"
 )
 
@@ -140,7 +139,6 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 	stats := BuildStats{}
 
 	plan, err := p.plan()
-	litter.Dump(plan)
 	if err != nil {
 		fmt.Printf("Build failed in %s\n", time.Since(start))
 		return stats, err
@@ -157,7 +155,7 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
 				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
 			} else {
-				log.Error(fmt.Errorf("assets batch executor: %w", err))
+				log.EError(log.Build).Err(fmt.Errorf("assets batch executor: %w", err))
 			}
 		}
 	}
@@ -178,7 +176,7 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
 				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
 			} else {
-				log.Error(fmt.Errorf("index batch executor: %w", err))
+				log.EError(log.Build).Err(fmt.Errorf("index batch executor: %w", err))
 			}
 		}
 
@@ -201,7 +199,7 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
 				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
 			} else {
-				log.Error(fmt.Errorf("build batch executor: %w", err))
+				log.EError(log.Build).Err(fmt.Errorf("build batch executor: %w", err))
 			}
 		}
 	}
