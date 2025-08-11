@@ -16,9 +16,15 @@ type IndexTask struct {
 	Page PagePlan
 }
 
+// @ts type global.iCtx
+// @doc Context passed into the `index` function.
+// @field vars: Record<string, unknown> - Variables set in the config.yaml file. Custom key/value mappings loaded from `config.yaml`. Values may include environment‑variable references (e.g. `$HOME/docs`), which will be expanded at runtime.
 func (t IndexTask) Key() string { return "index:" + t.Page.RelContent }
 func (t IndexTask) Run(ctx context.Context) error {
-	log.Debug(fmt.Sprintf("Indexing %q", t.Page.RelContent))
+	log.TTrace(log.Build).
+		Str("rel", t.Page.RelContent).
+		Str("pipe", t.Page.Pipe).
+		Msg("index start")
 
 	pl, err := t.P.pipelines.Get(t.Page.Pipe)
 	if err != nil {
@@ -35,6 +41,13 @@ func (t IndexTask) Run(ctx context.Context) error {
 	if err := pl.Index(ctx, data, vars); err != nil {
 		return fmt.Errorf("index %s: %w", t.Page.RelContent, err)
 	}
+
+	log.DDebug(log.Build).
+		Str("rel", t.Page.RelContent).
+		Str("target", target).
+		Int("bytes", len(data)).
+		Msg("indexed")
+
 	return nil
 }
 
@@ -51,9 +64,17 @@ type ContentResult struct {
 	Result   string // TODO: make it []byte
 }
 
+// @ts type global.tCtx
+// @doc Context passed into the `transform` function.
+// @pred iCtx &
+// @field index: Record<string, unknown>
 func (t BuildTask) Key() string { return "build:" + t.Page.RelContent }
 func (t BuildTask) Run(ctx context.Context) error {
-	log.Debug(fmt.Sprintf("Building %q", t.Page.RelContent))
+	log.TTrace(log.Build).
+		Str("rel", t.Page.RelContent).
+		Str("pipe", t.Page.Pipe).
+		Str("layout", t.Page.LayoutKey.RelLayoutPath).
+		Msg("build start")
 
 	pl, err := t.P.pipelines.Get(t.Page.Pipe)
 	if err != nil {
@@ -88,10 +109,23 @@ func (t BuildTask) Run(ctx context.Context) error {
 		if err := t.P.writeFile(t.P.outRoot, dst, []byte(r.Result), 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", dst, err)
 		}
+
+		log.TTrace(log.IO).
+			Str("dst", dst).
+			Int("bytes", len(r.Result)).
+			Msg("wrote page")
+
 	}
 	if t.Counter != nil {
 		atomic.AddInt64(t.Counter, int64(len(outs)))
 	}
+
+	log.DDebug(log.Build).
+		Str("rel", t.Page.RelContent).
+		Str("target", target).
+		Int("outputs", len(outs)).
+		Msg("build done")
+
 	return nil
 }
 
@@ -103,7 +137,11 @@ type AssetTask struct {
 
 func (t AssetTask) Key() string { return "asset:" + t.Asset.From + ":" + t.Asset.SourceRel }
 func (t AssetTask) Run(ctx context.Context) error {
-	log.Debug(fmt.Sprintf("Asset %q", t.Asset.SourceRel))
+	log.TTrace(log.Build).
+		Str("rel", t.Asset.SourceRel).
+		Str("from", t.Asset.From).
+		Str("pipe", t.Asset.PipelineID).
+		Msg("asset start")
 
 	var data []byte
 	var err error
@@ -136,10 +174,25 @@ func (t AssetTask) Run(ctx context.Context) error {
 		if err := t.P.writeFile(t.P.outRoot, dst, []byte(r["result"]), 0o644); err != nil {
 			return fmt.Errorf("asset write %s: %w", dst, err)
 		}
+
+		log.TTrace(log.IO).
+			Str("dst", dst).
+			Int("bytes", len(r["result"])).
+			Msg("wrote asset")
+
 	}
 	if t.Counter != nil {
 		atomic.AddInt64(t.Counter, int64(len(trs)))
 	}
+
+	log.DDebug(log.Build).
+		Str("rel", t.Asset.SourceRel).
+		Str("from", t.Asset.From).
+		Str("target", target).
+		Int("outputs", len(trs)).
+		Int("bytes_in", len(data)).
+		Msg("asset done")
+
 	return nil
 }
 
@@ -150,13 +203,14 @@ type rebuildTask struct {
 
 func (t rebuildTask) Key() string { return "rebuild:" + t.rel }
 func (t rebuildTask) Run(ctx context.Context) error {
-	log.Debug(fmt.Sprintf("Rebuild %q", t.rel))
+	log.TTrace(log.Build).Str("rel", t.rel).Msg("rebuild start")
 
 	out, err := t.s.project.BuildPath(ctx, t.rel)
 	if err != nil {
 		return err
 	}
 	if len(out) == 0 {
+		log.TTrace(log.Build).Str("rel", t.rel).Msg("rebuild noop (no outputs)")
 		return nil
 	}
 
@@ -165,5 +219,7 @@ func (t rebuildTask) Run(ctx context.Context) error {
 		newURL, _ := filepath.Rel(t.s.config.OutputPath, out[0])
 		t.s.sendToClient(HotReloadMsg{Reload: false, URL: "/" + filepath.ToSlash(newURL)})
 	}
+
+	log.DDebug(log.Build).Strs("outputs", out).Msg("rebuild done")
 	return nil
 }

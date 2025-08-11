@@ -1,9 +1,12 @@
 package project
 
 import (
-	"craeft/internal/utils"
 	"io/fs"
 	"path/filepath"
+	"time"
+
+	"craeft/internal/log"
+	"craeft/internal/utils"
 )
 
 type PagePlan struct {
@@ -27,12 +30,15 @@ type Plan struct {
 }
 
 func (p *Project) plan() (Plan, error) {
+	start := time.Now()
+	log.IInfo(log.Plan).Msg("planning started")
 	srcFS := p.srcRoot.FS()
 	res := Plan{
 		PagesByLayout: make(map[LayoutKey][]PagePlan),
 		Assets:        make(map[assetKey]AssetPlan),
 	}
 
+	var pagesAdded int
 	err := fs.WalkDir(srcFS, ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -45,6 +51,7 @@ func (p *Project) plan() (Plan, error) {
 
 			lmap, err := p.getLayouts(base)
 			if err != nil {
+				log.TTrace(log.Layout).Str("base", base).Err(err).Msg("no layouts for base")
 				return nil
 			}
 			for _, lyt := range lmap {
@@ -60,11 +67,18 @@ func (p *Project) plan() (Plan, error) {
 						res.PagesByLayout[key] = append(res.PagesByLayout[key], PagePlan{
 							BaseDir: base, RelContent: rel, Name: cc.Name, Pipe: cc.Pipe, LayoutKey: key,
 						})
+						pagesAdded++
+						log.TTrace(log.Plan).
+							Str("layout", key.RelLayoutPath).
+							Str("content", filepath.ToSlash(rel)).
+							Str("pipe", cc.Pipe).
+							Msg("page planned")
 					}
 					for _, a := range cc.Assets {
 						glob := filepath.ToSlash(filepath.Join(base, a.Source))
 						matches, err := fs.Glob(p.srcRoot.FS(), glob)
 						if err != nil {
+							log.TTrace(log.Plan).Str("glob", glob).Err(err).Msg("content asset glob failed")
 							continue
 						}
 
@@ -76,6 +90,11 @@ func (p *Project) plan() (Plan, error) {
 								From:       "source",
 								PipelineID: a.AssetType,
 							}
+							log.TTrace(log.Plan).
+								Str("from", "source").
+								Str("pipe", a.AssetType).
+								Str("rel", filepath.ToSlash(rel)).
+								Msg("asset planned")
 						}
 					}
 				}
@@ -95,6 +114,11 @@ func (p *Project) plan() (Plan, error) {
 							From:       "scheme",
 							PipelineID: a.AssetType,
 						}
+						log.TTrace(log.Plan).
+							Str("from", "scheme").
+							Str("pipe", a.AssetType).
+							Str("rel", filepath.ToSlash(rel)).
+							Msg("asset planned")
 					}
 				}
 			}
@@ -102,6 +126,12 @@ func (p *Project) plan() (Plan, error) {
 		return nil
 	})
 	p.setLastPlan(res)
+	log.DDebug(log.Plan).
+		Int("pages_planned", pagesAdded).
+		Int("assets_planned", len(res.Assets)).
+		Int("layouts", len(res.PagesByLayout)).
+		Dur("duration", time.Since(start)).
+		Msg("planning finished")
 	return res, err
 }
 
@@ -117,6 +147,11 @@ func (p *Project) setLastPlan(pl Plan) {
 		assets: pl.Assets,
 	}
 	p.lastPlanMu.Unlock()
+
+	log.DDebug(log.Plan).
+		Int("layouts", len(pl.PagesByLayout)).
+		Int("assets", len(pl.Assets)).
+		Msg("last plan snapshot updated")
 }
 
 func (p *Project) snapshotPlan() planSnapshot {
@@ -133,7 +168,15 @@ func (p *Project) snapshotPlan() planSnapshot {
 	for k, v := range p.lastPlan.assets {
 		assets[k] = v
 	}
-	return planSnapshot{pages: pages, assets: assets}
+
+	snap := planSnapshot{pages: pages, assets: assets}
+
+	log.TTrace(log.Plan).
+		Int("pages_groups", len(snap.pages)).
+		Int("assets", len(snap.assets)).
+		Msg("got snapshot")
+
+	return snap
 }
 
 func (p *Project) updatePlanSnapshot(rel string) {
@@ -142,6 +185,9 @@ func (p *Project) updatePlanSnapshot(rel string) {
 	name := filepath.Base(rel)
 
 	lmap, _ := p.getLayouts(base)
+
+	log.DDebug(log.Plan).Str("rel", rel).Str("base", base).Msg("updating snapshot for path")
+
 	type m struct{ ldir, nm, pipe string }
 	var matches []m
 	for ldir, lyt := range lmap {
@@ -170,6 +216,7 @@ func (p *Project) updatePlanSnapshot(rel string) {
 	p.lastPlanMu.Lock()
 	defer p.lastPlanMu.Unlock()
 
+	var removed int
 	for k, arr := range p.lastPlan.pages {
 		// reuse the slice to avoid allocations.
 		// reset the slice to zero length
@@ -181,6 +228,7 @@ func (p *Project) updatePlanSnapshot(rel string) {
 		}
 		if len(w) == 0 {
 			delete(p.lastPlan.pages, k)
+			removed++
 		} else {
 			p.lastPlan.pages[k] = w
 		}
@@ -188,6 +236,12 @@ func (p *Project) updatePlanSnapshot(rel string) {
 	for _, pp := range newPlan {
 		p.lastPlan.pages[pp.LayoutKey] = append(p.lastPlan.pages[pp.LayoutKey], pp)
 	}
+
+	log.DDebug(log.Plan).
+		Str("rel", rel).
+		Int("removed_groups", removed).
+		Int("added", len(newPlan)).
+		Msg("snapshot updated")
 }
 
 func (p *Project) AffectedByPipeline(name string) []string {
@@ -207,11 +261,13 @@ func (p *Project) AffectedByPipeline(name string) []string {
 			out = append(out, r)
 		}
 	}
+	log.DDebug(log.Plan).Str("pipeline", name).Int("affected", len(out)).Msg("affected by pipeline")
 	return out
 }
 
 func (p *Project) AffectedByLayoutKeys(keys []LayoutKey) []string {
 	if len(keys) == 0 {
+		log.TTrace(log.Plan).Int("keys", 0).Msg("affected by layouts (none)")
 		return nil
 	}
 
@@ -230,5 +286,6 @@ func (p *Project) AffectedByLayoutKeys(keys []LayoutKey) []string {
 			out = append(out, r)
 		}
 	}
+	log.DDebug(log.Plan).Int("keys", len(keys)).Int("affected", len(out)).Msg("affected by layout keys")
 	return out
 }

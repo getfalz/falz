@@ -1,13 +1,16 @@
 package pipeline
 
 import (
-	"craeft/internal/log"
-	"craeft/internal/pipeline/js"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"sync"
 	"time"
+
+	"craeft/internal/log"
+	"craeft/internal/pipeline/js"
 )
 
 type RegistryConfig struct {
@@ -37,16 +40,24 @@ func NewRegistry(cfg *RegistryConfig) *Registry {
 }
 
 func (r *Registry) LoadAll() error {
-	var firstErr error
+	errs := []error{}
 	for _, name := range r.config.Pipelines {
 		if err := r.Reload(name); err != nil {
 			log.Warn(fmt.Sprintf("load %s: %v", name, err))
-			if firstErr == nil {
-				firstErr = err
-			}
+			errs = append(errs, err)
 		}
 	}
-	return firstErr
+	return errors.Join(errs...)
+}
+
+func (r *Registry) Loaded() []string {
+	var names []string
+	r.active.Range(func(k, _ any) bool {
+		names = append(names, k.(string))
+		return true
+	})
+	sort.Strings(names)
+	return names
 }
 
 func (r *Registry) HasPipeline(name string) bool {

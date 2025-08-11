@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
+	"strings"
 
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
@@ -430,6 +432,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 func (l Layout) Path() string {
 	return l.path
 }
+
 func (l Layout) Name() string {
 	return l.name
 }
@@ -453,6 +456,13 @@ func (l Layout) MatchContent(path string) bool {
 	}
 
 	return false
+}
+
+func normalizeLayoutKey(p string) string {
+	p = filepath.ToSlash(p)
+	p = strings.TrimPrefix(p, "./")
+	p = path.Clean(p)
+	return p
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path

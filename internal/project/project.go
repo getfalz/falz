@@ -68,6 +68,11 @@ type BuildStats struct {
 }
 
 func New(config *CraeftConfig) (*Project, error) {
+	log.IInfo(log.Project).
+		Str("src", config.SourcePath).
+		Str("scheme", config.SchemePath).
+		Str("out", config.OutputPath).
+		Msg("project init")
 	if err := config.IsValid(); err != nil {
 		return nil, err
 	}
@@ -124,6 +129,8 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
+	log.IInfo(log.Pipeline).Str("pipelines", strings.Join(reg.Loaded(), ", ")).Msg("pipelines loaded")
+
 	return &Project{
 		Config:     config,
 		pipelines:  reg,
@@ -138,7 +145,11 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 	start := time.Now()
 	stats := BuildStats{}
 
+	log.IInfo(log.Build).
+		Msg("build started")
+
 	plan, err := p.plan()
+	// litter.Dump(plan)
 	if err != nil {
 		fmt.Printf("Build failed in %s\n", time.Since(start))
 		return stats, err
@@ -150,6 +161,8 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 		for _, a := range plan.Assets {
 			assets = append(assets, AssetTask{P: p, Asset: a, Counter: &stats.AssetsBuilt})
 		}
+
+		log.TTrace(log.Build).Int("tasks", len(assets)).Msg("assets batch run")
 		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, assets)
 		if err != nil {
 			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
@@ -158,6 +171,8 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 				log.EError(log.Build).Err(fmt.Errorf("assets batch executor: %w", err))
 			}
 		}
+	} else {
+		log.TTrace(log.Build).Msg("no assets to run")
 	}
 
 	for key, pages := range plan.PagesByLayout {
@@ -166,10 +181,17 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 		}
 		stats.PagesPlanned += len(pages)
 
+		log.IInfo(log.Build).
+			Str("layout", key.BaseDir).
+			Int("pages_planned", len(pages)).
+			Msg("index phase")
+
 		idxTasks := make([]executor.Task, 0, len(pages))
 		for i := range pages {
 			idxTasks = append(idxTasks, IndexTask{P: p, Page: pages[i]})
 		}
+
+		log.TTrace(log.Build).Int("tasks", len(idxTasks)).Str("layout", key.RelLayoutPath).Msg("index batch run")
 		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, idxTasks)
 
 		if err != nil {
@@ -194,6 +216,8 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 				Counter: &stats.PagesBuilt,
 			})
 		}
+
+		log.TTrace(log.Build).Int("tasks", len(buildTasks)).Str("layout", key.RelLayoutPath).Msg("build batch run")
 		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, buildTasks)
 		if err != nil {
 			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
@@ -206,6 +230,14 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 
 	stats.Duration = time.Since(start)
 
+	log.IInfo(log.Build).
+		Dur("duration", stats.Duration).
+		Int("assets_planned", stats.AssetsPlanned).
+		Int64("assets_built", stats.AssetsBuilt).
+		Int("pages_planned", stats.PagesPlanned).
+		Int64("pages_built", stats.PagesBuilt).
+		Int("errors", len(stats.Errors)).
+		Msg("build finished")
 	return stats, errors.Join(stats.Errors...)
 }
 
@@ -213,6 +245,8 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 	rel = filepath.ToSlash(rel)
 	base := filepath.ToSlash(filepath.Dir(rel))
 	filename := filepath.Base(rel)
+
+	log.IInfo(log.Build).Str("rel", rel).Msg("building path")
 
 	lmap, err := p.getLayouts(base)
 	if err != nil {
@@ -233,6 +267,7 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 	}
 
 	if len(matches) == 0 {
+		log.DDebug(log.Build).Str("rel", rel).Msg("no matching layouts")
 		return nil, nil
 	}
 
@@ -285,6 +320,7 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 			if err := p.writeFile(p.outRoot, dst, []byte(r.Result), 0o644); err != nil {
 				return nil, fmt.Errorf("write %s: %w", dst, err)
 			}
+			log.DDebug(log.Build).Str("dst", dst).Int("bytes", len(r.Result)).Msg("wrote file")
 		}
 
 		newPaths = append(newPaths, filepath.Join(p.Config.OutputPath, filepath.FromSlash(rel)))
@@ -309,10 +345,24 @@ func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, erro
 	if err != nil {
 		return nil, err
 	}
-	lyt, ok := lmap[key.RelLayoutPath]
+	keyPath := filepath.ToSlash(key.RelLayoutPath)
+	lyt, ok := lmap[keyPath]
+
+	// TODO remove DEBUG
+	for k := range lmap {
+		log.DDebug(log.Layout).Str("have", k).Msg("available layout key")
+	}
+	log.DDebug(log.Layout).Str("want", keyPath).Str("base", key.BaseDir).Msg("missing layout key")
+	// TODO remove DEBUG
+
 	if !ok || lyt == nil {
 		return nil, fmt.Errorf("layout not found for %+v", key)
 	}
+
+	log.DDebug(log.Layout).
+		Str("layout", lyt.Path()).
+		Str("layout key base", key.BaseDir).
+		Msg("template for layout")
 	return p.layouts.GetOrBuild(p.schemeRoot, key, (*layout.Layout)(lyt))
 }
 
@@ -320,6 +370,8 @@ func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, erro
 // wait for go1.25: https://github.com/golang/go/issues/73041
 func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
 	dst = filepath.Clean(filepath.ToSlash(dst))
+
+	log.TTrace(log.IO).Str("dst", dst).Int("bytes", len(data)).Msg("writeFile begin")
 
 	if err := utils.MkdirAllFS(root, filepath.Dir(dst), 0o755); err != nil {
 		return fmt.Errorf("mkdir %q: %w", filepath.Dir(dst), err)
@@ -341,11 +393,15 @@ func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.File
 		f.Close()
 		return fmt.Errorf("fsync %q: %w", dst, err)
 	}
+
+	log.TTrace(log.IO).Str("dst", dst).Uint32("perm", uint32(perm)).Msg("writeFile done")
 	return f.Close()
 }
 
 func (p *Project) ignoreFile(name string) bool {
 	name = filepath.ToSlash(filepath.Clean(name))
+
+	log.TTrace(log.Project).Str("name", name).Msg("ignore check")
 
 	for _, raw := range p.Config.Ignore {
 		pat := filepath.ToSlash(strings.TrimSpace(raw))
@@ -356,12 +412,14 @@ func (p *Project) ignoreFile(name string) bool {
 		if strings.HasSuffix(pat, "/**") {
 			prefix := strings.TrimSuffix(pat, "/**")
 			if name == prefix || strings.HasPrefix(name, prefix+"/") {
+				log.DDebug(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by prefix/**")
 				return true
 			}
 			continue
 		}
 		if !strings.ContainsAny(pat, "*?[]") {
 			if name == pat || strings.HasPrefix(name, pat+"/") {
+				log.DDebug(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by exact/prefix")
 				return true
 			}
 			continue
@@ -372,6 +430,7 @@ func (p *Project) ignoreFile(name string) bool {
 			continue
 		}
 		if ok {
+			log.DDebug(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by glob")
 			return true
 		}
 	}
@@ -399,6 +458,8 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 		return nil, fmt.Errorf("cannot find layout for path %q: %w", base, err)
 	}
 
+	log.DDebug(log.Layout).Str("base", base).Int("matches", len(matches)).Msg("layout matches")
+
 	out := make(map[string]*layout.Layout, len(matches))
 	for _, rel := range matches {
 		relSlash := filepath.ToSlash(rel)
@@ -414,8 +475,8 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 		p.parsedMu.RUnlock()
 
 		if ok && e.size == size && e.mtime.Equal(mtime) {
-			out[e.lyt.Path()] = e.lyt
-			log.Trace(fmt.Sprintf("using cached layout %s", relSlash))
+			out[relSlash] = e.lyt
+			log.TTrace(log.Layout).Str("rel", relSlash).Msg("using cached layout")
 			continue
 		}
 
@@ -435,8 +496,8 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 		p.parsed[relSlash] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
 		p.parsedMu.Unlock()
 
-		log.Trace(fmt.Sprintf("using layout %s", relSlash))
-		out[lyt.Path()] = lyt
+		log.TTrace(log.Layout).Str("rel", relSlash).Msg("parsed layout")
+		out[relSlash] = lyt
 
 	}
 
@@ -445,6 +506,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 
 func (p *Project) Close() error {
 	var err error
+	log.IInfo(log.Project).Msg("closing roots")
 	if p.srcRoot != nil {
 		if e := p.srcRoot.Close(); e != nil {
 			err = errors.Join(err, e)

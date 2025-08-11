@@ -58,14 +58,29 @@ const (
 	PipelineTag
 
 	None
+	Project
 	Pipeline
 	Build
 	Index
+	Layout
+	IO
+	Plan
+	Server
 )
 
 var tagLabels = map[TagKey]string{
 	SrcTag:      "src",
 	PipelineTag: "pipeline",
+
+	None:     "",
+	Project:  "project",
+	Pipeline: "pipeline",
+	Build:    "build",
+	Index:    "index",
+	Layout:   "layout",
+	IO:       "io",
+	Plan:     "plan",
+	Server:     "server",
 }
 
 func (tk TagKey) String() string {

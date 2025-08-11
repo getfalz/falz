@@ -44,6 +44,11 @@ func NewServer(p *Project, pool *executor.PoolExecutor) *Server {
 		pool: pool,
 	}
 
+	log.DDebug(log.Server).
+		Int("concurrency", pool.Concurrency).
+		Str("out", p.Config.OutputPath).
+		Msg("server initialized")
+
 	return s
 }
 
@@ -63,22 +68,53 @@ func RunServer(c context.Context, p *Project) error {
 	}()
 
 	opt := BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
-	if _, err := p.Build(ctx, opt); err != nil && !errors.Is(err, context.Canceled) {
+	stats, err := p.Build(ctx, opt)
+	if err != nil && !errors.Is(err, context.Canceled) {
+		log.EError(log.Build).
+			Err(err).
+			Int("assets_planned", stats.AssetsPlanned).
+			Int64("assets_built", stats.AssetsBuilt).
+			Int("pages_planned", stats.PagesPlanned).
+			Int64("pages_built", stats.PagesBuilt).
+			Msg("initial build failed")
 		return err
 	}
 
+	log.IInfo(log.Build).
+		Int("assets_planned", stats.AssetsPlanned).
+		Int64("assets_built", stats.AssetsBuilt).
+		Int("pages_planned", stats.PagesPlanned).
+		Int64("pages_built", stats.PagesBuilt).
+		Msg("initial build ok")
+
 	s := NewServer(p, pool)
 	if p.Config.FsWatcher.HotReload {
-		_ = s.HotReload()
+		if err := s.HotReload(); err != nil {
+			log.EError(log.Server).Err(err).Msg("hot-reload setup failed")
+		} else {
+			log.IInfo(log.Server).Msg("hot-reload enabled")
+		}
 	}
 	if p.Config.FsWatcher.Content {
-		go func() { _ = s.WatchFiles(ctx) }()
+		go func() {
+			if err := s.WatchFiles(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.EError(log.Server).Err(err).Msg("content watcher exited with error")
+			}
+		}()
 	}
 	if p.Config.FsWatcher.Theme {
-		go func() { _ = s.WatchTheme(ctx) }()
+		go func() {
+			if err := s.WatchTheme(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.EError(log.Server).Err(err).Msg("theme watcher exited with error")
+			}
+		}()
 	}
 	if p.Config.FsWatcher.Pipes {
-		go func() { _ = s.WatchPipes(ctx) }()
+		go func() {
+			if err := s.WatchPipes(ctx); err != nil && !errors.Is(err, context.Canceled) {
+				log.EError(log.Server).Err(err).Msg("pipes watcher exited with error")
+			}
+		}()
 	}
 	return s.ServeFiles(ctx)
 }
@@ -87,7 +123,10 @@ func (s *Server) ServeFiles(ctx context.Context) error {
 	fs := http.FileServer(http.Dir(s.config.OutputPath))
 
 	s.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.Info(fmt.Sprintf("Requested: %s", r.URL.Path))
+		log.TTrace(log.Server).
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Msg("http request")
 
 		fs.ServeHTTP(w, r)
 	})
@@ -104,7 +143,10 @@ func (s *Server) ServeFiles(ctx context.Context) error {
 		_ = s.Shutdown(ctx)
 	}()
 
-	log.Info(fmt.Sprintf("Server started at port %d", s.config.Server.Port))
+	log.IInfo(log.Server).
+		Int("port", s.config.Server.Port).
+		Str("root", s.config.OutputPath).
+		Msg("http server starting")
 
 	return s.httpServer.ListenAndServe()
 }
@@ -119,8 +161,11 @@ func (s *Server) HotReload() error {
 	s.routing.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		conn, err := s.upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			log.Warn(fmt.Sprintf("Upgrade error: %s", err))
+			log.DDebug(log.Server).Err(err).Msg("websocket upgrade failed")
+			return
 		}
+
+		log.IInfo(log.Server).Str("remote", r.RemoteAddr).Msg("websocket connected")
 
 		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 		conn.SetPongHandler(func(string) error {
@@ -137,6 +182,7 @@ func (s *Server) HotReload() error {
 				delete(s.wsclients, conn)
 				s.wsclientsMutex.Unlock()
 				conn.Close()
+				log.DDebug(log.Server).Msg("websocket disconnected")
 			}()
 
 			for {
@@ -159,6 +205,7 @@ func (s *Server) HotReload() error {
 				}
 				s.wsclientsMutex.Unlock()
 				_ = conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+				log.TTrace(log.Server).Msg("websocket ping")
 			}
 		}()
 
@@ -175,12 +222,19 @@ func (s *Server) sendToClient(msg HotReloadMsg) {
 	}
 	s.wsclientsMutex.Unlock()
 
+	log.DDebug(log.Server).
+		Int("clients", len(clients)).
+		Bool("reload", msg.Reload).
+		Str("url", msg.URL).
+		Msg("broadcast hot-reload")
+
 	for _, c := range clients {
 		if err := c.WriteJSON(msg); err != nil {
 			_ = c.Close()
 			s.wsclientsMutex.Lock()
 			delete(s.wsclients, c)
 			s.wsclientsMutex.Unlock()
+			log.DDebug(log.Server).Err(err).Msg("websocket write failed; client removed")
 		}
 	}
 }
@@ -204,6 +258,8 @@ func (s *Server) WatchFiles(ctx context.Context) error {
 	if err := notify.Watch(absPath+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("can't watch files for change: %w", err)
 	}
+	log.IInfo(log.Server).Str("dir", absPath).Msg("watching content changes")
+
 	defer func() {
 		_ = utils.StopComponent(ctx, "source-watcher", func(context.Context) error {
 			notify.Stop(events)
@@ -221,7 +277,7 @@ func (s *Server) WatchFiles(ctx context.Context) error {
 			}
 			relPath, err := filepath.Rel(absPath, ei.Path())
 			if err != nil {
-				log.Warn(fmt.Sprintf("Can't resolve relative path: %s", err))
+				log.DDebug(log.Server).Err(err).Msg("cannot resolve relative path")
 				continue
 			}
 
@@ -229,7 +285,7 @@ func (s *Server) WatchFiles(ctx context.Context) error {
 				continue
 			}
 
-			log.Trace(fmt.Sprintf("watch file update: %s", relPath))
+			log.TTrace(log.Server).Str("rel", filepath.ToSlash(relPath)).Msg("file changed")
 
 			s.pool.Submit(rebuildTask{s: s, rel: relPath})
 
@@ -248,6 +304,7 @@ func (s *Server) WatchTheme(ctx context.Context) error {
 	if err := notify.Watch(absScheme+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("watch theme: %w", err)
 	}
+	log.IInfo(log.Server).Str("dir", absScheme).Msg("watching theme changes")
 	defer func() {
 		_ = utils.StopComponent(ctx, "scheme-watcher", func(context.Context) error {
 			notify.Stop(events)
@@ -269,14 +326,14 @@ func (s *Server) WatchTheme(ctx context.Context) error {
 			}
 			rel = filepath.ToSlash(rel)
 
-			log.Trace(fmt.Sprintf("watch theme update: %s", rel))
+			log.TTrace(log.Server).Str("rel", rel).Msg("theme changed")
 
 			keys := s.project.Layouts().InvalidateAndGetAffected(rel)
 			paths := s.project.AffectedByLayoutKeys(keys)
 
 			_, err = s.project.plan()
 			if err != nil {
-				log.Warn(fmt.Sprintf("rebuild plan: %s", err))
+				log.DDebug(log.Server).Err(err).Msg("rebuild plan failed after theme change")
 				continue
 			}
 
@@ -301,6 +358,7 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 	if err := notify.Watch(absPipes+"/...", events, notify.Write); err != nil {
 		return fmt.Errorf("watch pipes: %w", err)
 	}
+	log.IInfo(log.Server).Str("dir", absPipes).Msg("watching pipeline changes")
 	defer func() {
 		_ = utils.StopComponent(ctx, "pipe-watcher", func(context.Context) error {
 			notify.Stop(events)
@@ -333,7 +391,7 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 			}
 
 			if err := s.project.Pipelines().Reload(pipeName); err != nil {
-				log.Warn(fmt.Sprintf("reload pipeline %s: %v", pipeName, err))
+				log.DDebug(log.Server).Err(err).Str("pipe", pipeName).Msg("pipeline reload failed")
 			}
 
 			paths := s.project.AffectedByPipeline(pipeName)
@@ -352,6 +410,7 @@ func (s *Server) Shutdown(ctx context.Context) error {
 	defer cancel()
 
 	var errs []error
+	log.IInfo(log.Server).Msg("shutdown begin")
 
 	if s.httpServer != nil {
 		if err := utils.StopComponent(ctx, "http", func(c context.Context) error {
