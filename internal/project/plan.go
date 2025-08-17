@@ -74,7 +74,7 @@ func (p *Project) plan() (Plan, error) {
 							Str("pipe", cc.Pipe).
 							Msg("page planned")
 					}
-					for _, a := range cc.Assets {
+					for _, a := range cc.Assets() {
 						glob := filepath.ToSlash(filepath.Join(base, a.Source))
 						matches, err := fs.Glob(p.srcRoot.FS(), glob)
 						if err != nil {

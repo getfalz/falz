@@ -12,6 +12,7 @@ import (
 
 type PipelineScript interface {
 	Index(ctx context.Context, input []byte, vars Vars) error
+	// TODO use result struct
 	Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error)
 	Config() PipelineConfig
 }

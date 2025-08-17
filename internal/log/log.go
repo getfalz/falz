@@ -17,7 +17,6 @@ var (
 
 func init() {
 	once.Do(func() {
-
 		var writer io.Writer
 		writer = &LevelWriter{os.Stdout, os.Stderr}
 		if term.IsTerminal(int(os.Stdout.Fd())) {
@@ -103,6 +102,11 @@ func IInfo(tag TagKey) *zerolog.Event {
 func EError(tag TagKey) *zerolog.Event {
 	l := logger.With().Str("component", tag.String()).Logger()
 	return l.Error()
+}
+
+func WWarn(tag TagKey) *zerolog.Event {
+	l := logger.With().Str("component", tag.String()).Logger()
+	return l.Warn()
 }
 
 type Tag struct {

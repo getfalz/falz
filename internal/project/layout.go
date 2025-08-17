@@ -1,6 +1,7 @@
 package project
 
 import (
+	"context"
 	"craeft/internal/layout"
 	"craeft/internal/log"
 	"os"
@@ -46,6 +47,7 @@ func NewLayoutCache() *LayoutCache {
 }
 
 func (lc *LayoutCache) GetOrBuild(
+	ctx context.Context,
 	schemeRoot *os.Root,
 	key LayoutKey,
 	lyt *layout.Layout,
@@ -73,7 +75,7 @@ func (lc *LayoutCache) GetOrBuild(
 			return tpl, nil
 		}
 
-		str, deps, err := lyt.RenderWithDeps(key.BaseDir, schemeRoot)
+		str, deps, err := lyt.Render(ctx, key.BaseDir, schemeRoot)
 		if err != nil {
 			return nil, err
 		}

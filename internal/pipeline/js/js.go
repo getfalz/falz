@@ -315,6 +315,9 @@ func setupEnv(vm *goja.Runtime, pipelineName string, l zerolog.Logger) {
 
 func getLogger(pipelineName string) zerolog.Logger {
 	// TODO it would be nice to also print from which method it comes (transform/index)
+	// TODO when printing to console, the formatting is lost (only for ConsoleWritter)
+	// {"level":"info","pipeline":"md3","pipeline":"md3","time":1755434374,"message":"# b_a title\n\n This is a file\n"}
+
 	var writer io.Writer
 	writer = &log.LevelWriter{os.Stdout, os.Stderr}
 	if term.IsTerminal(int(os.Stdout.Fd())) {

@@ -2,19 +2,68 @@ package layout
 
 import (
 	"craeft/internal/log"
+	"craeft/internal/pipeline"
 	"encoding/xml"
-	"fmt"
 	"io"
+	"os"
 )
+
+type Layout struct {
+	basePath     string
+	path         string
+	pipelines    *pipeline.Registry
+	root         *os.Root
+	useHotReload bool
+
+	// Children
+	fragments []Fragment
+	contents  []Content
+	assets    []Asset
+
+	// XML
+	XMLName xml.Name `xml:"Layout"`
+	tpl     string
+	tplPath string
+}
+
+type Fragment struct {
+	pipeline pipeline.PipelineScript
+	root     *os.Root
+
+	// XML
+	XMLName xml.Name `xml:"Fragment"`
+	Name    string   `xml:"name,attr"`
+	Source  string   `xml:"src,attr"`
+	Pipe    string   `xml:"pipe,attr"`
+}
+
+type Content struct {
+	// XML
+	XMLName   xml.Name `xml:"Content"`
+	Name      string
+	Path      string
+	Pipe      string
+	assetElms []Asset
+}
+
+type Asset struct {
+	pipeline pipeline.PipelineScript
+
+	// XML
+	XMLName   xml.Name `xml:"Asset"`
+	Name      string   `xml:"name,attr"`
+	Source    string   `xml:"src,attr"`
+	AssetType string   `xml:"type,attr"`
+}
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 	l.XMLName = start.Name
 	for _, attr := range start.Attr {
 		switch attr.Name.Local {
 		case "tpl":
-			l.Tpl = attr.Value
+			l.tpl = attr.Value
 		case "path":
-			l.TplPath = attr.Value
+			l.tplPath = attr.Value
 		}
 	}
 
@@ -40,10 +89,12 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				a.pipeline, err = l.pipelines.Get(a.AssetType)
 				if err != nil {
-					log.Warn(
-						fmt.Sprintf("pipeline '%s' not found for asset %s: %s", a.AssetType, a.Name, err),
-						log.Tag{Key: log.SrcTag, Value: "layout"},
-					)
+					log.WWarn(log.Layout).
+						Str("where", "layout.asset").
+						Str("type", a.AssetType).
+						Str("name", a.Name).
+						Err(err).Msg("pipeline not found for asset")
+
 				}
 				l.assets = append(l.assets, a)
 			case "Fragment":
@@ -54,14 +105,17 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := f.Validate(); err != nil {
 					return err
 				}
-				f.pipeline, err = l.pipelines.Get(f.Pipe)
-				f.root = l.root
+				p, err := l.pipelines.Get(f.Pipe)
 				if err != nil {
-					log.Warn(
-						fmt.Sprintf("pipeline '%s' not found for fragment %s, err: %s", f.Pipe, f.Name, err),
-						log.Tag{Key: log.SrcTag, Value: "layout"},
-					)
+					log.WWarn(log.Layout).
+						Str("where", "layout.fragment").
+						Str("pipe", f.Pipe).
+						Str("name", f.Name).
+						Err(err).Msg("pipeline not found for fragment")
 				}
+
+				f.pipeline = p
+				f.root = l.root
 				l.fragments = append(l.fragments, f)
 			case "Content":
 				var c Content
@@ -72,14 +126,16 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 					return err
 				}
 				// initialize assets pipelines
-				for i, a := range c.Assets {
-					c.Assets[i].pipeline, err = l.pipelines.Get(a.AssetType)
+				for i, a := range c.assetElms {
+					p, err := l.pipelines.Get(a.AssetType)
 					if err != nil {
-						log.Warn(
-							fmt.Sprintf("pipeline '%s' not found for content asset %s, err: %s", a.AssetType, a.Name, err),
-							log.Tag{Key: log.SrcTag, Value: "layout"},
-						)
+						log.WWarn(log.Layout).
+							Str("where", "layout.content.asset").
+							Str("type", a.AssetType).
+							Str("name", a.Name).
+							Err(err).Msg("pipeline not found for content asset")
 					}
+					c.assetElms[i].pipeline = p
 				}
 				l.contents = append(l.contents, c)
 			}
@@ -126,7 +182,7 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 					return err
 				}
 				// pipelines are set on layout.UnmarshalXML
-				c.Assets = append(c.Assets, a)
+				c.assetElms = append(c.assetElms, a)
 			}
 		}
 	}

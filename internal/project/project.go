@@ -202,7 +202,7 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 			}
 		}
 
-		tpl, err := p.templateForLayout(key)
+		tpl, err := p.templateForLayout(ctx, key)
 		if err != nil {
 			continue
 		}
@@ -278,7 +278,7 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 
 	var newPaths []string
 	for _, m := range matches {
-		tpl, err := p.templateForLayout(LayoutKey{RelLayoutPath: m.ldir, BaseDir: base})
+		tpl, err := p.templateForLayout(ctx, LayoutKey{RelLayoutPath: m.ldir, BaseDir: base})
 		if err != nil {
 			return nil, err
 		}
@@ -340,7 +340,7 @@ func (p *Project) readScheme(rel string) ([]byte, error) {
 	return fs.ReadFile(p.schemeRoot.FS(), filepath.ToSlash(rel))
 }
 
-func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, error) {
+func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fasttemplate.Template, error) {
 	lmap, err := p.getLayouts(key.BaseDir)
 	if err != nil {
 		return nil, err
@@ -357,7 +357,7 @@ func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, erro
 		Str("layout key base", key.BaseDir).
 		Str("layout key rel", key.RelLayoutPath).
 		Msg("template for layout")
-	return p.layouts.GetOrBuild(p.schemeRoot, key, (*layout.Layout)(lyt))
+	return p.layouts.GetOrBuild(ctx, p.schemeRoot, key, (*layout.Layout)(lyt))
 }
 
 // TODO: write file atomically:
@@ -480,7 +480,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 			continue
 		}
 
-		lyt, err := layout.Parse(p.schemeRoot, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload)
+		lyt, err := layout.Parse(p.Config.SchemePath, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload, p.schemeRoot)
 		if err != nil {
 			// return nil, fmt.Errorf("failed to parse layout file %q: %w", layoutPath, err)
 			continue
