@@ -35,12 +35,12 @@ func Build(c *cli.Context) error {
 
 	switch {
 	case err == nil:
-		fmt.Printf("Build OK in %s — pages %d/%d, assets %d/%d\n",
+		log.Print("Build OK in %s — pages %d/%d, assets %d/%d\n",
 			dur, stats.PagesBuilt, stats.PagesPlanned, stats.AssetsBuilt, stats.AssetsPlanned)
 		return nil
 
 	case errors.Is(err, context.Canceled):
-		fmt.Printf("Build canceled after %s — pages %d/%d, assets %d/%d\n",
+		log.Print("Build canceled after %s — pages %d/%d, assets %d/%d\n",
 			dur, stats.PagesBuilt, stats.PagesPlanned, stats.AssetsBuilt, stats.AssetsPlanned)
 		return nil
 

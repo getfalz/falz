@@ -223,14 +223,14 @@ func initialize(c *cli.Context) {
 }
 
 func printWelcome(cli *cli.Context, base, target string) {
-	fmt.Printf("⚒ %s %s\n", cli.App.Name, cli.App.Version)
-	fmt.Printf("➤ Building folder %q -> %q\n", base, target)
-	fmt.Printf("")
+	log.Print("⚒ %s %s\n", cli.App.Name, cli.App.Version)
+	log.Print("➤ Building folder %q -> %q\n", base, target)
+	log.Print("")
 	if cli.Int("port") != 0 {
-		fmt.Printf("Server running on port: %d\n", cli.Int("port"))
-		fmt.Printf("")
+		log.Print("Server running on port: %d\n", cli.Int("port"))
+		log.Print("")
 	}
-	fmt.Printf("──────────────────────────────\n")
+	log.Print("──────────────────────────────\n")
 }
 
 func setLogLevel(verbosity int, silence bool) {

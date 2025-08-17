@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"strings"
 	"sync"
 
 	"github.com/rs/zerolog"
@@ -46,9 +45,9 @@ func (lw *LevelWriter) WriteLevel(l zerolog.Level, p []byte) (n int, err error) 
 }
 
 func Print(msg string, args ...any) {
-	msg = strings.TrimSpace(msg)
-	msg = " ➤ " + msg + "\n"
-	fmt.Printf(msg, args...)
+	if term.IsTerminal(int(os.Stdout.Fd())) {
+		fmt.Fprintf(os.Stderr, msg, args...)
+	}
 }
 
 type TagKey int
@@ -80,7 +79,7 @@ var tagLabels = map[TagKey]string{
 	Layout:   "layout",
 	IO:       "io",
 	Plan:     "plan",
-	Server:     "server",
+	Server:   "server",
 }
 
 func (tk TagKey) String() string {

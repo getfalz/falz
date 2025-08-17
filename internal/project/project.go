@@ -348,13 +348,6 @@ func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, erro
 	keyPath := filepath.ToSlash(key.RelLayoutPath)
 	lyt, ok := lmap[keyPath]
 
-	// TODO remove DEBUG
-	for k := range lmap {
-		log.DDebug(log.Layout).Str("have", k).Msg("available layout key")
-	}
-	log.DDebug(log.Layout).Str("want", keyPath).Str("base", key.BaseDir).Msg("missing layout key")
-	// TODO remove DEBUG
-
 	if !ok || lyt == nil {
 		return nil, fmt.Errorf("layout not found for %+v", key)
 	}
@@ -362,6 +355,7 @@ func (p *Project) templateForLayout(key LayoutKey) (*fasttemplate.Template, erro
 	log.DDebug(log.Layout).
 		Str("layout", lyt.Path()).
 		Str("layout key base", key.BaseDir).
+		Str("layout key rel", key.RelLayoutPath).
 		Msg("template for layout")
 	return p.layouts.GetOrBuild(p.schemeRoot, key, (*layout.Layout)(lyt))
 }
@@ -475,7 +469,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 		p.parsedMu.RUnlock()
 
 		if ok && e.size == size && e.mtime.Equal(mtime) {
-			out[relSlash] = e.lyt
+			out[e.lyt.Path()] = e.lyt
 			log.TTrace(log.Layout).Str("rel", relSlash).Msg("using cached layout")
 			continue
 		}
@@ -486,14 +480,14 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 			continue
 		}
 
-		lyt, err := layout.Parse(p.Config.SchemePath, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload)
+		lyt, err := layout.Parse(p.schemeRoot, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload)
 		if err != nil {
 			// return nil, fmt.Errorf("failed to parse layout file %q: %w", layoutPath, err)
 			continue
 		}
 
 		p.parsedMu.Lock()
-		p.parsed[relSlash] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
+		p.parsed[lyt.Path()] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
 		p.parsedMu.Unlock()
 
 		log.TTrace(log.Layout).Str("rel", relSlash).Msg("parsed layout")

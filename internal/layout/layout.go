@@ -19,8 +19,6 @@ import (
 	"github.com/valyala/fasttemplate"
 )
 
-type ctxKey string
-
 type contextKey int
 
 const (
@@ -52,7 +50,6 @@ const wsClient string = `
 type Layout struct {
 	XMLName      xml.Name `xml:"Layout"`
 	basePath     string
-	name         string
 	path         string
 	pipelines    *pipeline.Registry
 	root         *os.Root
@@ -139,38 +136,17 @@ func (f Fragment) Render(ctx context.Context) (string, string, error) {
 	return result[0]["result"], fragment, nil
 }
 
-func (f Fragment) Validate() error {
-	if f.Name == "" {
-		return errors.New("element <Fragment>: missing required field: name")
-	}
-	if f.Source == "" {
-		return errors.New("element <Fragment>: missing required field: src")
-	}
-	return nil
-}
-
-func getValue(ctx context.Context, key contextKey) string {
-	// Use the key to get the value from the context
-	if val, ok := ctx.Value(key).(string); ok {
-		return val
-	}
-	return ""
-}
+// func getValue(ctx context.Context, key contextKey) string {
+// 	// Use the key to get the value from the context
+// 	if val, ok := ctx.Value(key).(string); ok {
+// 		return val
+// 	}
+// 	return ""
+// }
 
 // Content struct loads Markdown, converts it to HTML, and renders it
 func (c Content) Render(ctx context.Context) (string, error) {
 	return fmt.Sprintf("{{%s}}", c.Name), nil
-}
-
-// TODO(important): path should not point out of the project
-func (c Content) Validate() error {
-	if c.Name == "" {
-		return errors.New("element <Content>: missing required field: name")
-	}
-	if c.Path == "" {
-		return errors.New("element <Content>: missing required field: path")
-	}
-	return nil
 }
 
 // TODO: deprecate? this is css/js specific. maybe only return the new path
@@ -197,15 +173,6 @@ func (a Asset) Render(ctx context.Context) (string, error) {
 	return string(result), nil
 }
 
-func (a Asset) Validate() error {
-	if a.Name == "" {
-		return errors.New("element <Asset>: missing required field: name")
-	}
-	if a.Source == "" {
-		return errors.New("element <Asset>: missing required field: src")
-	}
-	return nil
-}
 
 // Render layout. The fragments will be searched first in the given base path
 func (l *Layout) RenderWithDeps(base string, schemeRoot *os.Root) (rendered string, deps []string, err error) {
@@ -284,6 +251,36 @@ func (l Layout) Validate() error {
 	return nil
 }
 
+func (a Asset) Validate() error {
+	if a.Name == "" {
+		return errors.New("element <Asset>: missing required field: name")
+	}
+	if a.Source == "" {
+		return errors.New("element <Asset>: missing required field: src")
+	}
+	return nil
+}
+
+func (f Fragment) Validate() error {
+	if f.Name == "" {
+		return errors.New("element <Fragment>: missing required field: name")
+	}
+	if f.Source == "" {
+		return errors.New("element <Fragment>: missing required field: src")
+	}
+	return nil
+}
+
+func (c Content) Validate() error {
+	if c.Name == "" {
+		return errors.New("element <Content>: missing required field: name")
+	}
+	if c.Path == "" {
+		return errors.New("element <Content>: missing required field: path")
+	}
+	return nil
+}
+
 func (l *Layout) Fragments() []string {
 	var fragments []string
 
@@ -302,139 +299,9 @@ func (l Layout) Assets() []Asset {
 	return l.assets
 }
 
-func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	c.XMLName = start.Name
-	for _, attr := range start.Attr {
-		switch attr.Name.Local {
-		case "name":
-			c.Name = attr.Value
-		case "path":
-			c.Path = attr.Value
-		case "pipe":
-			c.Pipe = attr.Value
-		}
-	}
-
-	for {
-		tok, err := d.Token()
-
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		switch t := tok.(type) {
-		case xml.EndElement:
-			if t.Name == start.Name {
-				return nil
-			}
-		case xml.StartElement:
-			if t.Name.Local == "Asset" {
-				var a Asset
-				if err := d.DecodeElement(&a, &t); err != nil {
-					return err
-				}
-				if err := a.Validate(); err != nil {
-					return err
-				}
-				// pipelines are set on layout.UnmarshalXML
-				c.Assets = append(c.Assets, a)
-			}
-		}
-	}
-	return nil
-}
-
-func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
-	l.XMLName = start.Name
-	for _, attr := range start.Attr {
-		switch attr.Name.Local {
-		case "tpl":
-			l.Tpl = attr.Value
-		case "path":
-			l.TplPath = attr.Value
-		}
-	}
-
-	for {
-		t, err := d.Token()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return err
-		}
-
-		switch se := t.(type) {
-		case xml.StartElement:
-			switch se.Name.Local {
-			case "Asset":
-				var a Asset
-				if err := d.DecodeElement(&a, &se); err != nil {
-					return err
-				}
-				if err := a.Validate(); err != nil {
-					return err
-				}
-				a.pipeline, err = l.pipelines.Get(a.AssetType)
-				if err != nil {
-					log.Warn(
-						fmt.Sprintf("pipeline '%s' not found for asset %s: %s", a.AssetType, a.Name, err),
-						log.Tag{Key: log.SrcTag, Value: "layout"},
-					)
-				}
-				l.assets = append(l.assets, a)
-			case "Fragment":
-				var f Fragment
-				if err := d.DecodeElement(&f, &se); err != nil {
-					return err
-				}
-				if err := f.Validate(); err != nil {
-					return err
-				}
-				f.pipeline, err = l.pipelines.Get(f.Pipe)
-				f.root = l.root
-				if err != nil {
-					log.Warn(
-						fmt.Sprintf("pipeline '%s' not found for fragment %s, err: %s", f.Pipe, f.Name, err),
-						log.Tag{Key: log.SrcTag, Value: "layout"},
-					)
-				}
-				l.fragments = append(l.fragments, f)
-			case "Content":
-				var c Content
-				if err := d.DecodeElement(&c, &se); err != nil {
-					return err
-				}
-				if err := c.Validate(); err != nil {
-					return err
-				}
-				// initialize assets pipelines
-				for i, a := range c.Assets {
-					c.Assets[i].pipeline, err = l.pipelines.Get(a.AssetType)
-					if err != nil {
-						log.Warn(
-							fmt.Sprintf("pipeline '%s' not found for content asset %s, err: %s", a.AssetType, a.Name, err),
-							log.Tag{Key: log.SrcTag, Value: "layout"},
-						)
-					}
-				}
-				l.contents = append(l.contents, c)
-			}
-		}
-	}
-	return nil
-}
-
 // Path is the relative path of the layout to the project root folder.
 func (l Layout) Path() string {
-	return l.path
-}
-
-func (l Layout) Name() string {
-	return l.name
+	return normalizeRelFile(l.path)
 }
 
 func (c Content) MatchContent(path string) bool {
@@ -458,32 +325,35 @@ func (l Layout) MatchContent(path string) bool {
 	return false
 }
 
-func normalizeLayoutKey(p string) string {
+func normalizeRelFile(p string) string {
 	p = filepath.ToSlash(p)
 	p = strings.TrimPrefix(p, "./")
 	p = path.Clean(p)
+	if p == "." {
+		return ""
+	}
 	return p
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
-func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
-	r, err := os.OpenRoot(basePath)
-	if err != nil {
-		return nil, err
-	}
+func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool, schemeRoot *os.Root) (*Layout, error) {
 
-	layout := &Layout{
+	l := &Layout{
 		basePath:     basePath,
-		path:         filepath.Dir(path),
+		path:         normalizeRelFile(path),
 		pipelines:    pipeReg,
-		name:         filepath.Base(path),
 		useHotReload: useHotReload,
-		root:         r,
+		root:         schemeRoot,
 	}
-	err = xml.Unmarshal(data, layout)
+	err := xml.Unmarshal(data, l)
 	if err != nil {
 		return nil, err
 	}
 
-	return layout, nil
+	log.TTrace(log.Layout).
+		Str("layout_xml", l.path).
+		Bool("hotreload", useHotReload).
+		Msg("layout parsed")
+
+	return l, nil
 }
