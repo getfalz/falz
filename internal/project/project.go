@@ -447,7 +447,7 @@ func (p *Project) ensureParsedCache() {
 func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 	p.ensureParsedCache()
 
-	matches, err := utils.FindFile(p.Config.SchemePath, base, p.Config.Layout)
+	matches, err := utils.FindFile(p.schemeRoot.FS(), base, p.Config.Layout)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find layout for path %q: %w", base, err)
 	}
@@ -480,7 +480,7 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 			continue
 		}
 
-		lyt, err := layout.Parse(p.Config.SchemePath, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload, p.schemeRoot)
+		lyt, err := layout.Parse(p.schemeRoot, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload)
 		if err != nil {
 			// return nil, fmt.Errorf("failed to parse layout file %q: %w", layoutPath, err)
 			continue

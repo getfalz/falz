@@ -37,13 +37,13 @@ const wsClient string = `
 
 `
 
-func (f Fragment) Render(ctx context.Context, basePath, renderPath string) (string, string, error) {
-	files, err := utils.FindFile(basePath, renderPath, f.Source)
+func (f Fragment) Render(ctx context.Context, renderPath string) (string, string, error) {
+	files, err := utils.FindFile(f.root.FS(), renderPath, f.Source)
 	if err != nil {
 		return "", "", err
 	}
 
-	fragment := filepath.ToSlash(filepath.Join(basePath, files[0]))
+	fragment := filepath.ToSlash(files[0])
 	log.TTrace(log.Layout).
 		Str("fragment", f.Name).
 		Str("src", f.Source).
@@ -106,7 +106,7 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *os.Root) (
 			Int("inline_len", len(tmpl)).
 			Msg("using inline layout template")
 	} else {
-		tplPaths, err := utils.FindFile(l.basePath, base, l.tplPath)
+		tplPaths, err := utils.FindFile(l.root.FS(), base, l.tplPath)
 		if err != nil {
 			return "", nil, fmt.Errorf("layout %q: find template with base=%q tplPath=%q: %w", l.path, base, l.tplPath, err)
 		}
@@ -127,20 +127,13 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *os.Root) (
 	}
 
 	tplVariables := make(map[string]any)
-	// for _, asset := range l.assets {
-	// 	output, err := asset.Render(ctx)
-	// 	if err != nil {
-	// 		return "", nil, err
-	// 	}
-	// 	tplVariables[asset.Name] = output
-	// }
 
 	for _, c := range l.contents {
 		tplVariables[c.Name] = c.Render(ctx)
 	}
 
 	for _, f := range l.fragments {
-		output, fragmentPath, err := f.Render(ctx, l.basePath, l.path)
+		output, fragmentPath, err := f.Render(ctx, l.path)
 		if err != nil {
 			return "", nil, fmt.Errorf("layout %q: render fragment name=%q src=%q: %w", l.path, f.Name, f.Source, err)
 		}
@@ -277,16 +270,15 @@ func normalizeRelFile(p string) string {
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
-func Parse(basePath string, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool, schemeRoot *os.Root) (*Layout, error) {
+func Parse(base *os.Root, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
 
 	relPath := normalizeRelFile(path)
 
 	l := &Layout{
-		basePath:     basePath,
+		root:         base,
 		path:         relPath,
 		pipelines:    pipeReg,
 		useHotReload: useHotReload,
-		root:         schemeRoot,
 	}
 	err := xml.Unmarshal(data, l)
 	if err != nil {

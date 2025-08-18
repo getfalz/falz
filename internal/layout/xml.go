@@ -9,7 +9,6 @@ import (
 )
 
 type Layout struct {
-	basePath     string
 	path         string
 	pipelines    *pipeline.Registry
 	root         *os.Root

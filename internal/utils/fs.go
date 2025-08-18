@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -11,8 +12,6 @@ import (
 	"time"
 
 	"craeft/internal/log"
-
-	"github.com/mattn/go-zglob"
 )
 
 // FindFile searches for files matching the given glob pattern by walking up the directory
@@ -27,38 +26,46 @@ import (
 //	basePath
 //
 // The search stops once basePath is reached. If no matches are found, an error is returned.
-func FindFile(basePath, targetPath, pattern string) ([]string, error) {
-	var results []string
-	uniqueResult := make(map[string]bool)
-	currentPath := filepath.Join(basePath, targetPath)
+func FindFile(root fs.FS, targetPath, pattern string) ([]string, error) {
+	cur := filepath.ToSlash(strings.TrimPrefix(targetPath, "/"))
+	if cur == "" {
+		cur = "."
+	}
 
+	var results []string
+	seen := make(map[string]struct{})
 	for {
-		matches, err := zglob.Glob(filepath.Join(currentPath, pattern))
-		if err != nil && !errors.Is(err, os.ErrNotExist) {
-			return nil, fmt.Errorf("failed to glob pattern %q in directory %q: %w", pattern, currentPath, err)
+		glob := pattern
+		if cur != "." {
+			glob = path.Join(cur, pattern)
 		}
 
-		for _, match := range matches {
-			fileName, _ := filepath.Rel(basePath, match)
-			if _, ok := uniqueResult[fileName]; !ok {
+		matches, err := fs.Glob(root, glob)
+		if err != nil {
+			// fs.Glob only errors on malformed patterns
+			return nil, fmt.Errorf("glob %q: %w", glob, err)
+		}
+
+		for _, fileName := range matches {
+			if _, ok := seen[fileName]; !ok {
 				results = append(results, fileName)
-				uniqueResult[fileName] = true
+				seen[fileName] = struct{}{}
 			}
 		}
 
-		if currentPath == basePath {
+		if cur == "." {
 			break
 		}
 
-		parentPath := filepath.Dir(currentPath)
-		if parentPath == currentPath {
+		next := path.Dir(cur)
+		if next == cur {
 			break
 		}
-		currentPath = parentPath
+		cur = next
 	}
 
 	if len(results) == 0 {
-		return nil, fmt.Errorf("no files matching pattern %q found while walking from %q up to %q", pattern, filepath.Join(basePath, targetPath), basePath)
+		return nil, fmt.Errorf("no files matching %q found while walking up from %q", pattern, targetPath)
 	}
 
 	return results, nil
