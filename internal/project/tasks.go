@@ -2,11 +2,13 @@ package project
 
 import (
 	"context"
-	"craeft/internal/log"
-	"craeft/internal/pipeline"
 	"fmt"
 	"path/filepath"
 	"sync/atomic"
+
+	"craeft/internal/log"
+	"craeft/internal/pipeline"
+	"craeft/internal/utils"
 
 	"github.com/valyala/fasttemplate"
 )
@@ -106,7 +108,7 @@ func (t BuildTask) Run(ctx context.Context) error {
 
 	for _, r := range outs {
 		dst := filepath.ToSlash(filepath.Join(dir, r.Filename))
-		if err := t.P.writeFile(t.P.outRoot, dst, []byte(r.Result), 0o644); err != nil {
+		if err := utils.WriteFile(t.P.outRoot, dst, []byte(r.Result), 0o644); err != nil {
 			return fmt.Errorf("write %s: %w", dst, err)
 		}
 
@@ -171,7 +173,7 @@ func (t AssetTask) Run(ctx context.Context) error {
 	}
 	for _, r := range trs {
 		dst := filepath.ToSlash(filepath.Join(t.Asset.BaseDir, r["filename"]))
-		if err := t.P.writeFile(t.P.outRoot, dst, []byte(r["result"]), 0o644); err != nil {
+		if err := utils.WriteFile(t.P.outRoot, dst, []byte(r["result"]), 0o644); err != nil {
 			return fmt.Errorf("asset write %s: %w", dst, err)
 		}
 

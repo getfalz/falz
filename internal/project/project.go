@@ -317,7 +317,7 @@ func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {
 
 		for _, r := range outs {
 			dst := filepath.ToSlash(filepath.Join(dir, r.Filename))
-			if err := p.writeFile(p.outRoot, dst, []byte(r.Result), 0o644); err != nil {
+			if err := utils.WriteFile(p.outRoot, dst, []byte(r.Result), 0o644); err != nil {
 				return nil, fmt.Errorf("write %s: %w", dst, err)
 			}
 			log.DDebug(log.Build).Str("dst", dst).Int("bytes", len(r.Result)).Msg("wrote file")
@@ -358,38 +358,6 @@ func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fastte
 		Str("layout key rel", key.RelLayoutPath).
 		Msg("template for layout")
 	return p.layouts.GetOrBuild(ctx, p.schemeRoot, key, (*layout.Layout)(lyt))
-}
-
-// TODO: write file atomically:
-// wait for go1.25: https://github.com/golang/go/issues/73041
-func (p *Project) writeFile(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
-	dst = filepath.Clean(filepath.ToSlash(dst))
-
-	log.TTrace(log.IO).Str("dst", dst).Int("bytes", len(data)).Msg("writeFile begin")
-
-	if err := utils.MkdirAllFS(root, filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("mkdir %q: %w", filepath.Dir(dst), err)
-	}
-
-	f, err := root.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("open %q: %w", dst, err)
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return fmt.Errorf("write %q: %w", dst, err)
-	}
-	if err := f.Chmod(perm); err != nil {
-		f.Close()
-		return fmt.Errorf("chmod %q: %w", dst, err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return fmt.Errorf("fsync %q: %w", dst, err)
-	}
-
-	log.TTrace(log.IO).Str("dst", dst).Uint32("perm", uint32(perm)).Msg("writeFile done")
-	return f.Close()
 }
 
 func (p *Project) ignoreFile(name string) bool {

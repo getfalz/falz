@@ -43,6 +43,7 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 	name := filepath.Base(config.Path)
 	p, err := goja.Compile(name, code, false)
 	if err != nil {
+		// TODO log error using log.EError
 		var ex *goja.Exception
 		if errors.As(err, &ex) {
 			// ex.Value() is the thrown JS value (could be a SyntaxError, ReferenceError, or any Error subtype)

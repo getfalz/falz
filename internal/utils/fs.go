@@ -71,6 +71,38 @@ func FindFile(root fs.FS, targetPath, pattern string) ([]string, error) {
 	return results, nil
 }
 
+// TODO: write file atomically:
+// wait for go1.25: https://github.com/golang/go/issues/73041
+func WriteFile(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
+	dst = filepath.Clean(filepath.ToSlash(dst))
+
+	log.TTrace(log.IO).Str("dst", dst).Int("bytes", len(data)).Msg("writeFile begin")
+
+	if err := MkdirAllFS(root, filepath.Dir(dst), 0o755); err != nil {
+		return fmt.Errorf("mkdir %q: %w", filepath.Dir(dst), err)
+	}
+
+	f, err := root.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("open %q: %w", dst, err)
+	}
+	if _, err := f.Write(data); err != nil {
+		f.Close()
+		return fmt.Errorf("write %q: %w", dst, err)
+	}
+	if err := f.Chmod(perm); err != nil {
+		f.Close()
+		return fmt.Errorf("chmod %q: %w", dst, err)
+	}
+	if err := f.Sync(); err != nil {
+		f.Close()
+		return fmt.Errorf("fsync %q: %w", dst, err)
+	}
+
+	log.TTrace(log.IO).Str("dst", dst).Uint32("perm", uint32(perm)).Msg("writeFile done")
+	return f.Close()
+}
+
 type mkdirer interface {
 	Mkdir(name string, perm os.FileMode) error
 }
