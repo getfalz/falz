@@ -50,8 +50,9 @@ type Project struct {
 }
 
 type BuildOptions struct {
-	UseCache    bool
-	Concurrency int
+	UseCache        bool
+	Concurrency     int
+	WriteBufferSize int
 }
 
 type BuildStats struct {
@@ -62,6 +63,10 @@ type BuildStats struct {
 
 	PagesPlanned int
 	PagesBuilt   int64
+
+	PlanningDuration time.Duration
+	AssetsDuration   time.Duration
+	PagesDuration    time.Duration
 
 	// TODO use a custom BuildError?
 	Errors []error
@@ -145,8 +150,13 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 	start := time.Now()
 	stats := BuildStats{}
 
+	if err := ctx.Err(); err != nil {
+		return stats, err
+	}
+
 	log.IInfo(log.Build).
 		Msg("build started")
+	planStart := time.Now()
 
 	plan, err := p.plan()
 	// litter.Dump(plan)
@@ -154,27 +164,54 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 		fmt.Printf("Build failed in %s\n", time.Since(start))
 		return stats, err
 	}
+	stats.PlanningDuration = time.Since(planStart)
+
+	if err := ctx.Err(); err != nil {
+		return stats, err
+	}
+
+	assetConcurrency := OptimalConcurrency(opt.Concurrency, len(plan.Assets))
 
 	if n := len(plan.Assets); n > 0 {
+		assetsStart := time.Now()
 		stats.AssetsPlanned = n
+
+		assetWriteBuffer := utils.NewWriteBuffer(p.outRoot, utils.WriteBufferConfig{
+			MaxSize: int64(opt.WriteBufferSize) * 1024 * 1024,
+		})
+
 		assets := make([]executor.Task, 0, n)
 		for _, a := range plan.Assets {
-			assets = append(assets, AssetTask{P: p, Asset: a, Counter: &stats.AssetsBuilt})
+			assets = append(assets, AssetTask{P: p, Asset: a, Counter: &stats.AssetsBuilt, Wb: assetWriteBuffer})
 		}
 
-		log.TTrace(log.Build).Int("tasks", len(assets)).Msg("assets batch run")
-		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, assets)
-		if err != nil {
-			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
-				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
-			} else {
-				log.EError(log.Build).Err(fmt.Errorf("assets batch executor: %w", err))
-			}
+		log.TTrace(log.Build).
+			Int("tasks", len(assets)).
+			Msg("assets batch run")
+
+		err = executor.BatchExecutor{Concurrency: assetConcurrency, BestEffort: true}.Run(ctx, assets)
+		collectErrors(&stats, err, "assets")
+
+		if err := assetWriteBuffer.Flush(); err != nil {
+			log.EError(log.Build).Err(err).Msg("failed to flush asset write buffer")
+			collectErrors(&stats, err, "asset_write_buffer_flush")
 		}
+		assetWriteBuffer.Close()
+
+		stats.AssetsDuration = time.Since(assetsStart)
+
+		// if err != nil {
+		// 	if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+		// 		stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+		// 	} else {
+		// 		log.EError(log.Build).Err(fmt.Errorf("assets batch executor: %w", err))
+		// 	}
+		// }
 	} else {
 		log.TTrace(log.Build).Msg("no assets to run")
 	}
 
+	pagesStart := time.Now()
 	for key, pages := range plan.PagesByLayout {
 		if len(pages) == 0 {
 			continue
@@ -186,59 +223,139 @@ func (p *Project) Build(ctx context.Context, opt BuildOptions) (BuildStats, erro
 			Int("pages_planned", len(pages)).
 			Msg("index phase")
 
-		idxTasks := make([]executor.Task, 0, len(pages))
+		if err := ctx.Err(); err != nil {
+			return stats, err
+		}
+
+		idxTasks := make([]executor.Task, len(pages))
 		for i := range pages {
-			idxTasks = append(idxTasks, IndexTask{P: p, Page: pages[i]})
+			idxTasks[i] = IndexTask{P: p, Page: pages[i]}
 		}
 
-		log.TTrace(log.Build).Int("tasks", len(idxTasks)).Str("layout", key.RelLayoutPath).Msg("index batch run")
-		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, idxTasks)
+		pageConcurrency := OptimalConcurrency(opt.Concurrency, len(pages))
 
-		if err != nil {
-			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
-				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
-			} else {
-				log.EError(log.Build).Err(fmt.Errorf("index batch executor: %w", err))
-			}
-		}
+		log.TTrace(log.Build).
+			Int("tasks", len(idxTasks)).
+			Str("layout", key.RelLayoutPath).
+			Int("concurrency", pageConcurrency).
+			Msg("index batch run")
+
+		err = executor.BatchExecutor{Concurrency: pageConcurrency, BestEffort: true}.Run(ctx, idxTasks)
+
+		collectErrors(&stats, err, "index")
+
+		// if err != nil {
+		// 	if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+		// 		stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+		// 	} else {
+		// 		log.EError(log.Build).Err(fmt.Errorf("index batch executor: %w", err))
+		// 	}
+		// }
 
 		tpl, err := p.templateForLayout(ctx, key)
 		if err != nil {
+			log.EError(log.Build).
+				Str("layout", key.RelLayoutPath).
+				Err(err).
+				Msg("failed to get template for layout")
 			continue
 		}
 
-		buildTasks := make([]executor.Task, 0, len(pages))
+		log.IInfo(log.Build).
+			Str("layout", key.BaseDir).
+			Int("pages_planned", len(pages)).
+			Msg("build phase")
+
+		writeBuffer := utils.NewWriteBuffer(p.outRoot, utils.WriteBufferConfig{
+			MaxSize: int64(opt.WriteBufferSize) * 1024 * 1024,
+		})
+
+		buildTasks := make([]executor.Task, len(pages))
 		for i := range pages {
-			buildTasks = append(buildTasks, BuildTask{
+			buildTasks[i] = BuildTask{
 				P:       p,
 				Page:    pages[i],
 				Tpl:     tpl,
 				Counter: &stats.PagesBuilt,
-			})
-		}
-
-		log.TTrace(log.Build).Int("tasks", len(buildTasks)).Str("layout", key.RelLayoutPath).Msg("build batch run")
-		err = executor.BatchExecutor{Concurrency: opt.Concurrency, BestEffort: true}.Run(ctx, buildTasks)
-		if err != nil {
-			if unerr, ok := err.(interface{ Unwrap() []error }); ok {
-				stats.Errors = append(stats.Errors, unerr.Unwrap()...)
-			} else {
-				log.EError(log.Build).Err(fmt.Errorf("build batch executor: %w", err))
+				Wb:      writeBuffer,
 			}
 		}
+
+		log.TTrace(log.Build).
+			Int("tasks", len(buildTasks)).
+			Str("layout", key.RelLayoutPath).
+			Int("concurrency", pageConcurrency).
+			Msg("build batch run")
+
+		err = executor.BatchExecutor{Concurrency: pageConcurrency, BestEffort: true}.Run(ctx, buildTasks)
+		collectErrors(&stats, err, "build")
+		// if err != nil {
+		// 	if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+		// 		stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+		// 	} else {
+		// 		log.EError(log.Build).Err(fmt.Errorf("build batch executor: %w", err))
+		// 	}
+		// }
+
+		if err := writeBuffer.Flush(); err != nil {
+			log.EError(log.Build).
+				Str("layout", key.RelLayoutPath).
+				Err(err).
+				Msg("failed to flush write buffer")
+			collectErrors(&stats, err, "write_buffer_flush")
+		}
+
+		writeBuffer.Close()
 	}
 
+	stats.PagesDuration = time.Since(pagesStart)
 	stats.Duration = time.Since(start)
 
 	log.IInfo(log.Build).
 		Dur("duration", stats.Duration).
+		Dur("planning", stats.PlanningDuration).
+		Dur("assets", stats.AssetsDuration).
+		Dur("pages", stats.PagesDuration).
 		Int("assets_planned", stats.AssetsPlanned).
 		Int64("assets_built", stats.AssetsBuilt).
 		Int("pages_planned", stats.PagesPlanned).
 		Int64("pages_built", stats.PagesBuilt).
+		// Int("max_concurrency", stats.MaxConcurrency).
 		Int("errors", len(stats.Errors)).
 		Msg("build finished")
 	return stats, errors.Join(stats.Errors...)
+}
+
+func OptimalConcurrency(requested int, taskCount int) int {
+	if requested <= 0 {
+		requested = runtime.NumCPU()
+	}
+
+	// For disk I/O heavy operations, use fewer goroutines
+	// Generally 2-4x CPU cores is good for mixed I/O workloads
+	maxConcurrency := runtime.NumCPU() * 3
+
+	if taskCount < maxConcurrency {
+		maxConcurrency = taskCount
+	}
+
+	if requested > maxConcurrency {
+		return maxConcurrency
+	}
+	return requested
+}
+
+func collectErrors(stats *BuildStats, err error, phase string) {
+	if err == nil {
+		return
+	}
+
+	if unerr, ok := err.(interface{ Unwrap() []error }); ok {
+		stats.Errors = append(stats.Errors, unerr.Unwrap()...)
+	} else {
+		log.EError(log.Build).Err(fmt.Errorf("%s phase: %w", phase, err))
+		stats.Errors = append(stats.Errors, err)
+	}
 }
 
 func (p *Project) BuildPath(ctx context.Context, rel string) ([]string, error) {

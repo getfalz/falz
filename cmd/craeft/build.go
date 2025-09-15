@@ -28,6 +28,7 @@ func Build(c *cli.Context) error {
 	opt := project.BuildOptions{
 		UseCache:    true,
 		Concurrency: runtime.GOMAXPROCS(0),
+		WriteBufferSize: 50,
 	}
 
 	stats, err := p.Build(ctx, opt)

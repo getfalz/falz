@@ -59,6 +59,7 @@ type BuildTask struct {
 	Tpl     *fasttemplate.Template
 	Idx     func(string) pipeline.Vars
 	Counter *int64
+	Wb      *utils.WriteBuffer
 }
 
 type ContentResult struct {
@@ -135,6 +136,7 @@ type AssetTask struct {
 	P       *Project
 	Asset   AssetPlan
 	Counter *int64
+	Wb      *utils.WriteBuffer
 }
 
 func (t AssetTask) Key() string { return "asset:" + t.Asset.From + ":" + t.Asset.SourceRel }
