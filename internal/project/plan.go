@@ -76,12 +76,12 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 		CAS:       cas,
 	}
 
-	total, err := p.scanAllFiles(ctx, plan)
+	total, err := p.scanFiles(plan)
 	if err != nil {
 		return nil, fmt.Errorf("scan files: %w", err)
 	}
 
-	if err := plan.computeAllHashes(p); err != nil {
+	if err := plan.computeHashes(p); err != nil {
 		return nil, fmt.Errorf("compute hashes: %w", err)
 	}
 
@@ -96,23 +96,8 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	return plan, nil
 }
 
-// scanAllFiles walks directories and creates build entries for content and assets
-func (p *Project) scanAllFiles(ctx context.Context, plan *Plan) (int, error) {
-	changed, err := p.scanContentFiles(plan)
-	if err != nil {
-		return 0, fmt.Errorf("scan content: %w", err)
-	}
-
-	assetChanged, err := p.scanAssetFiles(plan)
-	if err != nil {
-		return 0, fmt.Errorf("scan assets: %w", err)
-	}
-
-	return changed + assetChanged, nil
-}
-
-// scanContentFiles walks the source directory for content
-func (p *Project) scanContentFiles(plan *Plan) (int, error) {
+// scanFiles walks the source directory for content
+func (p *Project) scanFiles(plan *Plan) (int, error) {
 	srcFS := p.srcRoot.FS()
 
 	changed := 0
@@ -136,7 +121,6 @@ func (p *Project) scanContentFiles(plan *Plan) (int, error) {
 			for _, lyt := range lmap {
 				key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
 
-				// Process content definitions
 				for _, cc := range lyt.Contents() {
 					glob := filepath.ToSlash(filepath.Join(base, cc.Path))
 					matches, err := fs.Glob(p.srcRoot.FS(), glob)
@@ -163,11 +147,14 @@ func (p *Project) scanContentFiles(plan *Plan) (int, error) {
 						plan.Entries[entry.ID] = entry
 						changed++
 						plan.mu.Unlock()
-					}
-				}
 
-				// Process assets in content
-				for _, cc := range lyt.Contents() {
+						log.TTrace(log.Plan).
+							Str("layout", key.RelLayoutPath).
+							Str("content", rel).
+							Str("pipe", cc.Pipe).
+							Msg("page planned")
+					}
+
 					for _, a := range cc.Assets() {
 						glob := filepath.ToSlash(filepath.Join(base, a.Source))
 						matches, err := fs.Glob(p.srcRoot.FS(), glob)
@@ -192,58 +179,50 @@ func (p *Project) scanContentFiles(plan *Plan) (int, error) {
 							plan.Entries[entry.ID] = entry
 							changed++
 							plan.mu.Unlock()
+
+							log.TTrace(log.Plan).
+								Str("from", "source").
+								Str("pipe", a.AssetType).
+								Str("rel", rel).
+								Msg("asset planned")
 						}
 					}
-				}
-			}
-		}
-		return nil
-	})
 
-	return changed, err
-}
-
-// scanAssetFiles scans for layout-level assets
-func (p *Project) scanAssetFiles(plan *Plan) (int, error) {
-	// Walk scheme directory for layout assets
-	changed := 0
-	err := fs.WalkDir(p.schemeRoot.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil || !d.IsDir() {
-			return walkErr
-		}
-
-		base := filepath.ToSlash(path)
-		lmap, err := p.getLayouts(base)
-		if err != nil {
-			return nil // No layouts here
-		}
-
-		for _, lyt := range lmap {
-			for _, a := range lyt.Assets() {
-				glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
-				matches, err := fs.Glob(p.schemeRoot.FS(), glob)
-				if err != nil {
-					continue
 				}
 
-				for _, rel := range matches {
-					id := fmt.Sprintf("asset:scheme:%s", rel)
-					entry := &BuildEntry{
-						ID:             id,
-						Type:           "asset",
-						SourcePath:     rel,
-						SourceRoot:     "scheme",
-						OutputPath:     p.computeOutputPath(filepath.Dir(rel), rel, a.AssetType),
-						Pipeline:       a.AssetType,
-						BaseDir:        filepath.Dir(rel),
-						FragmentHashes: make(map[string]string),
+				for _, a := range lyt.Assets() {
+					glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
+					matches, err := fs.Glob(p.schemeRoot.FS(), glob)
+					if err != nil {
+						continue
 					}
 
-					plan.mu.Lock()
-					plan.Entries[entry.ID] = entry
-					changed++
-					plan.mu.Unlock()
+					for _, rel := range matches {
+						id := fmt.Sprintf("asset:scheme:%s", rel)
+						entry := &BuildEntry{
+							ID:             id,
+							Type:           "asset",
+							SourcePath:     rel,
+							SourceRoot:     "scheme",
+							OutputPath:     p.computeOutputPath(filepath.Dir(rel), rel, a.AssetType),
+							Pipeline:       a.AssetType,
+							BaseDir:        filepath.Dir(rel),
+							FragmentHashes: make(map[string]string),
+						}
+
+						plan.mu.Lock()
+						plan.Entries[entry.ID] = entry
+						changed++
+						plan.mu.Unlock()
+
+						log.TTrace(log.Plan).
+							Str("from", "scheme").
+							Str("pipe", a.AssetType).
+							Str("rel", rel).
+							Msg("asset planned")
+					}
 				}
+
 			}
 		}
 		return nil
@@ -252,8 +231,8 @@ func (p *Project) scanAssetFiles(plan *Plan) (int, error) {
 	return changed, err
 }
 
-// computeAllHashes calculates hashes for all entries
-func (plan *Plan) computeAllHashes(p *Project) error {
+// computeHashes calculates hashes for all entries
+func (plan *Plan) computeHashes(p *Project) error {
 	g, ctx := errgroup.WithContext(context.Background())
 	g.SetLimit(10)
 
@@ -279,7 +258,6 @@ func (plan *Plan) computeAllHashes(p *Project) error {
 				return nil
 			}
 
-			// Hash source file
 			contentHash, err := plan.HashCache.HashFile(fsys, e.SourcePath)
 			if err != nil {
 				e.Error = fmt.Errorf("hash source: %w", err)
@@ -287,13 +265,10 @@ func (plan *Plan) computeAllHashes(p *Project) error {
 			}
 			e.ContentHash = contentHash
 
-			// Hash layout and fragments (only for content)
 			if e.Type == "content" && e.Layout != nil {
-				// Hash layout
 				layoutData := []byte(e.Layout.Path())
 				e.LayoutHash = HashBytes(layoutData)
 
-				// Hash fragments
 				for _, frag := range e.Layout.Fragments() {
 					fragHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), frag)
 					if err != nil {
@@ -304,14 +279,12 @@ func (plan *Plan) computeAllHashes(p *Project) error {
 				}
 			}
 
-			// Hash pipeline configuration
 			if pl, err := p.pipelines.Get(e.Pipeline); err == nil {
 				cfg := pl.Config()
 				e.PipelineHash = HashString(fmt.Sprintf("%s-%s-%s",
 					cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 			}
 
-			// Compute combined hash
 			entryHash := EntryHash{
 				ContentHash:    e.ContentHash,
 				LayoutHash:     e.LayoutHash,

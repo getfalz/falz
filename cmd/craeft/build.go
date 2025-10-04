@@ -26,9 +26,8 @@ func Build(c *cli.Context) error {
 
 	start := time.Now()
 	opt := project.BuildOptions{
-		Concurrency:     runtime.GOMAXPROCS(0),
-		WriteBufferSize: 50,
-		UseCAS:          true,
+		Concurrency: runtime.GOMAXPROCS(0),
+		UseCAS:      true,
 	}
 
 	stats, err := p.Build(ctx, opt)

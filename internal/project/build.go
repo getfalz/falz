@@ -298,7 +298,6 @@ func (p *Project) buildStage(
 				metrics.processed.Add(1)
 
 				if result.Error != nil {
-					// Non-blocking error send
 					select {
 					case errChan <- result.Error:
 					case <-ctx.Done():
@@ -307,7 +306,6 @@ func (p *Project) buildStage(
 						log.Warn(fmt.Sprintf("error channel full, dropping error: %v", result.Error))
 					}
 				} else if result.Data != nil {
-					// Non-blocking result send with context check
 					select {
 					case out <- result:
 					case <-ctx.Done():
@@ -402,7 +400,15 @@ func (p *Project) processEntry(
 	ctx context.Context,
 	entry *BuildEntry,
 ) *ProcessResult {
+	lb := log.TTrace(log.Build).
+		Str("source", entry.SourcePath).
+		Str("pipe", entry.Pipeline)
+	if entry.Type == "content" && entry.Layout != nil {
+		lb.Str("layout", entry.Layout.Path())
+	}
+	lb.Msg("build start")
 
+	start := time.Now()
 	result := &ProcessResult{Entry: entry}
 
 	var data []byte
@@ -462,6 +468,15 @@ func (p *Project) processEntry(
 		}
 	}
 
+	lb = log.DDebug(log.Build).
+		Str("source", entry.SourcePath).
+		Str("pipe", entry.Pipeline).
+		Dur("build_ms", time.Since(start))
+	if entry.Type == "content" && entry.Layout != nil {
+		lb.Str("layout", entry.Layout.Path())
+	}
+	lb.Msg("build done")
+
 	return result
 }
 
@@ -505,7 +520,6 @@ func (p *Project) writeResult(
 	return nil
 }
 
-// min returns the minimum of two integers
 func min(a, b int) int {
 	if a < b {
 		return a
@@ -513,7 +527,6 @@ func min(a, b int) int {
 	return b
 }
 
-// max returns the maximum of two integers
 func max(a, b int) int {
 	if a > b {
 		return a

@@ -11,7 +11,6 @@ import (
 	"sync"
 	"time"
 
-	"craeft/internal/executor"
 	"craeft/internal/log"
 	"craeft/internal/utils"
 
@@ -19,6 +18,7 @@ import (
 	"github.com/rjeczalik/notify"
 )
 
+// TODO refactor
 type Server struct {
 	config     *CraeftConfig
 	project    *Project
@@ -29,10 +29,11 @@ type Server struct {
 	wsclients      map[*websocket.Conn]bool
 	wsclientsMutex sync.Mutex
 
-	pool *executor.PoolExecutor
+	// pool *executor.PoolExecutor
 }
 
-func NewServer(p *Project, pool *executor.PoolExecutor) *Server {
+// func NewServer(p *Project, pool *executor.PoolExecutor) *Server {
+func NewServer(p *Project) *Server {
 
 	s := &Server{
 		config:  p.Config,
@@ -41,11 +42,11 @@ func NewServer(p *Project, pool *executor.PoolExecutor) *Server {
 
 		wsclients: make(map[*websocket.Conn]bool),
 
-		pool: pool,
+		// pool: pool,
 	}
 
 	log.DDebug(log.Server).
-		Int("concurrency", pool.Concurrency).
+		// Int("concurrency", pool.Concurrency).
 		Str("out", p.Config.OutputPath).
 		Msg("server initialized")
 
@@ -57,15 +58,15 @@ func RunServer(c context.Context, p *Project) error {
 	defer cancel()
 
 	//TODO set with args
-	concurrency := runtime.GOMAXPROCS(0)
-	pool := executor.NewPoolExecutor(concurrency, 1024, executor.NewTimerDebouncer(120*time.Millisecond))
-	pool.Start(ctx)
-	defer func() {
-		_ = utils.StopComponent(ctx, "worker-pool", func(context.Context) error {
-			pool.Stop()
-			return nil
-		})
-	}()
+	// concurrency := runtime.GOMAXPROCS(0)
+	// pool := executor.NewPoolExecutor(concurrency, 1024, executor.NewTimerDebouncer(120*time.Millisecond))
+	// pool.Start(ctx)
+	// defer func() {
+	// 	_ = utils.StopComponent(ctx, "worker-pool", func(context.Context) error {
+	// 		pool.Stop()
+	// 		return nil
+	// 	})
+	// }()
 
 	opt := BuildOptions{Concurrency: runtime.NumCPU()}
 	stats, err := p.Build(ctx, opt)
@@ -81,7 +82,7 @@ func RunServer(c context.Context, p *Project) error {
 		Str("stats", stats.String()).
 		Msg("initial build ok")
 
-	s := NewServer(p, pool)
+	s := NewServer(p)
 	if p.Config.FsWatcher.HotReload {
 		if err := s.HotReload(); err != nil {
 			log.EError(log.Server).Err(err).Msg("hot-reload setup failed")

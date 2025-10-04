@@ -49,10 +49,11 @@ type Asset struct {
 	pipeline pipeline.PipelineScript
 
 	// XML
-	XMLName   xml.Name `xml:"Asset"`
-	Name      string   `xml:"name,attr"`
-	Source    string   `xml:"src,attr"`
-	AssetType string   `xml:"type,attr"`
+	XMLName xml.Name `xml:"Asset"`
+	Name    string   `xml:"name,attr"`
+	Source  string   `xml:"src,attr"`
+	// TODO rename to pipe. it is more clear
+	AssetType string `xml:"type,attr"`
 }
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
