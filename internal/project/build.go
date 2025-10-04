@@ -460,7 +460,6 @@ func (p *Project) processEntry(
 			}
 		}
 	} else {
-		// For assets, use transform output directly
 		for _, tr := range transformed {
 			if filename := tr["filename"]; filename != "" {
 				result.Data = []byte(tr["result"])

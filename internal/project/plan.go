@@ -2,6 +2,7 @@ package project
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io/fs"
 	"path/filepath"
@@ -10,8 +11,6 @@ import (
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
-
-	"golang.org/x/sync/errgroup"
 )
 
 // BuildEntry represents any file to be built (content or asset)
@@ -233,77 +232,106 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 
 // computeHashes calculates hashes for all entries
 func (plan *Plan) computeHashes(p *Project) error {
-	g, ctx := errgroup.WithContext(context.Background())
-	g.SetLimit(10)
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, 10)
+	errChan := make(chan error, len(plan.Entries))
 
-	// TODO:
-	// check for layout cachen and so..
 	for _, entry := range plan.Entries {
-		e := entry
-		g.Go(func() error {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-			}
+		wg.Add(1)
+		go func(e *BuildEntry) {
+			defer wg.Done()
 
-			var fsys fs.FS
-			switch e.SourceRoot {
-			case "source":
-				fsys = p.srcRoot.FS()
-			case "scheme":
-				fsys = p.schemeRoot.FS()
-			default:
-				e.Error = fmt.Errorf("unknown source root: %s", e.SourceRoot)
-				return nil
-			}
+			sem <- struct{}{}
+			defer func() { <-sem }()
 
-			contentHash, err := plan.HashCache.HashFile(fsys, e.SourcePath)
-			if err != nil {
-				e.Error = fmt.Errorf("hash source: %w", err)
-				return nil
-			}
-			e.ContentHash = contentHash
-
-			if e.Type == "content" && e.Layout != nil {
-				layoutData := []byte(e.Layout.Path())
-				e.LayoutHash = HashBytes(layoutData)
-
-				for _, frag := range e.Layout.Fragments() {
-					fragHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), frag)
-					if err != nil {
-						log.Warn(fmt.Sprintf("Failed to hash fragment %s: %v", frag, err))
-						continue
-					}
-					e.FragmentHashes[frag] = fragHash
+			if err := p.computeEntryHash(e, plan); err != nil {
+				select {
+				case errChan <- err:
+				default:
+					log.Warn(fmt.Sprintf("error channel full: %v", err))
 				}
 			}
-
-			if pl, err := p.pipelines.Get(e.Pipeline); err == nil {
-				cfg := pl.Config()
-				e.PipelineHash = HashString(fmt.Sprintf("%s-%s-%s",
-					cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
-			}
-
-			entryHash := EntryHash{
-				ContentHash:    e.ContentHash,
-				LayoutHash:     e.LayoutHash,
-				PipelineHash:   e.PipelineHash,
-				FragmentHashes: e.FragmentHashes,
-			}
-			e.Hash = entryHash.Compute()
-
-			log.TTrace(log.Plan).
-				Str("id", e.ID).
-				Str("type", e.Type).
-				Str("hash", e.Hash[:8]).
-				Msg("computed hash")
-
-			return nil
-		})
+		}(entry)
 	}
 
-	return g.Wait()
+	wg.Wait()
+	close(errChan)
+
+	var errs []error
+	for err := range errChan {
+		errs = append(errs, err)
+	}
+
+	return errors.Join(errs...)
+}
+
+func (p *Project) computeEntryHash(e *BuildEntry, plan *Plan) error {
+	var fsys fs.FS
+	switch e.SourceRoot {
+	case "source":
+		fsys = p.srcRoot.FS()
+	case "scheme":
+		fsys = p.schemeRoot.FS()
+	default:
+		e.Error = fmt.Errorf("unknown source root: %s", e.SourceRoot)
+		return nil
+	}
+
+	contentHash, err := plan.HashCache.HashFile(fsys, e.SourcePath)
+	if err != nil {
+		e.Error = fmt.Errorf("hash source: %w", err)
+		return nil
+	}
+	e.ContentHash = contentHash
+
+	// For content entries, get layout and fragment hashes from cache
+	if e.Type == "content" && e.Layout != nil {
+		layoutPath := e.Layout.Path()
+		layoutHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), layoutPath)
+		if err != nil {
+			e.Error = fmt.Errorf("hash layout %s: %w", layoutPath, err)
+			return nil
+		}
+		e.LayoutHash = layoutHash
+
+		// TODO warm up cache
+		deps, ok := p.layouts.GetDeps(e.LayoutKey)
+		if !ok {
+			e.Error = fmt.Errorf("hash layout %s: %w", layoutPath, err)
+			return nil
+		}
+
+		for _, frag := range deps {
+			fragHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), frag)
+			if err != nil {
+				e.Error = fmt.Errorf("hash fragment %s: %w", frag, err)
+				return nil
+			}
+			e.FragmentHashes[frag] = fragHash
+		}
+	}
+
+	if pl, err := p.pipelines.Get(e.Pipeline); err == nil {
+		cfg := pl.Config()
+		e.PipelineHash = HashString(fmt.Sprintf("%s-%s-%s",
+			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
+	}
+
+	entryHash := EntryHash{
+		ContentHash:    e.ContentHash,
+		LayoutHash:     e.LayoutHash,
+		PipelineHash:   e.PipelineHash,
+		FragmentHashes: e.FragmentHashes,
+	}
+	e.Hash = entryHash.Compute()
+
+	log.TTrace(log.Plan).
+		Str("id", e.ID).
+		Str("type", e.Type).
+		Str("hash", e.Hash[:8]).
+		Msg("computed hash")
+
+	return nil
 }
 
 // diff compares the plan against the manifest

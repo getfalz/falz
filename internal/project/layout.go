@@ -24,7 +24,7 @@ type assetKey struct {
 	Rel  string
 }
 
-type entry struct {
+type LayoutCacheEntry struct {
 	tpl  *fasttemplate.Template
 	deps []string
 }
@@ -33,7 +33,7 @@ type depIndex map[LayoutKey]struct{}
 
 type LayoutCache struct {
 	mu      sync.RWMutex
-	data    map[LayoutKey]entry
+	data    map[LayoutKey]LayoutCacheEntry
 	reverse map[string]depIndex
 	sf      singleflight.Group
 }
@@ -41,7 +41,7 @@ type LayoutCache struct {
 func NewLayoutCache() *LayoutCache {
 	log.DDebug(log.Layout).Msg("layout cache initialized")
 	return &LayoutCache{
-		data:    make(map[LayoutKey]entry),
+		data:    make(map[LayoutKey]LayoutCacheEntry),
 		reverse: make(map[string]depIndex),
 	}
 }
@@ -66,6 +66,7 @@ func (lc *LayoutCache) GetOrBuild(
 		Str("rel_layout", key.RelLayoutPath).
 		Str("base_dir", key.BaseDir).
 		Msg("cache miss; building template")
+
 	v, err, _ := lc.sf.Do(key.RelLayoutPath+"|"+key.BaseDir, func() (any, error) {
 		if tpl := lc.get(key); tpl != nil {
 			log.TTrace(log.Layout).
@@ -91,7 +92,11 @@ func (lc *LayoutCache) GetOrBuild(
 		}
 
 		lc.mu.Lock()
-		lc.data[key] = entry{tpl: tpl, deps: deps}
+		lc.data[key] = LayoutCacheEntry{
+			tpl:  tpl,
+			deps: deps,
+		}
+
 		for _, d := range deps {
 			d = filepath.ToSlash(d)
 			m := lc.reverse[d]
@@ -130,6 +135,18 @@ func (lc *LayoutCache) get(k LayoutKey) *fasttemplate.Template {
 		return e.tpl
 	}
 	return nil
+}
+
+func (lc *LayoutCache) GetDeps(k LayoutKey) ([]string, bool) {
+	lc.mu.RLock()
+	e, ok := lc.data[k]
+	lc.mu.RUnlock()
+	if !ok {
+		return nil, false
+	}
+	deps := make([]string, len(e.deps))
+	copy(deps, e.deps)
+	return deps, true
 }
 
 func (lc *LayoutCache) InvalidateAndGetAffected(paths ...string) []LayoutKey {

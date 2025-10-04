@@ -144,7 +144,7 @@ func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fastte
 		Str("layout key base", key.BaseDir).
 		Str("layout key rel", key.RelLayoutPath).
 		Msg("template for layout")
-	return p.layouts.GetOrBuild(ctx, p.schemeRoot, key, (*layout.Layout)(lyt))
+	return p.layouts.GetOrBuild(ctx, p.schemeRoot, key, lyt)
 }
 
 func (p *Project) ignoreFile(name string) bool {
