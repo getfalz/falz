@@ -63,6 +63,7 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	}
 
 	// TODO use another cache dir
+	// TODO CAS is optional. respect that
 	cas, err := NewCAS(filepath.Join(p.Config.OutputPath, ".craeft-cache"))
 	if err != nil {
 		return nil, fmt.Errorf("create CAS: %w", err)
@@ -80,7 +81,11 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 		return nil, fmt.Errorf("scan files: %w", err)
 	}
 
-	if err := plan.computeHashes(p); err != nil {
+	if err := p.warmupLayouts(ctx, plan); err != nil {
+		return nil, fmt.Errorf("warmup layouts: %w", err)
+	}
+
+	if err := plan.computeHashes(ctx, p); err != nil {
 		return nil, fmt.Errorf("compute hashes: %w", err)
 	}
 
@@ -230,25 +235,72 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 	return changed, err
 }
 
+func (p *Project) warmupLayouts(ctx context.Context, plan *Plan) error {
+	layoutKeys := make(map[LayoutKey]struct{})
+	for _, entry := range plan.Entries {
+		if entry.Type == "content" && entry.Layout != nil {
+			layoutKeys[entry.LayoutKey] = struct{}{}
+		}
+	}
+
+	log.IInfo(log.Layout).
+		Int("layouts", len(layoutKeys)).
+		Msg("warming up layout cache")
+
+	var errs []error
+	for key := range layoutKeys {
+		lmap, err := p.getLayouts(key.BaseDir)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("get layouts for %s: %w", key.BaseDir, err))
+			continue
+		}
+
+		keyPath := filepath.ToSlash(key.RelLayoutPath)
+		lyt, ok := lmap[keyPath]
+		if !ok {
+			errs = append(errs, fmt.Errorf("layout not found: %s", keyPath))
+			continue
+		}
+
+		_, err = p.layouts.GetOrBuild(ctx, p.schemeRoot, key, lyt)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("build layout %s: %w", key.RelLayoutPath, err))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 // computeHashes calculates hashes for all entries
-func (plan *Plan) computeHashes(p *Project) error {
+func (plan *Plan) computeHashes(ctx context.Context, p *Project) error {
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, 10)
 	errChan := make(chan error, len(plan.Entries))
 
 	for _, entry := range plan.Entries {
+		if ctx.Err() != nil {
+			break
+		}
 		wg.Add(1)
 		go func(e *BuildEntry) {
 			defer wg.Done()
 
 			sem <- struct{}{}
 			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
 
-			if err := p.computeEntryHash(e, plan); err != nil {
+			if err := p.computeEntryHash(ctx, e, plan); err != nil {
+				if ctx.Err() != nil {
+					return
+				}
 				select {
 				case errChan <- err:
 				default:
-					log.Warn(fmt.Sprintf("error channel full: %v", err))
+					log.EError(log.Build).
+						Err(err).
+						Msg("BUG: error channel full despite being sized to len(entries)")
 				}
 			}
 		}(entry)
@@ -265,7 +317,11 @@ func (plan *Plan) computeHashes(p *Project) error {
 	return errors.Join(errs...)
 }
 
-func (p *Project) computeEntryHash(e *BuildEntry, plan *Plan) error {
+func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Plan) error {
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+
 	var fsys fs.FS
 	switch e.SourceRoot {
 	case "source":
@@ -280,7 +336,7 @@ func (p *Project) computeEntryHash(e *BuildEntry, plan *Plan) error {
 	contentHash, err := plan.HashCache.HashFile(fsys, e.SourcePath)
 	if err != nil {
 		e.Error = fmt.Errorf("hash source: %w", err)
-		return nil
+		return e.Error
 	}
 	e.ContentHash = contentHash
 
@@ -290,22 +346,21 @@ func (p *Project) computeEntryHash(e *BuildEntry, plan *Plan) error {
 		layoutHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), layoutPath)
 		if err != nil {
 			e.Error = fmt.Errorf("hash layout %s: %w", layoutPath, err)
-			return nil
+			return e.Error
 		}
 		e.LayoutHash = layoutHash
 
-		// TODO warm up cache
 		deps, ok := p.layouts.GetDeps(e.LayoutKey)
 		if !ok {
-			e.Error = fmt.Errorf("hash layout %s: %w", layoutPath, err)
-			return nil
+			e.Error = fmt.Errorf("failed to get layout dependencies for %s", layoutPath)
+			return e.Error
 		}
 
 		for _, frag := range deps {
 			fragHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), frag)
 			if err != nil {
 				e.Error = fmt.Errorf("hash fragment %s: %w", frag, err)
-				return nil
+				return e.Error
 			}
 			e.FragmentHashes[frag] = fragHash
 		}

@@ -192,6 +192,7 @@ func (s *Server) HotReload() error {
 		go func() {
 			t := time.NewTicker(30 * time.Second)
 			defer t.Stop()
+			defer conn.Close()
 			for range t.C {
 				s.wsclientsMutex.Lock()
 				if _, ok := s.wsclients[conn]; !ok {

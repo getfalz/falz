@@ -59,7 +59,7 @@ func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, er
 	stats := &BuildStats{}
 
 	// Determine worker pool sizes
-	if opts.Concurrency >= 0 {
+	if opts.Concurrency <= 0 {
 		opts.Concurrency = runtime.NumCPU()
 	}
 
@@ -178,7 +178,7 @@ func (p *Project) runBuild(
 
 	buildChan := make(chan *BuildEntry, 100)
 	writeChan := make(chan *ProcessResult, 100)
-	errChan := make(chan error, 100)
+	errChan := make(chan error, len(entries))
 
 	buildWg := p.buildStage(ctx, buildChan, writeChan, plan, opts, metrics, errChan)
 
@@ -188,10 +188,13 @@ func (p *Project) runBuild(
 		defer close(buildChan)
 
 		for _, entry := range entries {
+			if ctx.Err() != nil {
+				return
+			}
 			select {
+			case buildChan <- entry:
 			case <-ctx.Done():
 				return
-			case buildChan <- entry:
 			}
 		}
 	}()
@@ -254,6 +257,12 @@ func (p *Project) buildStage(
 					return
 				}
 
+				if work.Error != nil {
+					log.Warn(fmt.Sprintf("skipping entry with planning error: %s: %v", work.ID, work.Error))
+					metrics.processed.Add(1)
+					return
+				}
+
 				var result *ProcessResult
 				inCache := opts.UseCAS && !opts.ForceRebuild && plan.CAS != nil && plan.CAS.Has(work.Hash)
 
@@ -298,14 +307,25 @@ func (p *Project) buildStage(
 				metrics.processed.Add(1)
 
 				if result.Error != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					select {
-					case errChan <- result.Error:
 					case <-ctx.Done():
 						return
+					case errChan <- result.Error:
 					default:
-						log.Warn(fmt.Sprintf("error channel full, dropping error: %v", result.Error))
+						log.EError(log.Build).
+							Err(result.Error).
+							Msg("BUG: error channel full despite being sized to len(entries)")
 					}
-				} else if result.Data != nil {
+				}
+
+				// cached results with errors should not be written
+				if !result.Cached && result.Error == nil && result.Data != nil {
+					if ctx.Err() != nil {
+						return
+					}
 					select {
 					case out <- result:
 					case <-ctx.Done():
@@ -344,18 +364,26 @@ func (p *Project) writeStage(
 				for _, results := range dirBatch {
 					for _, r := range results {
 						if err := p.writeResult(plan, r); err != nil {
+							log.Warn(fmt.Sprintf("write failed for %s: %v", r.Entry.OutputPath, err))
+
+							if ctx.Err() != nil {
+								return
+							}
 							select {
-							case errChan <- err:
 							case <-ctx.Done():
 								return
+							case errChan <- err:
 							default:
-								log.Warn(fmt.Sprintf("error channel full, dropping write error: %v", err))
+								log.EError(log.Build).
+									Err(err).
+									Msg("BUG: error channel full despite being sized to len(entries)")
 							}
-						} else {
-							metrics.written.Add(1)
-							if r.Data != nil {
-								metrics.bytesWritten.Add(int64(len(r.Data)))
-							}
+							continue
+						}
+
+						metrics.written.Add(1)
+						if r.Data != nil {
+							metrics.bytesWritten.Add(int64(len(r.Data)))
 						}
 					}
 				}

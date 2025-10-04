@@ -193,8 +193,12 @@ type parsedLayoutEntry struct {
 }
 
 func (p *Project) ensureParsedCache() {
+	p.parsedMu.Lock()
+	defer p.parsedMu.Unlock()
 	p.parsedOnce.Do(func() {
-		p.parsed = make(map[string]parsedLayoutEntry)
+		if p.parsed == nil {
+			p.parsed = make(map[string]parsedLayoutEntry)
+		}
 	})
 }
 
