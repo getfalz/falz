@@ -84,25 +84,6 @@ func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) ([]m
 		return []map[string]string{
 			{"filename": vars["target"].(string), "result": v},
 		}, nil
-	case map[string]interface{}:
-		filename, _ := v["filename"].(string)
-		result, _ := v["result"].(string)
-		return []map[string]string{
-			{"filename": filename, "result": result},
-		}, nil
-	case []interface{}:
-		out := make([]map[string]string, 0, len(v))
-		for _, item := range v {
-			if obj, ok := item.(map[string]interface{}); ok {
-				filename, _ := obj["filename"].(string)
-				result, _ := obj["result"].(string)
-				out = append(out, map[string]string{
-					"filename": filename,
-					"result":   result,
-				})
-			}
-		}
-		return out, nil
 	default:
 		return []map[string]string{{"filename": "", "result": ""}}, nil
 	}

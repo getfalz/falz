@@ -5,17 +5,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sync"
-	"time"
 )
 
 // CAS implements a content-addressable storage system
 type CAS struct {
 	root string
-	mu   sync.RWMutex
-
-	// Track access times for cleanup
-	access map[string]time.Time
 }
 
 // NewCAS creates a new content-addressable storage
@@ -25,8 +19,7 @@ func NewCAS(root string) (*CAS, error) {
 	}
 
 	return &CAS{
-		root:   root,
-		access: make(map[string]time.Time),
+		root: root,
 	}, nil
 }
 
@@ -42,10 +35,6 @@ func (c *CAS) keyPath(key string) string {
 func (c *CAS) Has(key string) bool {
 	path := c.keyPath(key)
 	_, err := os.Stat(path)
-
-	if err == nil {
-		c.updateAccess(key)
-	}
 
 	return err == nil
 }
@@ -68,7 +57,6 @@ func (c *CAS) Store(key string, data []byte) error {
 		return fmt.Errorf("rename CAS file: %w", err)
 	}
 
-	c.updateAccess(key)
 	return nil
 }
 
@@ -80,7 +68,6 @@ func (c *CAS) Restore(key string) ([]byte, error) {
 		return nil, fmt.Errorf("read CAS file: %w", err)
 	}
 
-	c.updateAccess(key)
 	return data, nil
 }
 
@@ -99,7 +86,6 @@ func (c *CAS) Link(key string, outputPath string) error {
 	os.Remove(outputPath)
 
 	if err := os.Link(src, outputPath); err == nil {
-		c.updateAccess(key)
 		return nil
 	}
 
@@ -126,40 +112,6 @@ func (c *CAS) copyFile(src, dst, key string) error {
 
 	if err := dstFile.Sync(); err != nil {
 		return fmt.Errorf("sync dest: %w", err)
-	}
-
-	c.updateAccess(key)
-	return nil
-}
-
-// updateAccess updates the last access time for a key
-func (c *CAS) updateAccess(key string) {
-	c.mu.Lock()
-	c.access[key] = time.Now()
-	c.mu.Unlock()
-}
-
-// Cleanup removes old entries not accessed since the given duration
-func (c *CAS) Cleanup(maxAge time.Duration) error {
-	// TODO: so files not accessed and not in c.access are nt going to be checked?
-	c.mu.RLock()
-	cutoff := time.Now().Add(-maxAge)
-	toRemove := make([]string, 0)
-
-	for key, lastAccess := range c.access {
-		if lastAccess.Before(cutoff) {
-			toRemove = append(toRemove, key)
-		}
-	}
-	c.mu.RUnlock()
-
-	for _, key := range toRemove {
-		path := c.keyPath(key)
-		os.Remove(path)
-
-		c.mu.Lock()
-		delete(c.access, key)
-		c.mu.Unlock()
 	}
 
 	return nil

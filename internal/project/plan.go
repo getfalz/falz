@@ -1,291 +1,395 @@
 package project
 
 import (
+	"context"
+	"fmt"
 	"io/fs"
 	"path/filepath"
+	"sync"
 	"time"
 
+	"craeft/internal/layout"
 	"craeft/internal/log"
-	"craeft/internal/utils"
+
+	"golang.org/x/sync/errgroup"
 )
 
-type PagePlan struct {
-	BaseDir    string
-	RelContent string
-	Name       string
-	Pipe       string
-	LayoutKey  LayoutKey
+// BuildEntry represents any file to be built (content or asset)
+type BuildEntry struct {
+	ID         string // Unique identifier: "content/about.md" or "assets/style.css"
+	Type       string // "content" or "asset"
+	SourcePath string // Source file path
+	SourceRoot string // "source" or "scheme"
+	OutputPath string // Where to write the result
+
+	// Hash components
+	Hash           string            // Combined hash of all inputs
+	ContentHash    string            // Hash of source file
+	LayoutHash     string            // Hash of layout (empty for assets)
+	PipelineHash   string            // Hash of pipeline config
+	FragmentHashes map[string]string // Fragment dependencies (empty for assets)
+
+	// Build information
+	Layout      *layout.Layout // nil for assets
+	LayoutKey   LayoutKey      // empty for assets
+	Pipeline    string         // Pipeline name
+	ContentName string         // Content slot name (empty for assets)
+	BaseDir     string         // Base directory
+
+	// State
+	Dirty     bool      // Needs rebuilding
+	Error     error     // Build error if any
+	BuildTime time.Time // Last successful build
 }
 
-type AssetPlan struct {
-	BaseDir    string
-	SourceRel  string // relative to SourcePath or SchemePath (see SourceFrom)
-	From       string // "source" | "scheme"
-	PipelineID string
-}
-
+// Plan represents a build plan with change detection
 type Plan struct {
-	PagesByLayout map[LayoutKey][]PagePlan
-	Assets        map[assetKey]AssetPlan
+	Entries   map[string]*BuildEntry // All entries (content and assets)
+	HashCache *HashCache
+	Manifest  *Manifest
+	CAS       *CAS
+
+	mu sync.RWMutex
 }
 
-func (p *Project) plan() (Plan, error) {
+// Plan creates a new incremental build plan
+func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	start := time.Now()
-	log.IInfo(log.Plan).Msg("planning started")
-	srcFS := p.srcRoot.FS()
-	res := Plan{
-		PagesByLayout: make(map[LayoutKey][]PagePlan),
-		Assets:        make(map[assetKey]AssetPlan),
+
+	// TODO use another file name
+	manifest, err := LoadManifest(filepath.Join(p.Config.OutputPath, ".craeft-manifest.json"))
+	if err != nil {
+		log.Warn(fmt.Sprintf("Failed to load manifest: %v", err))
+		manifest = NewManifest()
 	}
 
-	var pagesAdded int
+	// TODO use another cache dir
+	cas, err := NewCAS(filepath.Join(p.Config.OutputPath, ".craeft-cache"))
+	if err != nil {
+		return nil, fmt.Errorf("create CAS: %w", err)
+	}
+
+	plan := &Plan{
+		Entries:   make(map[string]*BuildEntry),
+		HashCache: NewHashCache(),
+		Manifest:  manifest,
+		CAS:       cas,
+	}
+
+	total, err := p.scanAllFiles(ctx, plan)
+	if err != nil {
+		return nil, fmt.Errorf("scan files: %w", err)
+	}
+
+	if err := plan.computeAllHashes(p); err != nil {
+		return nil, fmt.Errorf("compute hashes: %w", err)
+	}
+
+	changed := plan.diff()
+
+	log.IInfo(log.Plan).
+		Int("total", total).
+		Int("dirty", changed).
+		Dur("duration", time.Since(start)).
+		Msg("incremental plan generated")
+
+	return plan, nil
+}
+
+// scanAllFiles walks directories and creates build entries for content and assets
+func (p *Project) scanAllFiles(ctx context.Context, plan *Plan) (int, error) {
+	changed, err := p.scanContentFiles(plan)
+	if err != nil {
+		return 0, fmt.Errorf("scan content: %w", err)
+	}
+
+	assetChanged, err := p.scanAssetFiles(plan)
+	if err != nil {
+		return 0, fmt.Errorf("scan assets: %w", err)
+	}
+
+	return changed + assetChanged, nil
+}
+
+// scanContentFiles walks the source directory for content
+func (p *Project) scanContentFiles(plan *Plan) (int, error) {
+	srcFS := p.srcRoot.FS()
+
+	changed := 0
 	err := fs.WalkDir(srcFS, ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
+
 		if d.IsDir() {
 			if p.ignoreFile(path) {
 				return fs.SkipDir
 			}
-			base := filepath.ToSlash(path)
 
+			base := filepath.ToSlash(path)
 			lmap, err := p.getLayouts(base)
 			if err != nil {
 				log.TTrace(log.Layout).Str("base", base).Err(err).Msg("no layouts for base")
 				return nil
 			}
+
 			for _, lyt := range lmap {
 				key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
 
+				// Process content definitions
 				for _, cc := range lyt.Contents() {
 					glob := filepath.ToSlash(filepath.Join(base, cc.Path))
 					matches, err := fs.Glob(p.srcRoot.FS(), glob)
 					if err != nil {
 						continue
 					}
+
 					for _, rel := range matches {
-						res.PagesByLayout[key] = append(res.PagesByLayout[key], PagePlan{
-							BaseDir: base, RelContent: rel, Name: cc.Name, Pipe: cc.Pipe, LayoutKey: key,
-						})
-						pagesAdded++
-						log.TTrace(log.Plan).
-							Str("layout", key.RelLayoutPath).
-							Str("content", filepath.ToSlash(rel)).
-							Str("pipe", cc.Pipe).
-							Msg("page planned")
+						entry := &BuildEntry{
+							ID:             rel,
+							Type:           "content",
+							SourcePath:     rel,
+							SourceRoot:     "source",
+							OutputPath:     p.computeOutputPath(base, rel, cc.Pipe),
+							Layout:         lyt,
+							LayoutKey:      key,
+							Pipeline:       cc.Pipe,
+							ContentName:    cc.Name,
+							BaseDir:        base,
+							FragmentHashes: make(map[string]string),
+						}
+
+						plan.mu.Lock()
+						plan.Entries[entry.ID] = entry
+						changed++
+						plan.mu.Unlock()
 					}
+				}
+
+				// Process assets in content
+				for _, cc := range lyt.Contents() {
 					for _, a := range cc.Assets() {
 						glob := filepath.ToSlash(filepath.Join(base, a.Source))
 						matches, err := fs.Glob(p.srcRoot.FS(), glob)
 						if err != nil {
-							log.TTrace(log.Plan).Str("glob", glob).Err(err).Msg("content asset glob failed")
 							continue
 						}
 
 						for _, rel := range matches {
-							k := assetKey{From: "source", Pipe: a.AssetType, Rel: utils.NormRel(rel)}
-							res.Assets[k] = AssetPlan{
-								BaseDir:    filepath.Dir(rel),
-								SourceRel:  rel,
-								From:       "source",
-								PipelineID: a.AssetType,
+							id := fmt.Sprintf("asset:source:%s", rel)
+							entry := &BuildEntry{
+								ID:             id,
+								Type:           "asset",
+								SourcePath:     rel,
+								SourceRoot:     "source",
+								OutputPath:     p.computeOutputPath(filepath.Dir(rel), rel, a.AssetType),
+								Pipeline:       a.AssetType,
+								BaseDir:        filepath.Dir(rel),
+								FragmentHashes: make(map[string]string),
 							}
-							log.TTrace(log.Plan).
-								Str("from", "source").
-								Str("pipe", a.AssetType).
-								Str("rel", filepath.ToSlash(rel)).
-								Msg("asset planned")
-						}
-					}
-				}
 
-				for _, a := range lyt.Assets() {
-					glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
-					matches, err := fs.Glob(p.schemeRoot.FS(), glob)
-					if err != nil {
-						continue
-					}
-
-					for _, rel := range matches {
-						k := assetKey{From: "scheme", Pipe: a.AssetType, Rel: utils.NormRel(rel)}
-						res.Assets[k] = AssetPlan{
-							BaseDir:    filepath.Dir(rel),
-							SourceRel:  rel,
-							From:       "scheme",
-							PipelineID: a.AssetType,
+							plan.mu.Lock()
+							plan.Entries[entry.ID] = entry
+							changed++
+							plan.mu.Unlock()
 						}
-						log.TTrace(log.Plan).
-							Str("from", "scheme").
-							Str("pipe", a.AssetType).
-							Str("rel", filepath.ToSlash(rel)).
-							Msg("asset planned")
 					}
 				}
 			}
 		}
 		return nil
 	})
-	p.setLastPlan(res)
-	log.DDebug(log.Plan).
-		Int("pages_planned", pagesAdded).
-		Int("assets_planned", len(res.Assets)).
-		Int("layouts", len(res.PagesByLayout)).
-		Dur("duration", time.Since(start)).
-		Msg("planning finished")
-	return res, err
+
+	return changed, err
 }
 
-type planSnapshot struct {
-	pages  map[LayoutKey][]PagePlan
-	assets map[assetKey]AssetPlan
-}
-
-func (p *Project) setLastPlan(pl Plan) {
-	p.lastPlanMu.Lock()
-	p.lastPlan = planSnapshot{
-		pages:  pl.PagesByLayout,
-		assets: pl.Assets,
-	}
-	p.lastPlanMu.Unlock()
-
-	log.DDebug(log.Plan).
-		Int("layouts", len(pl.PagesByLayout)).
-		Int("assets", len(pl.Assets)).
-		Msg("last plan snapshot updated")
-}
-
-func (p *Project) snapshotPlan() planSnapshot {
-	p.lastPlanMu.RLock()
-	defer p.lastPlanMu.RUnlock()
-	// shallow copy maps to avoid external mutation
-	pages := make(map[LayoutKey][]PagePlan, len(p.lastPlan.pages))
-	for k, v := range p.lastPlan.pages {
-		vc := make([]PagePlan, len(v))
-		copy(vc, v)
-		pages[k] = vc
-	}
-	assets := make(map[assetKey]AssetPlan, len(p.lastPlan.assets))
-	for k, v := range p.lastPlan.assets {
-		assets[k] = v
-	}
-
-	snap := planSnapshot{pages: pages, assets: assets}
-
-	log.TTrace(log.Plan).
-		Int("pages_groups", len(snap.pages)).
-		Int("assets", len(snap.assets)).
-		Msg("got snapshot")
-
-	return snap
-}
-
-func (p *Project) updatePlanSnapshot(rel string) {
-	rel = filepath.ToSlash(rel)
-	base := filepath.ToSlash(filepath.Dir(rel))
-	name := filepath.Base(rel)
-
-	lmap, _ := p.getLayouts(base)
-
-	log.DDebug(log.Plan).Str("rel", rel).Str("base", base).Msg("updating snapshot for path")
-
-	type m struct{ ldir, nm, pipe string }
-	var matches []m
-	for ldir, lyt := range lmap {
-		if !lyt.MatchContent(name) {
-			continue
+// scanAssetFiles scans for layout-level assets
+func (p *Project) scanAssetFiles(plan *Plan) (int, error) {
+	// Walk scheme directory for layout assets
+	changed := 0
+	err := fs.WalkDir(p.schemeRoot.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil || !d.IsDir() {
+			return walkErr
 		}
-		for _, c := range lyt.Contents() {
-			if c.MatchContent(name) {
-				matches = append(matches, m{ldir, c.Name, c.Pipe})
+
+		base := filepath.ToSlash(path)
+		lmap, err := p.getLayouts(base)
+		if err != nil {
+			return nil // No layouts here
+		}
+
+		for _, lyt := range lmap {
+			for _, a := range lyt.Assets() {
+				glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
+				matches, err := fs.Glob(p.schemeRoot.FS(), glob)
+				if err != nil {
+					continue
+				}
+
+				for _, rel := range matches {
+					id := fmt.Sprintf("asset:scheme:%s", rel)
+					entry := &BuildEntry{
+						ID:             id,
+						Type:           "asset",
+						SourcePath:     rel,
+						SourceRoot:     "scheme",
+						OutputPath:     p.computeOutputPath(filepath.Dir(rel), rel, a.AssetType),
+						Pipeline:       a.AssetType,
+						BaseDir:        filepath.Dir(rel),
+						FragmentHashes: make(map[string]string),
+					}
+
+					plan.mu.Lock()
+					plan.Entries[entry.ID] = entry
+					changed++
+					plan.mu.Unlock()
+				}
 			}
 		}
-	}
+		return nil
+	})
 
-	var newPlan []PagePlan
-	for _, mm := range matches {
-		key := LayoutKey{RelLayoutPath: mm.ldir, BaseDir: base}
-		newPlan = append(newPlan, PagePlan{
-			BaseDir:    base,
-			RelContent: rel,
-			Name:       mm.nm,
-			Pipe:       mm.pipe,
-			LayoutKey:  key,
+	return changed, err
+}
+
+// computeAllHashes calculates hashes for all entries
+func (plan *Plan) computeAllHashes(p *Project) error {
+	g, ctx := errgroup.WithContext(context.Background())
+	g.SetLimit(10)
+
+	// TODO:
+	// check for layout cachen and so..
+	for _, entry := range plan.Entries {
+		e := entry
+		g.Go(func() error {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+			}
+
+			var fsys fs.FS
+			switch e.SourceRoot {
+			case "source":
+				fsys = p.srcRoot.FS()
+			case "scheme":
+				fsys = p.schemeRoot.FS()
+			default:
+				e.Error = fmt.Errorf("unknown source root: %s", e.SourceRoot)
+				return nil
+			}
+
+			// Hash source file
+			contentHash, err := plan.HashCache.HashFile(fsys, e.SourcePath)
+			if err != nil {
+				e.Error = fmt.Errorf("hash source: %w", err)
+				return nil
+			}
+			e.ContentHash = contentHash
+
+			// Hash layout and fragments (only for content)
+			if e.Type == "content" && e.Layout != nil {
+				// Hash layout
+				layoutData := []byte(e.Layout.Path())
+				e.LayoutHash = HashBytes(layoutData)
+
+				// Hash fragments
+				for _, frag := range e.Layout.Fragments() {
+					fragHash, err := plan.HashCache.HashFile(p.schemeRoot.FS(), frag)
+					if err != nil {
+						log.Warn(fmt.Sprintf("Failed to hash fragment %s: %v", frag, err))
+						continue
+					}
+					e.FragmentHashes[frag] = fragHash
+				}
+			}
+
+			// Hash pipeline configuration
+			if pl, err := p.pipelines.Get(e.Pipeline); err == nil {
+				cfg := pl.Config()
+				e.PipelineHash = HashString(fmt.Sprintf("%s-%s-%s",
+					cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
+			}
+
+			// Compute combined hash
+			entryHash := EntryHash{
+				ContentHash:    e.ContentHash,
+				LayoutHash:     e.LayoutHash,
+				PipelineHash:   e.PipelineHash,
+				FragmentHashes: e.FragmentHashes,
+			}
+			e.Hash = entryHash.Compute()
+
+			log.TTrace(log.Plan).
+				Str("id", e.ID).
+				Str("type", e.Type).
+				Str("hash", e.Hash[:8]).
+				Msg("computed hash")
+
+			return nil
 		})
 	}
 
-	p.lastPlanMu.Lock()
-	defer p.lastPlanMu.Unlock()
-
-	var removed int
-	for k, arr := range p.lastPlan.pages {
-		// reuse the slice to avoid allocations.
-		// reset the slice to zero length
-		w := arr[:0]
-		for _, pp := range arr {
-			if filepath.ToSlash(pp.RelContent) != rel {
-				w = append(w, pp)
-			}
-		}
-		if len(w) == 0 {
-			delete(p.lastPlan.pages, k)
-			removed++
-		} else {
-			p.lastPlan.pages[k] = w
-		}
-	}
-	for _, pp := range newPlan {
-		p.lastPlan.pages[pp.LayoutKey] = append(p.lastPlan.pages[pp.LayoutKey], pp)
-	}
-
-	log.DDebug(log.Plan).
-		Str("rel", rel).
-		Int("removed_groups", removed).
-		Int("added", len(newPlan)).
-		Msg("snapshot updated")
+	return g.Wait()
 }
 
-func (p *Project) AffectedByPipeline(name string) []string {
-	snap := p.snapshotPlan()
-	seen := make(map[string]struct{})
-	var out []string
-	for _, pages := range snap.pages {
-		for _, pg := range pages {
-			if pg.Pipe != name {
-				continue
-			}
-			r := filepath.ToSlash(pg.RelContent)
-			if _, ok := seen[r]; ok {
-				continue
-			}
-			seen[r] = struct{}{}
-			out = append(out, r)
+// diff compares the plan against the manifest
+func (plan *Plan) diff() int {
+	plan.mu.Lock()
+	defer plan.mu.Unlock()
+
+	changed := 0
+	for id, entry := range plan.Entries {
+		if plan.Manifest.IsDirty(id, entry.Hash) {
+			entry.Dirty = true
+			changed++
+
+			log.TTrace(log.Plan).
+				Str("id", id).
+				Str("type", entry.Type).
+				Msg("marked dirty")
 		}
 	}
-	log.DDebug(log.Plan).Str("pipeline", name).Int("affected", len(out)).Msg("affected by pipeline")
-	return out
+
+	return changed
 }
 
-func (p *Project) AffectedByLayoutKeys(keys []LayoutKey) []string {
-	if len(keys) == 0 {
-		log.TTrace(log.Plan).Int("keys", 0).Msg("affected by layouts (none)")
-		return nil
-	}
+// GetDirtyEntries returns all entries that need rebuilding
+func (plan *Plan) GetDirtyEntries() []*BuildEntry {
+	plan.mu.RLock()
+	defer plan.mu.RUnlock()
 
-	snap := p.snapshotPlan()
-	seen := make(map[string]struct{})
-	out := make([]string, 0, 32)
-
-	for _, k := range keys {
-		pages := snap.pages[k]
-		for _, pg := range pages {
-			r := filepath.ToSlash(pg.RelContent)
-			if _, dup := seen[r]; dup {
-				continue
-			}
-			seen[r] = struct{}{}
-			out = append(out, r)
+	var dirty []*BuildEntry
+	for _, entry := range plan.Entries {
+		if entry.Dirty {
+			dirty = append(dirty, entry)
 		}
 	}
-	log.DDebug(log.Plan).Int("keys", len(keys)).Int("affected", len(out)).Msg("affected by layout keys")
-	return out
+	return dirty
+}
+
+// GetEntriesByType returns entries filtered by type
+func (plan *Plan) GetEntriesByType(entryType string) []*BuildEntry {
+	plan.mu.RLock()
+	defer plan.mu.RUnlock()
+
+	var entries []*BuildEntry
+	for _, entry := range plan.Entries {
+		if entry.Type == entryType {
+			entries = append(entries, entry)
+		}
+	}
+	return entries
+}
+
+// computeOutputPath determines the output path for a file
+func (p *Project) computeOutputPath(base, rel, pipe string) string {
+	pl, err := p.pipelines.Get(pipe)
+	if err != nil {
+		return filepath.Join(base, filepath.Base(rel))
+	}
+
+	cfg := pl.Config()
+	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(rel), "."+cfg.TargetSuffix)
+	return filepath.Join(base, target)
 }

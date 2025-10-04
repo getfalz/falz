@@ -26,9 +26,9 @@ func Build(c *cli.Context) error {
 
 	start := time.Now()
 	opt := project.BuildOptions{
-		UseCache:    true,
-		Concurrency: runtime.GOMAXPROCS(0),
+		Concurrency:     runtime.GOMAXPROCS(0),
 		WriteBufferSize: 50,
+		UseCAS:          true,
 	}
 
 	stats, err := p.Build(ctx, opt)
@@ -36,13 +36,11 @@ func Build(c *cli.Context) error {
 
 	switch {
 	case err == nil:
-		log.Print("Build OK in %s — pages %d/%d, assets %d/%d\n",
-			dur, stats.PagesBuilt, stats.PagesPlanned, stats.AssetsBuilt, stats.AssetsPlanned)
+		log.Print("Build OK in %s — %s\n", dur, stats)
 		return nil
 
 	case errors.Is(err, context.Canceled):
-		log.Print("Build canceled after %s — pages %d/%d, assets %d/%d\n",
-			dur, stats.PagesBuilt, stats.PagesPlanned, stats.AssetsBuilt, stats.AssetsPlanned)
+		log.Print("Build canceled after %s — %s\n", dur, stats)
 		return nil
 
 	default:

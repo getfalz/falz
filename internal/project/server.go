@@ -67,24 +67,18 @@ func RunServer(c context.Context, p *Project) error {
 		})
 	}()
 
-	opt := BuildOptions{UseCache: false, Concurrency: runtime.NumCPU()}
+	opt := BuildOptions{Concurrency: runtime.NumCPU()}
 	stats, err := p.Build(ctx, opt)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.EError(log.Build).
 			Err(err).
-			Int("assets_planned", stats.AssetsPlanned).
-			Int64("assets_built", stats.AssetsBuilt).
-			Int("pages_planned", stats.PagesPlanned).
-			Int64("pages_built", stats.PagesBuilt).
+			Str("stats", stats.String()).
 			Msg("initial build failed")
 		return err
 	}
 
 	log.IInfo(log.Build).
-		Int("assets_planned", stats.AssetsPlanned).
-		Int64("assets_built", stats.AssetsBuilt).
-		Int("pages_planned", stats.PagesPlanned).
-		Int64("pages_built", stats.PagesBuilt).
+		Str("stats", stats.String()).
 		Msg("initial build ok")
 
 	s := NewServer(p, pool)
@@ -287,7 +281,7 @@ func (s *Server) WatchFiles(ctx context.Context) error {
 
 			log.TTrace(log.Server).Str("rel", filepath.ToSlash(relPath)).Msg("file changed")
 
-			s.pool.Submit(rebuildTask{s: s, rel: relPath})
+			// s.pool.Submit(rebuildTask{s: s, rel: relPath})
 
 		}
 	}
@@ -328,21 +322,21 @@ func (s *Server) WatchTheme(ctx context.Context) error {
 
 			log.TTrace(log.Server).Str("rel", rel).Msg("theme changed")
 
-			keys := s.project.Layouts().InvalidateAndGetAffected(rel)
-			paths := s.project.AffectedByLayoutKeys(keys)
-
-			_, err = s.project.plan()
-			if err != nil {
-				log.DDebug(log.Server).Err(err).Msg("rebuild plan failed after theme change")
-				continue
-			}
-
-			for _, pth := range paths {
-				s.pool.Submit(rebuildTask{s: s, rel: pth})
-			}
-			if s.config.FsWatcher.HotReload && len(paths) == 0 {
-				s.reloadPage()
-			}
+			// keys := s.project.Layouts().InvalidateAndGetAffected(rel)
+			// paths := s.project.AffectedByLayoutKeys(keys)
+			//
+			// _, err = s.project.Plan()
+			// if err != nil {
+			// 	log.DDebug(log.Server).Err(err).Msg("rebuild plan failed after theme change")
+			// 	continue
+			// }
+			//
+			// for _, pth := range paths {
+			// 	s.pool.Submit(rebuildTask{s: s, rel: pth})
+			// }
+			// if s.config.FsWatcher.HotReload && len(paths) == 0 {
+			// 	s.reloadPage()
+			// }
 		}
 	}
 }
@@ -390,17 +384,17 @@ func (s *Server) WatchPipes(ctx context.Context) error {
 				continue
 			}
 
-			if err := s.project.Pipelines().Reload(pipeName); err != nil {
-				log.DDebug(log.Server).Err(err).Str("pipe", pipeName).Msg("pipeline reload failed")
-			}
-
-			paths := s.project.AffectedByPipeline(pipeName)
-			for _, pth := range paths {
-				s.pool.Submit(rebuildTask{s: s, rel: pth})
-			}
-			if s.config.FsWatcher.HotReload && len(paths) == 0 {
-				s.reloadPage()
-			}
+			// if err := s.project.Pipelines().Reload(pipeName); err != nil {
+			// 	log.DDebug(log.Server).Err(err).Str("pipe", pipeName).Msg("pipeline reload failed")
+			// }
+			//
+			// paths := s.project.AffectedByPipeline(pipeName)
+			// for _, pth := range paths {
+			// 	s.pool.Submit(rebuildTask{s: s, rel: pth})
+			// }
+			// if s.config.FsWatcher.HotReload && len(paths) == 0 {
+			// 	s.reloadPage()
+			// }
 		}
 	}
 }
