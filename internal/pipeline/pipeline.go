@@ -12,8 +12,7 @@ import (
 
 type PipelineScript interface {
 	Index(ctx context.Context, input []byte, vars Vars) error
-	// TODO use result struct
-	Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error)
+	Transform(ctx context.Context, input []byte, vars Vars) (string, error)
 	Config() PipelineConfig
 }
 
@@ -129,10 +128,10 @@ func (p *Pipeline) Index(ctx context.Context, input []byte, vars Vars) error {
 	return w.Index(ctx, input, vars)
 }
 
-func (p *Pipeline) Transform(ctx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
+func (p *Pipeline) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
 	w, err := p.entry.acquire(ctx)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
 	defer p.entry.release(w)
 	return w.Transform(ctx, input, vars)

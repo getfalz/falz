@@ -63,7 +63,7 @@ func (s *script) Index(parCtx context.Context, input []byte, vars Vars) error {
 	return nil
 }
 
-func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) ([]map[string]string, error) {
+func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) (string, error) {
 	// TODO set timeout in config
 	ctx, cancel := context.WithTimeout(parCtx, 1*time.Second)
 	defer cancel()
@@ -73,20 +73,14 @@ func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) ([]m
 	if err != nil {
 		log.Error(fmt.Errorf("%s.transform error:\n%s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
 
-		return []map[string]string{
-			{"filename": "", "result": ""},
-		}, fmt.Errorf("%s:transform error: %w", s.config.Name, err)
+		return "", fmt.Errorf("%s:transform error: %w", s.config.Name, err)
 	}
 
-	// TODO important! this could explode. ensure that the keys are present
-	switch v := result.Export().(type) {
-	case string:
-		return []map[string]string{
-			{"filename": vars["target"].(string), "result": v},
-		}, nil
-	default:
-		return []map[string]string{{"filename": "", "result": ""}}, nil
+	if str, ok := result.Export().(string); ok {
+		return str, nil
 	}
+
+	return "", fmt.Errorf("transform expects a string, return type: %T", result.Export())
 }
 
 func loadScript(scriptPath, entryFile string, debug bool) (string, error) {

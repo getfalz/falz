@@ -462,10 +462,11 @@ func (p *Project) processEntry(
 		return result
 	}
 
-	vars := pipeline.NewVars(entry.OutputPath)
-	vars.Set("vars", p.Config.Variables)
+	vars := pipeline.Vars{
+		"target": entry.OutputPath,
+		"vars":   p.Config.Variables,
+	}
 
-	// TODO transform should return a string
 	transformed, err := pl.Transform(ctx, data, vars)
 	if err != nil {
 		result.Error = fmt.Errorf("transform %s: %w", entry.SourcePath, err)
@@ -480,19 +481,11 @@ func (p *Project) processEntry(
 			return result
 		}
 
-		for _, tr := range transformed {
-			if filename := tr["filename"]; filename != "" {
-				vars.Set(entry.ContentName, tr["result"])
-				output := tpl.ExecuteString(vars)
-				result.Data = []byte(output)
-			}
-		}
+		vars.Set(entry.ContentName, transformed)
+		output := tpl.ExecuteString(vars)
+		result.Data = []byte(output)
 	} else {
-		for _, tr := range transformed {
-			if filename := tr["filename"]; filename != "" {
-				result.Data = []byte(tr["result"])
-			}
-		}
+		result.Data = []byte(transformed)
 	}
 
 	lb = log.DDebug(log.Build).

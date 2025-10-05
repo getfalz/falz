@@ -54,7 +54,7 @@ func (f Fragment) Render(ctx context.Context, renderPath string) (string, string
 		return "", "", fmt.Errorf("can't read fragment %s: %w", fragment, err)
 	}
 
-	vars := pipeline.NewVars("")
+	vars := pipeline.Vars{}
 	// TODO set vars
 	// vars.Set("vars", t.P.Config.Variables)
 	// vars.Set("assets", f.)
@@ -63,20 +63,12 @@ func (f Fragment) Render(ctx context.Context, renderPath string) (string, string
 		return "", "", fmt.Errorf("pipeline %s: %w", f.pipeline.Config().PipelineName, err)
 	}
 
-	if len(result) > 1 {
-		log.WWarn(log.Layout).
-			Str("fragment", f.Name).
-			Str("pipeline", f.pipeline.Config().PipelineName).
-			Int("results", len(result)).
-			Msg("fragment pipeline returned >1 result; using first")
-	}
-
 	log.DDebug(log.Layout).
 		Str("fragment", f.Name).
 		Str("path", fragment).
 		Msg("fragment rendered")
 
-	return result[0]["result"], fragment, nil
+	return result, fragment, nil
 }
 
 func (c Content) Render(ctx context.Context) string {

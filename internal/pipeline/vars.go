@@ -4,13 +4,6 @@ import "github.com/dop251/goja"
 
 type Vars map[string]any
 
-func NewVars(targetValue any) Vars {
-	v := Vars{
-		"target": targetValue,
-	}
-	return v
-}
-
 func (v Vars) Set(key string, value any) {
 	v[key] = value
 }
