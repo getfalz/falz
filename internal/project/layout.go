@@ -155,29 +155,44 @@ func (lc *LayoutCache) InvalidateAndGetAffected(paths ...string) []LayoutKey {
 
 	start := time.Now()
 
-	seen := make(map[LayoutKey]struct{})
+	keysToInvalidate := make(map[LayoutKey]struct{})
 	var keysRemoved, reverseBucketsCleared int
 
 	for _, p := range paths {
 		p = filepath.ToSlash(p)
-		keys := lc.reverse[p]
-		for k := range keys {
-			seen[k] = struct{}{}
-			delete(lc.data, k)
-			// remove k from every reverse bucket
-			for dep, idx := range lc.reverse {
-				delete(idx, k)
-				if len(idx) == 0 {
-					delete(lc.reverse, dep)
-					reverseBucketsCleared++
-				}
+		for k := range lc.reverse[p] {
+			keysToInvalidate[k] = struct{}{}
+		}
+	}
+
+	depsToClean := make(map[string]struct{})
+	for k := range keysToInvalidate {
+		if entry, ok := lc.data[k]; ok {
+			for _, dep := range entry.deps {
+				depsToClean[dep] = struct{}{}
 			}
+			delete(lc.data, k)
 			keysRemoved++
 		}
-		delete(lc.reverse, p)
 	}
-	out := make([]LayoutKey, 0, len(seen))
-	for k := range seen {
+
+	for dep := range depsToClean {
+		idx := lc.reverse[dep]
+		for k := range keysToInvalidate {
+			delete(idx, k)
+		}
+		if len(idx) == 0 {
+			delete(lc.reverse, dep)
+			reverseBucketsCleared++
+		}
+	}
+
+	for _, p := range paths {
+		delete(lc.reverse, filepath.ToSlash(p))
+	}
+
+	out := make([]LayoutKey, 0, len(keysToInvalidate))
+	for k := range keysToInvalidate {
 		out = append(out, k)
 	}
 
