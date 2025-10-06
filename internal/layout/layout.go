@@ -37,7 +37,7 @@ const wsClient string = `
 
 `
 
-func (f Fragment) Render(ctx context.Context, renderPath string) (string, string, error) {
+func (f *Fragment) Render(ctx context.Context, renderPath string) (string, string, error) {
 	files, err := utils.FindFile(f.root.FS(), renderPath, f.Source)
 	if err != nil {
 		return "", "", err
@@ -185,7 +185,7 @@ func (a Asset) Validate() error {
 	return nil
 }
 
-func (f Fragment) Validate() error {
+func (f *Fragment) Validate() error {
 	if f.Name == "" {
 		return errors.New("element <Fragment>: missing required field: name")
 	}
@@ -195,7 +195,7 @@ func (f Fragment) Validate() error {
 	return nil
 }
 
-func (c Content) Validate() error {
+func (c *Content) Validate() error {
 	if c.Name == "" {
 		return errors.New("element <Content>: missing required field: name")
 	}
@@ -205,26 +205,26 @@ func (c Content) Validate() error {
 	return nil
 }
 
-func (l *Layout) Fragments() []string {
-	var fragments []string
-
-	for _, f := range l.fragments {
-		fragments = append(fragments, f.Source)
-	}
-
-	return fragments
+func (l *Layout) Fragments() []Fragment {
+	out := make([]Fragment, len(l.fragments))
+	copy(out, l.fragments)
+	return out
 }
 
-func (l Layout) Contents() []Content {
-	return l.contents
+func (l *Layout) Contents() []Content {
+	out := make([]Content, len(l.contents))
+	copy(out, l.contents)
+	return out
 }
 
-func (l Layout) Assets() []Asset {
-	return l.assets
+func (l *Layout) Assets() []Asset {
+	out := make([]Asset, len(l.assets))
+	copy(out, l.assets)
+	return out
 }
 
 // Path is the relative path of the layout to the project root folder.
-func (l Layout) Path() string {
+func (l *Layout) Path() string {
 	return normalizeRelFile(l.path)
 }
 
@@ -233,7 +233,7 @@ func (c *Content) Assets() []Asset {
 }
 
 // MatchContent checks if the given path matches the layout's content
-func (l Layout) MatchContent(path string) bool {
+func (l *Layout) MatchContent(path string) bool {
 	for _, c := range l.contents {
 		if c.MatchContent(path) {
 			return true
@@ -243,7 +243,7 @@ func (l Layout) MatchContent(path string) bool {
 	return false
 }
 
-func (c Content) MatchContent(path string) bool {
+func (c *Content) MatchContent(path string) bool {
 	match, err := zglob.Match(c.Path, path)
 	if err != nil {
 		return false

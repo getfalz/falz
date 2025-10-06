@@ -1,12 +1,14 @@
 package main
 
 import (
-	"craeft/internal/log"
-	"craeft/internal/project"
 	"errors"
 	"fmt"
 	"net/http"
 	"time"
+
+	"craeft/internal/log"
+	"craeft/internal/project"
+	"craeft/internal/server"
 
 	"github.com/urfave/cli/v2"
 )
@@ -22,7 +24,7 @@ func Server(c *cli.Context) error {
 	defer stop()
 
 	start := time.Now()
-	if err := project.RunServer(ctx, p); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := server.RunServer(ctx, p); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Error(fmt.Errorf("server failed after %s: %v", time.Since(start), err))
 		return err
 	}

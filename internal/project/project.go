@@ -30,19 +30,21 @@ var (
 )
 
 type Project struct {
-	Server *Server
 	Config *CraeftConfig
 
-	srcRoot    *os.Root
-	schemeRoot *os.Root
+	SourceRoot *os.Root
+	SchemeRoot *os.Root
 	outRoot    *os.Root
 
-	layouts *LayoutCache
+	Layouts *LayoutCache
 
 	parsedOnce sync.Once
 	parsedMu   sync.RWMutex
 	parsed     map[string]parsedLayoutEntry
-	pipelines  *pipeline.Registry
+	Pipes      *pipeline.Registry
+
+	currentPlanMu sync.Mutex
+	currentPlan   *Plan
 }
 
 func New(config *CraeftConfig) (*Project, error) {
@@ -77,18 +79,18 @@ func New(config *CraeftConfig) (*Project, error) {
 	)
 	config.Ignore = append(config.Ignore, blackList...)
 
-	srcRoot, err := os.OpenRoot(srcAbs)
+	sourceRoot, err := os.OpenRoot(srcAbs)
 	if err != nil {
 		return nil, fmt.Errorf("open root (source): %w", err)
 	}
 	schemeRoot, err := os.OpenRoot(schemeAbs)
 	if err != nil {
-		_ = srcRoot.Close()
+		_ = sourceRoot.Close()
 		return nil, fmt.Errorf("open root (scheme): %w", err)
 	}
 	outRoot, err := os.OpenRoot(outAbs)
 	if err != nil {
-		_ = srcRoot.Close()
+		_ = sourceRoot.Close()
 		_ = schemeRoot.Close()
 		return nil, fmt.Errorf("open root (output): %w", err)
 	}
@@ -101,7 +103,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		PoolSize: runtime.NumCPU(),
 	})
 	if err := reg.LoadAll(); err != nil {
-		_ = srcRoot.Close()
+		_ = sourceRoot.Close()
 		_ = schemeRoot.Close()
 		_ = outRoot.Close()
 		return nil, err
@@ -111,24 +113,24 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	return &Project{
 		Config:     config,
-		pipelines:  reg,
-		layouts:    NewLayoutCache(),
-		srcRoot:    srcRoot,
-		schemeRoot: schemeRoot,
+		Pipes:      reg,
+		Layouts:    NewLayoutCache(),
+		SourceRoot: sourceRoot,
+		SchemeRoot: schemeRoot,
 		outRoot:    outRoot,
 	}, nil
 }
 
 func (p *Project) readSource(rel string) ([]byte, error) {
-	return fs.ReadFile(p.srcRoot.FS(), filepath.ToSlash(rel))
+	return fs.ReadFile(p.SourceRoot.FS(), filepath.ToSlash(rel))
 }
 
 func (p *Project) readScheme(rel string) ([]byte, error) {
-	return fs.ReadFile(p.schemeRoot.FS(), filepath.ToSlash(rel))
+	return fs.ReadFile(p.SchemeRoot.FS(), filepath.ToSlash(rel))
 }
 
 func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fasttemplate.Template, error) {
-	lmap, err := p.getLayouts(key.BaseDir)
+	lmap, err := p.GetLayouts(key.BaseDir)
 	if err != nil {
 		return nil, err
 	}
@@ -144,10 +146,10 @@ func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fastte
 		Str("layout key base", key.BaseDir).
 		Str("layout key rel", key.RelLayoutPath).
 		Msg("template for layout")
-	return p.layouts.GetOrBuild(ctx, p.schemeRoot, key, lyt)
+	return p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
 }
 
-func (p *Project) ignoreFile(name string) bool {
+func (p *Project) IgnoreFile(name string) bool {
 	name = filepath.ToSlash(filepath.Clean(name))
 
 	log.TTrace(log.Project).Str("name", name).Msg("ignore check")
@@ -202,11 +204,11 @@ func (p *Project) ensureParsedCache() {
 	})
 }
 
-// // GetLayout returns all layouts for a given path
-func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
+// // GetLayouts returns all layouts for a given path
+func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 	p.ensureParsedCache()
 
-	matches, err := utils.FindFile(p.schemeRoot.FS(), base, p.Config.Layout)
+	matches, err := utils.FindFile(p.SchemeRoot.FS(), base, p.Config.Layout)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find layout for path %q: %w", base, err)
 	}
@@ -217,37 +219,10 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 	for _, rel := range matches {
 		relSlash := filepath.ToSlash(rel)
 
-		fi, err := p.schemeRoot.Stat(relSlash)
+		lyt, err := p.loadLayout(relSlash)
 		if err != nil {
 			continue
 		}
-		size, mtime := fi.Size(), fi.ModTime()
-
-		p.parsedMu.RLock()
-		e, ok := p.parsed[relSlash]
-		p.parsedMu.RUnlock()
-
-		if ok && e.size == size && e.mtime.Equal(mtime) {
-			out[e.lyt.Path()] = e.lyt
-			log.TTrace(log.Layout).Str("rel", relSlash).Msg("using cached layout")
-			continue
-		}
-
-		b, err := fs.ReadFile(p.schemeRoot.FS(), relSlash)
-		if err != nil {
-			// return nil, fmt.Errorf("failed to read layout file %q: %w", layoutPath, err)
-			continue
-		}
-
-		lyt, err := layout.Parse(p.schemeRoot, relSlash, b, p.pipelines, p.Config.FsWatcher.HotReload)
-		if err != nil {
-			// return nil, fmt.Errorf("failed to parse layout file %q: %w", layoutPath, err)
-			continue
-		}
-
-		p.parsedMu.Lock()
-		p.parsed[lyt.Path()] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
-		p.parsedMu.Unlock()
 
 		log.TTrace(log.Layout).Str("rel", relSlash).Msg("parsed layout")
 		out[relSlash] = lyt
@@ -257,16 +232,92 @@ func (p *Project) getLayouts(base string) (map[string]*layout.Layout, error) {
 	return out, nil
 }
 
+func (p *Project) loadLayout(path string) (*layout.Layout, error) {
+
+	fi, err := p.SchemeRoot.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("stat layout file %q: %w", path, err)
+	}
+	size, mtime := fi.Size(), fi.ModTime()
+
+	p.parsedMu.RLock()
+	e, ok := p.parsed[path]
+	p.parsedMu.RUnlock()
+
+	if ok && e.size == size && e.mtime.Equal(mtime) {
+		log.TTrace(log.Layout).Str("rel", path).Msg("using cached layout")
+		return e.lyt, nil
+	}
+
+	b, err := fs.ReadFile(p.SchemeRoot.FS(), path)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read layout file %q: %w", path, err)
+	}
+
+	lyt, err := layout.Parse(p.SchemeRoot, path, b, p.Pipes, p.Config.FsWatcher.HotReload)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse layout file %q: %w", path, err)
+	}
+
+	p.parsedMu.Lock()
+	p.parsed[lyt.Path()] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
+	p.parsedMu.Unlock()
+
+	return lyt, nil
+}
+
+// getLayoutsForDir checks if a specific directory has its own layout
+func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error) {
+	p.ensureParsedCache()
+
+	glob := filepath.Join(dir, p.Config.Layout)
+	glob = filepath.ToSlash(glob)
+	matches, err := fs.Glob(p.SchemeRoot.FS(), glob)
+
+	if err != nil {
+		return nil, fmt.Errorf("glob %q: %w", glob, err)
+	} else if len(matches) == 0 {
+		return nil, fmt.Errorf("layout no found in dir %s", dir)
+	}
+
+	out := make(map[string]*layout.Layout, len(matches))
+	for _, rel := range matches {
+		relSlash := filepath.ToSlash(rel)
+
+		lyt, err := p.loadLayout(relSlash)
+		if err != nil {
+			log.WWarn(log.Layout).Err(err).Str("rel", relSlash).Msg("failed to load layout")
+			continue
+		}
+
+		log.TTrace(log.Layout).Str("rel", relSlash).Msg("parsed layout")
+		out[relSlash] = lyt
+
+	}
+
+	return out, nil
+}
+
+func (p *Project) CurrentPlan(ctx context.Context) (*Plan, error) {
+	p.currentPlanMu.Lock()
+	defer p.currentPlanMu.Unlock()
+
+	if p.currentPlan == nil {
+		return nil, fmt.Errorf("no current plan, call Plan() first")
+	}
+	return p.currentPlan, nil
+}
+
 func (p *Project) Close() error {
 	var err error
 	log.IInfo(log.Project).Msg("closing roots")
-	if p.srcRoot != nil {
-		if e := p.srcRoot.Close(); e != nil {
+	if p.SourceRoot != nil {
+		if e := p.SourceRoot.Close(); e != nil {
 			err = errors.Join(err, e)
 		}
 	}
-	if p.schemeRoot != nil {
-		if e := p.schemeRoot.Close(); e != nil {
+	if p.SchemeRoot != nil {
+		if e := p.SchemeRoot.Close(); e != nil {
 			err = errors.Join(err, e)
 		}
 	}

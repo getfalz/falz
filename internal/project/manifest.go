@@ -11,10 +11,10 @@ import (
 
 // Manifest tracks the state of built files
 type Manifest struct {
-	mu      sync.RWMutex
-	Version string                   `json:"version"`
-	Entries map[string]ManifestEntry `json:"entries"`
-	Updated time.Time                `json:"updated"`
+	Version   string                   `json:"version"`
+	Entries   map[string]ManifestEntry `json:"entries"`
+	entriesMu sync.RWMutex
+	Updated   time.Time `json:"updated"`
 }
 
 // ManifestEntry represents a single file in the manifest
@@ -59,10 +59,10 @@ func LoadManifest(path string) (*Manifest, error) {
 
 // SaveManifest saves the manifest to disk atomically
 func (m *Manifest) Save(path string) error {
-	m.mu.Lock()
+	m.entriesMu.Lock()
 	m.Updated = time.Now()
 	data, err := json.MarshalIndent(m, "", "  ")
-	m.mu.Unlock()
+	m.entriesMu.Unlock()
 
 	if err != nil {
 		return fmt.Errorf("marshal manifest: %w", err)
@@ -88,23 +88,23 @@ func (m *Manifest) Save(path string) error {
 
 // Get returns the manifest entry for a given ID
 func (m *Manifest) Get(id string) (ManifestEntry, bool) {
-	m.mu.RLock()
-	defer m.mu.RUnlock()
+	m.entriesMu.RLock()
+	defer m.entriesMu.RUnlock()
 	entry, ok := m.Entries[id]
 	return entry, ok
 }
 
 // Set updates or creates a manifest entry
 func (m *Manifest) Set(id string, entry ManifestEntry) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.entriesMu.Lock()
+	defer m.entriesMu.Unlock()
 	m.Entries[id] = entry
 }
 
 // Delete removes an entry from the manifest
 func (m *Manifest) Delete(id string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.entriesMu.Lock()
+	defer m.entriesMu.Unlock()
 	delete(m.Entries, id)
 }
 
@@ -116,8 +116,8 @@ func (m *Manifest) IsDirty(id string, currentHash string) bool {
 
 // CleanStale removes entries that are no longer in the current plan
 func (m *Manifest) CleanStale(currentIDs map[string]struct{}) []string {
-	m.mu.Lock()
-	defer m.mu.Unlock()
+	m.entriesMu.Lock()
+	defer m.entriesMu.Unlock()
 
 	var removed []string
 	for id := range m.Entries {

@@ -56,20 +56,36 @@ type ProcessResult struct {
 // Build performs an incremental build
 func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, error) {
 	start := time.Now()
-	stats := &BuildStats{}
-
-	// Determine worker pool sizes
-	if opts.Concurrency <= 0 {
-		opts.Concurrency = runtime.NumCPU()
-	}
 
 	planStart := time.Now()
 	plan, err := p.Plan(ctx)
 	if err != nil {
-		return stats, fmt.Errorf("generate plan: %w", err)
+		return &BuildStats{}, fmt.Errorf("generate plan: %w", err)
 	}
-	stats.PlanDuration = time.Since(planStart)
-	stats.TotalEntries = len(plan.Entries)
+
+	p.currentPlanMu.Lock()
+	p.currentPlan = plan
+	p.currentPlanMu.Unlock()
+
+	planDuration := time.Since(planStart)
+
+	stats, err := p.BuildFromPlan(ctx, plan, opts)
+	stats.PlanDuration = planDuration
+	stats.Duration = time.Since(start)
+
+	return stats, err
+}
+
+// BuildFromPlan builds only dirty entries from an existing plan
+func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan, opts BuildOptions) (*BuildStats, error) {
+	start := time.Now()
+	stats := &BuildStats{
+		TotalEntries: len(plan.entries),
+	}
+
+	if opts.Concurrency <= 0 {
+		opts.Concurrency = runtime.NumCPU()
+	}
 
 	if opts.CleanStale {
 		removed := p.cleanStaleEntries(plan)
@@ -125,7 +141,7 @@ func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, er
 // cleanStaleEntries removes outputs for deleted source files
 func (p *Project) cleanStaleEntries(plan *Plan) []string {
 	currentIDs := make(map[string]struct{})
-	for id := range plan.Entries {
+	for id := range plan.entries {
 		currentIDs[id] = struct{}{}
 	}
 
@@ -456,7 +472,7 @@ func (p *Project) processEntry(
 		return result
 	}
 
-	pl, err := p.pipelines.Get(entry.Pipeline)
+	pl, err := p.Pipes.Get(entry.Pipeline)
 	if err != nil {
 		result.Error = fmt.Errorf("get pipeline %s: %w", entry.Pipeline, err)
 		return result

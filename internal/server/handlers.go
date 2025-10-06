@@ -1,0 +1,547 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"io/fs"
+	"path/filepath"
+	"strings"
+
+	"craeft/internal/log"
+	"craeft/internal/project"
+)
+
+func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+
+		if !plan.HasEntry(path) {
+			log.DDebug(log.Handler).Str("path", path).Msg("content modified but not in plan")
+			continue
+		}
+
+		newHash, err := plan.HashCache.HashFile(s.project.SourceRoot.FS(), path)
+		if err != nil {
+			log.Warn(fmt.Sprintf("hash content %s: %v", path, err))
+			return nil
+		}
+
+		_ = plan.UpdateEntry(path, func(entry *project.BuildEntry) error {
+			if entry.ContentHash != newHash {
+				entry.ContentHash = newHash
+
+				entryHash := project.EntryHash{
+					ContentHash:    entry.ContentHash,
+					LayoutHash:     entry.LayoutHash,
+					PipelineHash:   entry.PipelineHash,
+					FragmentHashes: entry.FragmentHashes,
+				}
+
+				entry.Hash = entryHash.Compute()
+				entry.Dirty = true
+
+				log.TTrace(log.Handler).
+					Str("id", entry.ID).
+					Str("hash", entry.Hash[:8]).
+					Msg("content modified, marked dirty")
+
+			}
+			return nil
+		})
+	}
+	return nil
+}
+
+func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		if plan.HasEntry(path) {
+			continue
+		}
+
+		base := filepath.Dir(path)
+
+		lmap, err := s.project.GetLayouts(base)
+		if err != nil {
+			log.TTrace(log.Handler).
+				Str("path", path).
+				Err(err).
+				Msg("no layouts for new content")
+			continue
+		}
+
+		for _, lyt := range lmap {
+			key := project.LayoutKey{
+				RelLayoutPath: lyt.Path(),
+				BaseDir:       base,
+			}
+
+			for _, cc := range lyt.Contents() {
+				glob := filepath.ToSlash(filepath.Join(base, cc.Path))
+				matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
+				if err != nil || len(matches) == 0 {
+					continue
+				}
+
+				_, err = s.project.WarmUpLayout(ctx, key, lyt)
+				if err != nil {
+					log.Warn(fmt.Sprintf("warm up layout for new content %s: %v", path, err))
+					continue
+				}
+
+				entry := &project.BuildEntry{
+					ID:             path,
+					Type:           "content",
+					SourcePath:     path,
+					SourceRoot:     "source",
+					OutputPath:     s.project.ComputeOutputPath(base, path, cc.Pipe),
+					Layout:         lyt,
+					LayoutKey:      key,
+					Pipeline:       cc.Pipe,
+					ContentName:    cc.Name,
+					BaseDir:        base,
+					FragmentHashes: make(map[string]string),
+				}
+
+				if err := s.project.ComputeEntryHash(ctx, entry, plan); err != nil {
+					log.Warn(fmt.Sprintf("compute hash for new content %s: %v", path, err))
+					continue
+				}
+
+				entry.Dirty = true
+				plan.AddEntry(entry.ID, entry)
+
+				log.TTrace(log.Handler).
+					Str("id", entry.ID).
+					Str("layout", key.RelLayoutPath).
+					Msg("new content added to plan")
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleContentDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		if plan.HasEntry(path) {
+			plan.DeleteEntry(path)
+			plan.Manifest.Delete(path)
+
+			log.TTrace(log.Handler).
+				Str("id", path).
+				Msg("content deleted from plan")
+		}
+	}
+	return nil
+}
+
+// Content Asset handlers
+func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:source:%s", path)
+		if !plan.HasEntry(id) {
+			log.DDebug(log.Handler).Str("path", path).Msg("asset modified but not in plan")
+			continue
+		}
+
+		newHash, err := plan.HashCache.HashFile(s.project.SourceRoot.FS(), path)
+		if err != nil {
+			log.Warn(fmt.Sprintf("hash asset %s: %v", path, err))
+			continue
+		}
+
+		_ = plan.UpdateEntry(path, func(entry *project.BuildEntry) error {
+			if entry.ContentHash != newHash {
+				entry.ContentHash = newHash
+
+				entryHash := project.EntryHash{
+					ContentHash:    entry.ContentHash,
+					LayoutHash:     entry.LayoutHash,
+					PipelineHash:   entry.PipelineHash,
+					FragmentHashes: entry.FragmentHashes,
+				}
+				entry.Hash = entryHash.Compute()
+
+				entry.Dirty = true
+
+				log.TTrace(log.Handler).
+					Str("id", entry.ID).
+					Msg("asset modified, marked dirty")
+			}
+			return nil
+		})
+	}
+	return nil
+}
+
+func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:source:%s", path)
+
+		if plan.HasEntry(id) {
+			continue
+		}
+
+		dir := filepath.Dir(path)
+
+		lmap, err := s.project.GetLayouts(dir)
+		if err != nil {
+			continue
+		}
+
+		for _, lyt := range lmap {
+			for _, cc := range lyt.Contents() {
+				for _, a := range cc.Assets() {
+					glob := filepath.ToSlash(filepath.Join(dir, a.Source))
+					matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
+					if err != nil || len(matches) == 0 {
+						continue
+					}
+
+					entry := &project.BuildEntry{
+						ID:             id,
+						Type:           "asset",
+						SourcePath:     path,
+						SourceRoot:     "source",
+						OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.AssetType),
+						Pipeline:       a.AssetType,
+						BaseDir:        filepath.Dir(path),
+						FragmentHashes: make(map[string]string),
+					}
+
+					if err := s.project.ComputeEntryHash(ctx, entry, plan); err != nil {
+						log.Warn(fmt.Sprintf("compute hash for new asset %s: %v", path, err))
+						continue
+					}
+
+					entry.Dirty = true
+					plan.AddEntry(entry.ID, entry)
+
+					log.TTrace(log.Handler).Str("id", entry.ID).Msg("new asset added to plan")
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleContentAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:source:%s", path)
+		if plan.HasEntry(id) {
+			plan.DeleteEntry(id)
+			plan.Manifest.Delete(id)
+
+			log.TTrace(log.Handler).
+				Str("id", id).
+				Msg("asset deleted from plan")
+		}
+	}
+	return nil
+}
+
+// Layout handlers
+
+func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+
+		log.DDebug(log.Handler).
+			Str("layout", path).
+			Str("dir", dir).
+			Msg("layout modified, triggering partial scan")
+
+		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
+
+		log.DDebug(log.Handler).
+			Str("layout", path).
+			Int("affected_keys", len(affectedKeys)).
+			Msg("layout cache invalidated")
+
+		if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+			log.EError(log.Handler).
+				Err(err).
+				Str("dir", dir).
+				Msg("partial scan failed")
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+		// TODO TRIM?
+		fmt.Println("NEW LAYOUT IN DIR:", dir)
+		// dir = strings.TrimPrefix(dir, ".craeft/scheme/")
+		// dir = strings.TrimPrefix(dir, "scheme/")
+
+		log.DDebug(log.Handler).
+			Str("layout", path).
+			Str("dir", dir).
+			Msg("new layout created, removing old entries and scanning")
+
+			// Remove entries that were using parent layout
+		plan.RemoveIf(func(entry *project.BuildEntry) bool {
+			return entry.Type == "content" && strings.HasPrefix(entry.BaseDir, dir)
+		}, false)
+
+		if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+			log.EError(log.Handler).
+				Err(err).
+				Str("dir", dir).
+				Msg("partial scan failed")
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+		// TODO TRIM?
+		fmt.Println("NEW LAYOUT IN DIR:", dir)
+		// dir = strings.TrimPrefix(dir, ".craeft/scheme/")
+		// dir = strings.TrimPrefix(dir, "scheme/")
+
+		log.DDebug(log.Handler).
+			Str("layout", path).
+			Str("dir", dir).
+			Msg("layout deleted, removing entries and rescanning with parent")
+
+		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
+
+		affectedKeysMap := make(map[project.LayoutKey]struct{})
+		for _, key := range affectedKeys {
+			affectedKeysMap[key] = struct{}{}
+		}
+
+		plan.RemoveIf(func(entry *project.BuildEntry) bool {
+			if entry.Type != "content" {
+				return false
+			}
+			_, found := affectedKeysMap[entry.LayoutKey]
+			return found
+		}, true)
+
+		if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+			log.EError(log.Handler).
+				Err(err).
+				Str("dir", dir).
+				Msg("partial scan failed")
+		}
+	}
+	return nil
+}
+
+// Fragment handler
+
+func (s *Server) handleFragmentModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
+
+		log.DDebug(log.Handler).
+			Str("fragment", path).
+			Int("affected_keys", len(affectedKeys)).
+			Msg("fragment modified")
+
+		newHash, err := plan.HashCache.HashFile(s.project.SchemeRoot.FS(), path)
+		if err != nil {
+			log.Warn(fmt.Sprintf("hash fragment %s: %v", path, err))
+			continue
+		}
+
+		for _, key := range affectedKeys {
+
+			keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+				return e.Type == "content" && e.LayoutKey == key
+			})
+
+			for _, k := range keys {
+				plan.UpdateEntry(k, func(entry *project.BuildEntry) error {
+
+					if oldHash, exists := entry.FragmentHashes[path]; exists && oldHash != newHash {
+						entry.FragmentHashes[path] = newHash
+
+						entryHash := project.EntryHash{
+							ContentHash:    entry.ContentHash,
+							LayoutHash:     entry.LayoutHash,
+							PipelineHash:   entry.PipelineHash,
+							FragmentHashes: entry.FragmentHashes,
+						}
+						entry.Hash = entryHash.Compute()
+						entry.Dirty = true
+
+						log.TTrace(log.Handler).
+							Str("id", entry.ID).
+							Str("fragment", path).
+							Msg("entry marked dirty due to fragment change")
+					}
+
+					return nil
+				})
+			}
+		}
+	}
+	return nil
+}
+
+// Scheme Asset handlers
+
+func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:scheme:%s", path)
+
+		if !plan.HasEntry(id) {
+			log.DDebug(log.Handler).Str("path", path).Msg("scheme asset modified but not in plan")
+			continue
+		}
+
+		newHash, err := plan.HashCache.HashFile(s.project.SchemeRoot.FS(), path)
+		if err != nil {
+			log.Warn(fmt.Sprintf("hash scheme asset %s: %v", path, err))
+			continue
+		}
+
+		plan.UpdateEntry(id, func(entry *project.BuildEntry) error {
+			if entry.ContentHash != newHash {
+				entry.ContentHash = newHash
+
+				entryHash := project.EntryHash{
+					ContentHash:    entry.ContentHash,
+					LayoutHash:     entry.LayoutHash,
+					PipelineHash:   entry.PipelineHash,
+					FragmentHashes: entry.FragmentHashes,
+				}
+				entry.Hash = entryHash.Compute()
+
+				entry.Dirty = true
+
+				log.TTrace(log.Handler).
+					Str("id", entry.ID).
+					Msg("scheme asset modified, marked dirty")
+			}
+
+			return nil
+		})
+	}
+	return nil
+}
+
+func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+
+		lmap, err := s.project.GetLayouts(dir)
+		if err != nil {
+			continue
+		}
+
+		for _, lyt := range lmap {
+			for _, a := range lyt.Assets() {
+				glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
+
+				matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
+				if err != nil || len(matches) == 0 {
+					continue
+				}
+
+				id := fmt.Sprintf("asset:scheme:%s", path)
+				entry := &project.BuildEntry{
+					ID:             id,
+					Type:           "asset",
+					SourcePath:     path,
+					SourceRoot:     "scheme",
+					OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.AssetType),
+					Pipeline:       a.AssetType,
+					BaseDir:        filepath.Dir(path),
+					FragmentHashes: make(map[string]string),
+				}
+
+				if err := s.project.ComputeEntryHash(ctx, entry, plan); err != nil {
+					log.Warn(fmt.Sprintf("compute hash for new scheme asset %s: %v", path, err))
+					continue
+				}
+
+				entry.Dirty = true
+				plan.AddEntry(entry.ID, entry)
+
+				log.TTrace(log.Handler).Str("id", entry.ID).Msg("new scheme asset added to plan")
+			}
+		}
+	}
+	return nil
+}
+
+func (s *Server) handleSchemeAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:scheme:%s", path)
+
+		if plan.HasEntry(id) {
+			plan.DeleteEntry(id)
+			plan.Manifest.Delete(id)
+
+			log.TTrace(log.Handler).
+				Str("id", id).
+				Msg("scheme asset deleted from plan")
+		}
+	}
+	return nil
+}
+
+// Pipeline handler
+
+func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	pipelineNames := make(map[string]struct{})
+	for _, path := range paths {
+		parts := strings.Split(path, "/")
+		if len(parts) > 0 {
+			pipelineNames[parts[0]] = struct{}{}
+		}
+	}
+	fmt.Printf("pipeline modified: %v", pipelineNames)
+
+	for pipeName := range pipelineNames {
+		if err := s.project.Pipes.Reload(pipeName); err != nil {
+			log.Warn(fmt.Sprintf("pipeline reload failed: %s: %v", pipeName, err))
+			continue
+		}
+
+		log.IInfo(log.Handler).Str("pipeline", pipeName).Msg("reloaded")
+
+		pl, err := s.project.Pipes.Get(pipeName)
+		if err != nil {
+			continue
+		}
+
+		cfg := pl.Config()
+		newPipelineHash := project.HashString(fmt.Sprintf("%s-%s-%s",
+			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
+
+		keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+			return e.Pipeline == pipeName && e.PipelineHash != newPipelineHash
+		})
+		for _, k := range keys {
+			plan.UpdateEntry(k, func(entry *project.BuildEntry) error {
+
+				entry.PipelineHash = newPipelineHash
+
+				entryHash := project.EntryHash{
+					ContentHash:    entry.ContentHash,
+					LayoutHash:     entry.LayoutHash,
+					PipelineHash:   entry.PipelineHash,
+					FragmentHashes: entry.FragmentHashes,
+				}
+				entry.Hash = entryHash.Compute()
+
+				entry.Dirty = true
+
+				log.TTrace(log.Handler).
+					Str("id", entry.ID).
+					Str("pipeline", pipeName).
+					Msg("entry marked dirty due to pipeline change")
+
+				return nil
+			})
+		}
+	}
+	return nil
+}
