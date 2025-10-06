@@ -54,10 +54,6 @@ func (lc *LayoutCache) GetOrBuild(
 ) (*fasttemplate.Template, error) {
 
 	if tpl := lc.get(key); tpl != nil {
-		log.TTrace(log.Layout).
-			Str("rel_layout", key.RelLayoutPath).
-			Str("base_dir", key.BaseDir).
-			Msg("cache hit")
 		return tpl, nil
 	}
 
@@ -69,10 +65,6 @@ func (lc *LayoutCache) GetOrBuild(
 
 	v, err, _ := lc.sf.Do(key.RelLayoutPath+"|"+key.BaseDir, func() (any, error) {
 		if tpl := lc.get(key); tpl != nil {
-			log.TTrace(log.Layout).
-				Str("rel_layout", key.RelLayoutPath).
-				Str("base_dir", key.BaseDir).
-				Msg("singleflight: secondary hit after miss")
 			return tpl, nil
 		}
 
@@ -80,11 +72,6 @@ func (lc *LayoutCache) GetOrBuild(
 		if err != nil {
 			return nil, err
 		}
-
-		log.TTrace(log.Layout).
-			Str("rel_layout", key.RelLayoutPath).
-			Int("deps_count", len(deps)).
-			Msg("rendered layout with deps")
 
 		tpl, err := fasttemplate.NewTemplate(str, "{{", "}}")
 		if err != nil {
@@ -110,8 +97,8 @@ func (lc *LayoutCache) GetOrBuild(
 
 		log.DDebug(log.Layout).
 			Str("rel_layout", key.RelLayoutPath).
-			Int("deps_count", len(deps)).
-			Dur("build_ms", time.Since(start)).
+			Int("deps", len(deps)).
+			Dur("duration", time.Since(start)).
 			Msg("template built and cached")
 
 		return tpl, nil
@@ -127,11 +114,6 @@ func (lc *LayoutCache) get(k LayoutKey) *fasttemplate.Template {
 	e, ok := lc.data[k]
 	lc.mu.RUnlock()
 	if ok {
-		log.TTrace(log.Layout).
-			Str("rel_layout", k.RelLayoutPath).
-			Str("base_dir", k.BaseDir).
-			Msg("get: hit")
-
 		return e.tpl
 	}
 	return nil

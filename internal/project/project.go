@@ -143,16 +143,14 @@ func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fastte
 
 	log.DDebug(log.Layout).
 		Str("layout", lyt.Path()).
-		Str("layout key base", key.BaseDir).
-		Str("layout key rel", key.RelLayoutPath).
+		Str("key_base", key.BaseDir).
+		Str("key_rel", key.RelLayoutPath).
 		Msg("template for layout")
 	return p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
 }
 
 func (p *Project) IgnoreFile(name string) bool {
 	name = filepath.ToSlash(filepath.Clean(name))
-
-	log.TTrace(log.Project).Str("name", name).Msg("ignore check")
 
 	for _, raw := range p.Config.Ignore {
 		pat := filepath.ToSlash(strings.TrimSpace(raw))
@@ -163,14 +161,14 @@ func (p *Project) IgnoreFile(name string) bool {
 		if strings.HasSuffix(pat, "/**") {
 			prefix := strings.TrimSuffix(pat, "/**")
 			if name == prefix || strings.HasPrefix(name, prefix+"/") {
-				log.DDebug(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by prefix/**")
+				log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by prefix/**")
 				return true
 			}
 			continue
 		}
 		if !strings.ContainsAny(pat, "*?[]") {
 			if name == pat || strings.HasPrefix(name, pat+"/") {
-				log.DDebug(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by exact/prefix")
+				log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by exact/prefix")
 				return true
 			}
 			continue
@@ -181,7 +179,7 @@ func (p *Project) IgnoreFile(name string) bool {
 			continue
 		}
 		if ok {
-			log.DDebug(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by glob")
+			log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by glob")
 			return true
 		}
 	}
@@ -213,8 +211,6 @@ func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 		return nil, fmt.Errorf("cannot find layout for path %q: %w", base, err)
 	}
 
-	log.DDebug(log.Layout).Str("base", base).Int("matches", len(matches)).Msg("layout matches")
-
 	out := make(map[string]*layout.Layout, len(matches))
 	for _, rel := range matches {
 		relSlash := filepath.ToSlash(rel)
@@ -224,7 +220,6 @@ func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 			continue
 		}
 
-		log.TTrace(log.Layout).Str("rel", relSlash).Msg("parsed layout")
 		out[relSlash] = lyt
 
 	}
@@ -245,7 +240,6 @@ func (p *Project) loadLayout(path string) (*layout.Layout, error) {
 	p.parsedMu.RUnlock()
 
 	if ok && e.size == size && e.mtime.Equal(mtime) {
-		log.TTrace(log.Layout).Str("rel", path).Msg("using cached layout")
 		return e.lyt, nil
 	}
 
@@ -262,6 +256,12 @@ func (p *Project) loadLayout(path string) (*layout.Layout, error) {
 	p.parsedMu.Lock()
 	p.parsed[lyt.Path()] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
 	p.parsedMu.Unlock()
+
+	log.DDebug(log.Layout).
+		Str("path", path).
+		Int("contents", len(lyt.Contents())).
+		Int("fragments", len(lyt.Fragments())).
+		Msg("layout loaded")
 
 	return lyt, nil
 }
@@ -290,7 +290,6 @@ func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error
 			continue
 		}
 
-		log.TTrace(log.Layout).Str("rel", relSlash).Msg("parsed layout")
 		out[relSlash] = lyt
 
 	}

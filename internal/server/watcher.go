@@ -68,11 +68,11 @@ func (s *Server) Watch(ctx context.Context) error {
 
 				select {
 				case changes <- change:
-					log.TTrace(log.Server).
-						Str("path", change.Path).
-						Str("type", string(change.Type)).
-						Str("mod", string(change.Mod)).
-						Msg("file event classified")
+					// log.TTrace(log.Server).
+					// 	Str("path", change.Path).
+					// 	Str("type", string(change.Type)).
+					// 	Str("mod", string(change.Mod)).
+					// 	Msg("file event classified")
 				case <-ctx.Done():
 					close(changes)
 					return
@@ -196,21 +196,21 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 
 	grouped := s.groupChanges(changes)
 
-	log.DDebug(log.Server).
+	log.IInfo(log.Server).
 		Int("total_changes", len(changes)).
 		Int("unique_handlers", len(grouped)).
-		Msg("change batch grouped")
+		Msg("processing file changes")
 
 	for key, paths := range grouped {
 		if len(paths) == 0 {
 			continue
 		}
 
-		log.TTrace(log.Server).
-			Str("type", string(key.fileType)).
-			Str("mod", string(key.modType)).
-			Int("count", len(paths)).
-			Msg("dispatching to handler")
+		// log.TTrace(log.Server).
+		// 	Str("type", string(key.fileType)).
+		// 	Str("mod", string(key.modType)).
+		// 	Int("count", len(paths)).
+		// 	Msg("dispatching to handler")
 
 		if err := s.eventRegistry.Dispatch(ctx, plan, key.fileType, key.modType, paths); err != nil {
 			log.EError(log.Server).
@@ -227,16 +227,18 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 	dirtyCount := len(keys)
 
 	if dirtyCount == 0 {
-		log.DDebug(log.Server).Msg("no dirty entries, skipping rebuild")
+		log.DDebug(log.Server).
+			Int("changes", len(changes)).
+			Msg("no dirty entries, skipping rebuild")
 		if s.config.FsWatcher.HotReload {
 			s.reloadPage()
 		}
 		return nil
 	}
 
-	log.IInfo(log.Build).
+	log.IInfo(log.Server).
 		Int("dirty", dirtyCount).
-		Msg("incremental rebuild starting")
+		Msg("starting incremental rebuild")
 
 	opts := project.BuildOptions{
 		Concurrency: runtime.NumCPU(),
@@ -249,11 +251,12 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 		return fmt.Errorf("incremental build: %w", err)
 	}
 
-	log.IInfo(log.Build).
+	log.IInfo(log.Server).
 		Int64("built", stats.BuiltEntries).
 		Int64("cache_hits", stats.CacheHits).
+		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
-		Msg("incremental rebuild completed")
+		Msg("rebuild completed")
 
 	if s.config.FsWatcher.HotReload && stats.BuiltEntries > 0 {
 		s.reloadPage()

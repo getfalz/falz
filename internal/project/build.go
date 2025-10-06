@@ -132,8 +132,9 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan, opts BuildOptio
 		Int64("built", stats.BuiltEntries).
 		Int64("cache_hits", stats.CacheHits).
 		Int64("cache_misses", stats.CacheMisses).
+		Dur("build", stats.BuildDuration).
 		Dur("duration", stats.Duration).
-		Msg(" build completed")
+		Msg("build completed")
 
 	return stats, errors.Join(stats.Errors...)
 }
@@ -444,13 +445,13 @@ func (p *Project) processEntry(
 	ctx context.Context,
 	entry *BuildEntry,
 ) *ProcessResult {
-	lb := log.TTrace(log.Build).
-		Str("source", entry.SourcePath).
-		Str("pipe", entry.Pipeline)
-	if entry.Type == "content" && entry.Layout != nil {
-		lb.Str("layout", entry.Layout.Path())
-	}
-	lb.Msg("build start")
+	// lb := log.TTrace(log.Build).
+	// 	Str("source", entry.SourcePath).
+	// 	Str("pipe", entry.Pipeline)
+	// if entry.Type == "content" && entry.Layout != nil {
+	// 	lb.Str("layout", entry.Layout.Path())
+	// }
+	// lb.Msg("build start")
 
 	start := time.Now()
 	result := &ProcessResult{Entry: entry}
@@ -504,14 +505,13 @@ func (p *Project) processEntry(
 		result.Data = []byte(transformed)
 	}
 
-	lb = log.DDebug(log.Build).
+	log.DDebug(log.Build).
 		Str("source", entry.SourcePath).
+		Str("output", entry.OutputPath).
 		Str("pipe", entry.Pipeline).
-		Dur("build_ms", time.Since(start))
-	if entry.Type == "content" && entry.Layout != nil {
-		lb.Str("layout", entry.Layout.Path())
-	}
-	lb.Msg("build done")
+		Int("bytes", len(result.Data)).
+		Dur("duration", time.Since(start)).
+		Msg("built")
 
 	return result
 }
@@ -534,11 +534,6 @@ func (p *Project) writeResult(
 		return fmt.Errorf("write %s: %w", dst, err)
 	}
 
-	log.TTrace(log.IO).
-		Str("dst", dst).
-		Int("bytes", len(result.Data)).
-		Msg("wrote file")
-
 	plan.Manifest.Set(entry.ID, ManifestEntry{
 		Hash:       entry.Hash,
 		OutputPath: entry.OutputPath,
@@ -550,13 +545,6 @@ func (p *Project) writeResult(
 		e.Dirty = false
 		return nil
 	})
-
-	log.TTrace(log.Build).
-		Str("id", entry.ID).
-		Str("type", entry.Type).
-		Str("output", entry.OutputPath).
-		Bool("cached", result.Cached).
-		Msg("entry built")
 
 	return nil
 }

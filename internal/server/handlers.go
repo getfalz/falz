@@ -15,7 +15,9 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 	for _, path := range paths {
 
 		if !plan.HasEntry(path) {
-			log.DDebug(log.Handler).Str("path", path).Msg("content modified but not in plan")
+			log.DDebug(log.Handler).
+				Str("path", path).
+				Msg("content modified but not in plan")
 			continue
 		}
 
@@ -39,10 +41,11 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 				entry.Hash = entryHash.Compute()
 				entry.Dirty = true
 
-				log.TTrace(log.Handler).
+				log.DDebug(log.Handler).
 					Str("id", entry.ID).
-					Str("hash", entry.Hash[:8]).
-					Msg("content modified, marked dirty")
+					Str("old_hash", entry.ContentHash[:8]).
+					Str("new_hash", newHash[:8]).
+					Msg("content changed, marked for rebuild")
 
 			}
 			return nil
@@ -109,7 +112,7 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 				entry.Dirty = true
 				plan.AddEntry(entry.ID, entry)
 
-				log.TTrace(log.Handler).
+				log.IInfo(log.Handler).
 					Str("id", entry.ID).
 					Str("layout", key.RelLayoutPath).
 					Msg("new content added to plan")
@@ -125,7 +128,7 @@ func (s *Server) handleContentDeleted(ctx context.Context, plan *project.Plan, p
 			plan.DeleteEntry(path)
 			plan.Manifest.Delete(path)
 
-			log.TTrace(log.Handler).
+			log.IInfo(log.Handler).
 				Str("id", path).
 				Msg("content deleted from plan")
 		}
@@ -138,7 +141,9 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:source:%s", path)
 		if !plan.HasEntry(id) {
-			log.DDebug(log.Handler).Str("path", path).Msg("asset modified but not in plan")
+			log.DDebug(log.Handler).
+				Str("path", path).
+				Msg("asset modified but not in plan")
 			continue
 		}
 
@@ -162,9 +167,9 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 
 				entry.Dirty = true
 
-				log.TTrace(log.Handler).
+				log.DDebug(log.Handler).
 					Str("id", entry.ID).
-					Msg("asset modified, marked dirty")
+					Msg("asset changed, marked for rebuild")
 			}
 			return nil
 		})
@@ -215,7 +220,10 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 					entry.Dirty = true
 					plan.AddEntry(entry.ID, entry)
 
-					log.TTrace(log.Handler).Str("id", entry.ID).Msg("new asset added to plan")
+					log.IInfo(log.Handler).
+						Str("id", entry.ID).
+						Str("pipeline", a.AssetType).
+						Msg("new asset added to plan")
 				}
 			}
 		}
@@ -230,7 +238,7 @@ func (s *Server) handleContentAssetDeleted(ctx context.Context, plan *project.Pl
 			plan.DeleteEntry(id)
 			plan.Manifest.Delete(id)
 
-			log.TTrace(log.Handler).
+			log.IInfo(log.Handler).
 				Str("id", id).
 				Msg("asset deleted from plan")
 		}
@@ -244,10 +252,10 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 
-		log.DDebug(log.Handler).
+		log.IInfo(log.Handler).
 			Str("layout", path).
 			Str("dir", dir).
-			Msg("layout modified, triggering partial scan")
+			Msg("layout modified, rescanning directory")
 
 		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
 
@@ -270,16 +278,16 @@ func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, pa
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 		// TODO TRIM?
-		fmt.Println("NEW LAYOUT IN DIR:", dir)
+		fmt.Println("TODO: NEW LAYOUT IN DIR:", dir)
 		// dir = strings.TrimPrefix(dir, ".craeft/scheme/")
 		// dir = strings.TrimPrefix(dir, "scheme/")
 
-		log.DDebug(log.Handler).
+		log.IInfo(log.Handler).
 			Str("layout", path).
 			Str("dir", dir).
-			Msg("new layout created, removing old entries and scanning")
+			Msg("new layout created, rescanning directory")
 
-			// Remove entries that were using parent layout
+		// Remove entries that were using parent layout
 		plan.RemoveIf(func(entry *project.BuildEntry) bool {
 			return entry.Type == "content" && strings.HasPrefix(entry.BaseDir, dir)
 		}, false)
@@ -298,14 +306,14 @@ func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, pa
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 		// TODO TRIM?
-		fmt.Println("NEW LAYOUT IN DIR:", dir)
+		fmt.Println("TODO: NEW LAYOUT IN DIR:", dir)
 		// dir = strings.TrimPrefix(dir, ".craeft/scheme/")
 		// dir = strings.TrimPrefix(dir, "scheme/")
 
-		log.DDebug(log.Handler).
+		log.IInfo(log.Handler).
 			Str("layout", path).
 			Str("dir", dir).
-			Msg("layout deleted, removing entries and rescanning with parent")
+			Msg("layout deleted, rescanning with parent layout")
 
 		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
 
@@ -370,10 +378,12 @@ func (s *Server) handleFragmentModified(ctx context.Context, plan *project.Plan,
 						entry.Hash = entryHash.Compute()
 						entry.Dirty = true
 
-						log.TTrace(log.Handler).
+						log.DDebug(log.Handler).
 							Str("id", entry.ID).
 							Str("fragment", path).
-							Msg("entry marked dirty due to fragment change")
+							Str("old_hash", oldHash[:8]).
+							Str("new_hash", newHash[:8]).
+							Msg("fragment changed, content marked for rebuild")
 					}
 
 					return nil
@@ -391,7 +401,9 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 		id := fmt.Sprintf("asset:scheme:%s", path)
 
 		if !plan.HasEntry(id) {
-			log.DDebug(log.Handler).Str("path", path).Msg("scheme asset modified but not in plan")
+			log.DDebug(log.Handler).
+				Str("path", path).
+				Msg("scheme asset modified but not in plan")
 			continue
 		}
 
@@ -415,9 +427,9 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 
 				entry.Dirty = true
 
-				log.TTrace(log.Handler).
+				log.DDebug(log.Handler).
 					Str("id", entry.ID).
-					Msg("scheme asset modified, marked dirty")
+					Msg("scheme asset changed, marked for rebuild")
 			}
 
 			return nil
@@ -464,7 +476,10 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 				entry.Dirty = true
 				plan.AddEntry(entry.ID, entry)
 
-				log.TTrace(log.Handler).Str("id", entry.ID).Msg("new scheme asset added to plan")
+				log.IInfo(log.Handler).
+					Str("id", entry.ID).
+					Str("pipeline", a.AssetType).
+					Msg("new scheme asset added to plan")
 			}
 		}
 	}
@@ -479,7 +494,7 @@ func (s *Server) handleSchemeAssetDeleted(ctx context.Context, plan *project.Pla
 			plan.DeleteEntry(id)
 			plan.Manifest.Delete(id)
 
-			log.TTrace(log.Handler).
+			log.DDebug(log.Handler).
 				Str("id", id).
 				Msg("scheme asset deleted from plan")
 		}
@@ -489,6 +504,7 @@ func (s *Server) handleSchemeAssetDeleted(ctx context.Context, plan *project.Pla
 
 // Pipeline handler
 
+// TODO this method need rework
 func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	pipelineNames := make(map[string]struct{})
 	for _, path := range paths {
@@ -497,7 +513,7 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 			pipelineNames[parts[0]] = struct{}{}
 		}
 	}
-	fmt.Printf("pipeline modified: %v", pipelineNames)
+	fmt.Printf("TODO: pipeline modified: %v", pipelineNames)
 
 	for pipeName := range pipelineNames {
 		if err := s.project.Pipes.Reload(pipeName); err != nil {
@@ -534,10 +550,10 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 
 				entry.Dirty = true
 
-				log.TTrace(log.Handler).
+				log.DDebug(log.Handler).
 					Str("id", entry.ID).
 					Str("pipeline", pipeName).
-					Msg("entry marked dirty due to pipeline change")
+					Msg("pipeline changed, entry marked for rebuild")
 
 				return nil
 			})

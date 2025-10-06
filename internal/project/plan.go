@@ -162,7 +162,6 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 			base := filepath.ToSlash(path)
 			lmap, err := p.GetLayouts(base)
 			if err != nil {
-				log.TTrace(log.Layout).Str("base", base).Err(err).Msg("no layouts for base")
 				return nil
 			}
 
@@ -195,12 +194,6 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 						plan.entries[entry.ID] = entry
 						changed++
 						plan.mu.Unlock()
-
-						log.TTrace(log.Plan).
-							Str("layout", key.RelLayoutPath).
-							Str("content", rel).
-							Str("pipe", cc.Pipe).
-							Msg("page planned")
 					}
 
 					for _, a := range cc.Assets() {
@@ -227,12 +220,6 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 							plan.entries[entry.ID] = entry
 							changed++
 							plan.mu.Unlock()
-
-							log.TTrace(log.Plan).
-								Str("from", "source").
-								Str("pipe", a.AssetType).
-								Str("rel", rel).
-								Msg("asset planned")
 						}
 					}
 
@@ -262,12 +249,6 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 						plan.entries[entry.ID] = entry
 						changed++
 						plan.mu.Unlock()
-
-						log.TTrace(log.Plan).
-							Str("from", "scheme").
-							Str("pipe", a.AssetType).
-							Str("rel", rel).
-							Msg("asset planned")
 					}
 				}
 
@@ -304,23 +285,13 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 				return fs.SkipDir
 			}
 
-			// TODO use base instead of path?
-			// scanFiles also use path
 			lmap, err := p.getLayoutsForDir(path)
 			if err == nil && len(lmap) > 0 {
-				log.TTrace(log.Plan).
-					Str("subdir", path).
-					Msg("subdirectory has own layout, skipping")
 				return fs.SkipDir
 			}
 
 			base := filepath.ToSlash(path)
-			// lmap, err = p.GetLayouts(base)
 			if err != nil {
-				log.TTrace(log.Layout).
-					Str("base", base).
-					Err(err).
-					Msg("no layouts for directory in partial scan")
 				return nil
 			}
 
@@ -526,12 +497,6 @@ func (p *Project) ComputeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 	}
 	e.Hash = entryHash.Compute()
 
-	log.TTrace(log.Plan).
-		Str("id", e.ID).
-		Str("type", e.Type).
-		Str("hash", e.Hash[:8]).
-		Msg("computed hash")
-
 	return nil
 }
 
@@ -545,11 +510,6 @@ func (p *Plan) diff() int {
 		if p.Manifest.IsDirty(id, entry.Hash) {
 			entry.Dirty = true
 			changed++
-
-			log.TTrace(log.Plan).
-				Str("id", id).
-				Str("type", entry.Type).
-				Msg("marked dirty")
 		}
 	}
 
@@ -614,9 +574,6 @@ func (p *Project) updateOrCreateContentEntry(
 		if err := p.updateEntryHashes(ctx, existingEntry, plan); err != nil {
 			log.Warn(fmt.Sprintf("update entry hash %s: %v", rel, err))
 		}
-		log.TTrace(log.Plan).
-			Str("id", rel).
-			Msg("content entry updated")
 	} else {
 		// Entry doesn't exist or has wrong layout
 		if exists {
@@ -651,10 +608,10 @@ func (p *Project) updateOrCreateContentEntry(
 		plan.entries[entry.ID] = entry
 		plan.mu.Unlock()
 
-		log.TTrace(log.Plan).
+		log.DDebug(log.Plan).
 			Str("id", rel).
 			Str("layout", key.RelLayoutPath).
-			Msg("content entry created")
+			Msg("new content entry added")
 	}
 }
 
@@ -677,9 +634,6 @@ func (p *Project) updateOrCreateAssetEntry(
 		if err := p.updateEntryHashes(ctx, existingEntry, plan); err != nil {
 			log.Warn(fmt.Sprintf("update asset hash %s: %v", rel, err))
 		}
-		log.TTrace(log.Plan).
-			Str("id", id).
-			Msg("asset entry updated")
 	} else {
 		// Create new entry
 		entry := &BuildEntry{
@@ -704,9 +658,10 @@ func (p *Project) updateOrCreateAssetEntry(
 		plan.entries[entry.ID] = entry
 		plan.mu.Unlock()
 
-		log.TTrace(log.Plan).
+		log.DDebug(log.Plan).
 			Str("id", id).
-			Msg("asset entry created")
+			Str("pipeline", pipeline).
+			Msg("new asset entry added")
 	}
 }
 
@@ -720,11 +675,11 @@ func (p *Project) updateEntryHashes(ctx context.Context, entry *BuildEntry, plan
 
 	if entry.Hash != oldHash {
 		entry.Dirty = true
-		log.TTrace(log.Plan).
+		log.DDebug(log.Plan).
 			Str("id", entry.ID).
 			Str("old_hash", oldHash[:8]).
 			Str("new_hash", entry.Hash[:8]).
-			Msg("entry hash changed, marked dirty")
+			Msg("hash changed, marked for rebuild")
 	}
 
 	return nil
