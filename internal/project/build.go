@@ -546,6 +546,11 @@ func (p *Project) writeResult(
 		Size:       int64(len(result.Data)),
 	})
 
+	plan.UpdateEntry(result.Entry.ID, func(e *BuildEntry) error {
+		e.Dirty = false
+		return nil
+	})
+
 	log.TTrace(log.Build).
 		Str("id", entry.ID).
 		Str("type", entry.Type).
