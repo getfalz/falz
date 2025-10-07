@@ -66,13 +66,14 @@ func (s *Server) Watch(ctx context.Context) error {
 					continue
 				}
 
+				log.TTrace(log.Server).
+					Str("path", change.Path).
+					Str("type", string(change.Type)).
+					Str("mod", string(change.Mod)).
+					Msg("file event classified")
+
 				select {
 				case changes <- change:
-					// log.TTrace(log.Server).
-					// 	Str("path", change.Path).
-					// 	Str("type", string(change.Type)).
-					// 	Str("mod", string(change.Mod)).
-					// 	Msg("file event classified")
 				case <-ctx.Done():
 					close(changes)
 					return
@@ -93,15 +94,15 @@ func (s *Server) classifyEvent(ei notify.EventInfo, absSource, absScheme, absPip
 	var relPath string
 	var root string
 
-	if strings.HasPrefix(absPath, absSource) {
-		relPath, _ = filepath.Rel(absSource, absPath)
-		root = "source"
-	} else if strings.HasPrefix(absPath, absScheme) {
+	if strings.HasPrefix(absPath, absScheme) {
 		relPath, _ = filepath.Rel(absScheme, absPath)
 		root = "scheme"
 	} else if strings.HasPrefix(absPath, absPipes) {
 		relPath, _ = filepath.Rel(absPipes, absPath)
 		root = "pipes"
+	} else if strings.HasPrefix(absPath, absSource) {
+		relPath, _ = filepath.Rel(absSource, absPath)
+		root = "source"
 	} else {
 		return FileChange{Type: FileTypeUnknown}
 	}

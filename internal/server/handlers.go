@@ -277,10 +277,6 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		dir := filepath.Dir(path)
-		// TODO TRIM?
-		fmt.Println("TODO: NEW LAYOUT IN DIR:", dir)
-		// dir = strings.TrimPrefix(dir, ".craeft/scheme/")
-		// dir = strings.TrimPrefix(dir, "scheme/")
 
 		log.IInfo(log.Handler).
 			Str("layout", path).
@@ -305,10 +301,6 @@ func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, pa
 func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		dir := filepath.Dir(path)
-		// TODO TRIM?
-		fmt.Println("TODO: NEW LAYOUT IN DIR:", dir)
-		// dir = strings.TrimPrefix(dir, ".craeft/scheme/")
-		// dir = strings.TrimPrefix(dir, "scheme/")
 
 		log.IInfo(log.Handler).
 			Str("layout", path).
