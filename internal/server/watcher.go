@@ -66,6 +66,11 @@ func (s *Server) Watch(ctx context.Context) error {
 					continue
 				}
 
+				merged := s.coalesceFileEvents(change)
+				if merged == nil {
+					continue
+				}
+
 				log.TTrace(log.Server).
 					Str("path", change.Path).
 					Str("type", string(change.Type)).
@@ -73,7 +78,7 @@ func (s *Server) Watch(ctx context.Context) error {
 					Msg("file event classified")
 
 				select {
-				case changes <- change:
+				case changes <- *merged:
 				case <-ctx.Done():
 					close(changes)
 					return
@@ -84,6 +89,63 @@ func (s *Server) Watch(ctx context.Context) error {
 
 	s.processChanges(ctx, changes)
 	return nil
+}
+
+// eventMergeWindow defines how long two events for the same file
+// are considered part of the same save operation.
+const eventMergeWindow = 300 * time.Millisecond
+
+// recentEvent tracks recent modifications for a given file
+type recentEvent struct {
+	LastMod  ModType
+	LastTime time.Time
+}
+
+// eventCache stores recent events by path
+var eventCache sync.Map // path -> *recentEvent
+
+// coalesceFileEvents merges redundant or rapid events for the same file.
+// this can happen when editors when changing a file e.g. first save a tmp file, then create a new one, and finally rename them
+// Returns nil if the event should be suppressed.
+func (s *Server) coalesceFileEvents(change FileChange) *FileChange {
+	now := time.Now()
+
+	v, ok := eventCache.Load(change.Path)
+	if !ok {
+		eventCache.Store(change.Path, &recentEvent{LastMod: change.Mod, LastTime: now})
+		return &change
+	}
+
+	st := v.(*recentEvent)
+	if now.Sub(st.LastTime) < eventMergeWindow {
+		st.LastMod = s.resolveEventType(st.LastMod, change.Mod)
+		st.LastTime = now
+		eventCache.Store(change.Path, st)
+		return nil
+	}
+
+	eventCache.Store(change.Path, &recentEvent{LastMod: change.Mod, LastTime: now})
+	return &change
+}
+
+// resolveEventType fuses two modification types into one
+func (s *Server) resolveEventType(prev, curr ModType) ModType {
+	switch {
+	case prev == ModTypeDeleted && curr == ModTypeCreated:
+		return ModTypeModified // replaced
+	case prev == ModTypeCreated && curr == ModTypeModified:
+		return ModTypeCreated // still new file
+	case prev == ModTypeCreated && curr == ModTypeDeleted:
+		return ModTypeDeleted // short-lived file
+	case prev == ModTypeModified && curr == ModTypeModified:
+		return ModTypeModified
+	case prev == ModTypeDeleted && curr == ModTypeDeleted:
+		return ModTypeDeleted
+	case curr == ModTypeDeleted:
+		return ModTypeDeleted
+	default:
+		return curr
+	}
 }
 
 // classifyEvent determines the type of file change based on path and event
