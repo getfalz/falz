@@ -202,7 +202,7 @@ func (p *Project) ensureParsedCache() {
 	})
 }
 
-// // GetLayouts returns all layouts for a given path
+// GetLayouts returns all layouts for a given path
 func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 	p.ensureParsedCache()
 

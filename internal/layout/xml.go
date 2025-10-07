@@ -89,7 +89,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				a.pipeline, err = l.pipelines.Get(a.AssetType)
 				if err != nil {
-					log.WWarn(log.Layout).
+					log.FFatal(log.Layout).
 						Str("where", "layout.asset").
 						Str("type", a.AssetType).
 						Str("name", a.Name).
@@ -107,7 +107,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				p, err := l.pipelines.Get(f.Pipe)
 				if err != nil {
-					log.WWarn(log.Layout).
+					log.FFatal(log.Layout).
 						Str("where", "layout.fragment").
 						Str("pipe", f.Pipe).
 						Str("name", f.Name).
@@ -129,7 +129,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				for i, a := range c.assetElms {
 					p, err := l.pipelines.Get(a.AssetType)
 					if err != nil {
-						log.WWarn(log.Layout).
+						log.FFatal(log.Layout).
 							Str("where", "layout.content.asset").
 							Str("type", a.AssetType).
 							Str("name", a.Name).

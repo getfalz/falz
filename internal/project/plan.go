@@ -108,6 +108,11 @@ func (p *Plan) HasEntry(key string) bool {
 	return ok
 }
 
+func (p *Plan) LenEntries() int {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return len(p.entries)
+}
 func (p *Plan) AddEntry(key string, entry *BuildEntry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()

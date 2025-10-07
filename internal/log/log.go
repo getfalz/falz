@@ -111,6 +111,11 @@ func WWarn(tag TagKey) *zerolog.Event {
 	return l.Warn()
 }
 
+func FFatal(tag TagKey) *zerolog.Event {
+	l := logger.With().Str("component", tag.String()).Logger()
+	return l.Fatal()
+}
+
 type Tag struct {
 	Key   TagKey
 	Value string
