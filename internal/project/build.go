@@ -63,10 +63,6 @@ func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, er
 		return &BuildStats{}, fmt.Errorf("generate plan: %w", err)
 	}
 
-	p.currentPlanMu.Lock()
-	p.currentPlan = plan
-	p.currentPlanMu.Unlock()
-
 	planDuration := time.Since(planStart)
 
 	stats, err := p.BuildFromPlan(ctx, plan, opts)

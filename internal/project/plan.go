@@ -93,6 +93,10 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 
 	changed := plan.diff()
 
+	p.currentPlanMu.Lock()
+	p.currentPlan = plan
+	p.currentPlanMu.Unlock()
+
 	log.IInfo(log.Plan).
 		Int("total", total).
 		Int("dirty", changed).
