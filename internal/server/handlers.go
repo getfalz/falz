@@ -441,9 +441,9 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 
 		for _, lyt := range lmap {
 			for _, a := range lyt.Assets() {
-				glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
+				glob := filepath.ToSlash(filepath.Join(dir, a.Source))
 
-				matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
+				matches, err := fs.Glob(s.project.SchemeRoot.FS(), glob)
 				if err != nil || len(matches) == 0 {
 					continue
 				}
@@ -525,7 +525,9 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 
 		keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
-			return e.Pipeline == pipeName && e.PipelineHash != newPipelineHash
+			// TODO rework pipe hash?
+			// reload on any file change in pipe. ignore hash
+			return e.Pipeline == pipeName // && e.PipelineHash != newPipelineHash
 		})
 		for _, k := range keys {
 			plan.UpdateEntry(k, func(entry *project.BuildEntry) error {

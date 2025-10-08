@@ -235,7 +235,7 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 				}
 
 				for _, a := range lyt.Assets() {
-					glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
+					glob := filepath.ToSlash(filepath.Join(base, a.Source))
 					matches, err := fs.Glob(p.SchemeRoot.FS(), glob)
 					if err != nil {
 						continue
@@ -340,7 +340,7 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 				}
 
 				for _, a := range lyt.Assets() {
-					glob := filepath.ToSlash(filepath.Join(lyt.Path(), a.Source))
+					glob := filepath.ToSlash(filepath.Join(base, a.Source))
 					matches, err := fs.Glob(p.SchemeRoot.FS(), glob)
 					if err != nil {
 						continue
