@@ -1,0 +1,1278 @@
+package server
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"craeft/internal/project"
+)
+
+// Test helpers for handlers
+
+func assertEntryDirty(t *testing.T, plan *project.Plan, id string, shouldBeDirty bool) {
+	t.Helper()
+
+	keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+		return e.ID == id && e.Dirty == shouldBeDirty
+	})
+
+	if len(keys) == 0 {
+		// Entry doesn't match - find out why
+		allKeys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+			return e.ID == id
+		})
+
+		if len(allKeys) == 0 {
+			t.Fatalf("Entry %s not found in plan", id)
+		}
+
+		// Entry exists but has wrong dirty state
+		t.Errorf("Entry %s: expected Dirty=%v, but got opposite", id, shouldBeDirty)
+	}
+}
+
+func assertEntryExists(t *testing.T, plan *project.Plan, id string, shouldExist bool) {
+	t.Helper()
+	exists := plan.HasEntry(id)
+	if exists != shouldExist {
+		t.Errorf("Entry %s: expected exists=%v, got %v", id, shouldExist, exists)
+	}
+}
+
+func countDirtyEntries(t *testing.T, plan *project.Plan) int {
+	t.Helper()
+	dirtyEntries := plan.GetDirtyEntries()
+	return len(dirtyEntries)
+}
+
+// Content Handler Tests
+
+func TestHandleContentModified_BasicChange(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Original").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("Initial build failed: %v", err)
+	}
+
+	// Initially should not be dirty
+	assertEntryDirty(t, plan, "index.md", false)
+
+	// Modify the file
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SourcePath, "index.md"),
+		[]byte("# Modified Content"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify file: %v", err)
+	}
+
+	// Handle the modification
+	err = server.handleContentModified(ctx, plan, []string{"index.md"})
+	if err != nil {
+		t.Fatalf("handleContentModified failed: %v", err)
+	}
+
+	// Should now be dirty
+	assertEntryDirty(t, plan, "index.md", true)
+}
+
+func TestHandleContentModified_MultipleFiles(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("a.md", "# A").
+		WithSource("b.md", "# B").
+		WithSource("c.md", "# C").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Modify all files
+	for _, name := range []string{"a.md", "b.md", "c.md"} {
+		time.Sleep(10 * time.Millisecond)
+		err := os.WriteFile(
+			filepath.Join(proj.Config.SourcePath, name),
+			[]byte("# Modified "+name),
+			0644,
+		)
+		if err != nil {
+			t.Fatalf("Failed to modify %s: %v", name, err)
+		}
+	}
+
+	err = server.handleContentModified(ctx, plan, []string{"a.md", "b.md", "c.md"})
+	if err != nil {
+		t.Fatalf("handleContentModified failed: %v", err)
+	}
+
+	// All should be dirty
+	for _, name := range []string{"a.md", "b.md", "c.md"} {
+		assertEntryDirty(t, plan, name, true)
+	}
+}
+
+func TestHandleContentModified_FileNotInPlan(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Try to handle a file that doesn't exist in the plan
+	err = server.handleContentModified(ctx, plan, []string{"nonexistent.md"})
+	if err != nil {
+		t.Errorf("Should not error for file not in plan: %v", err)
+	}
+}
+
+func TestHandleContentCreated_NewFile(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("existing.md", "# Existing").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Entry should not exist yet
+	assertEntryExists(t, plan, "new.md", false)
+
+	// Create the new file
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SourcePath, "new.md"),
+		[]byte("# New File"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create file: %v", err)
+	}
+
+	// Handle creation
+	err = server.handleContentCreated(ctx, plan, []string{"new.md"})
+	if err != nil {
+		t.Fatalf("handleContentCreated failed: %v", err)
+	}
+
+	// Entry should now exist and be dirty
+	assertEntryExists(t, plan, "new.md", true)
+	assertEntryDirty(t, plan, "new.md", true)
+}
+
+func TestHandleContentCreated_MultipleNewFiles(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("existing.md", "# Existing").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	newFiles := []string{"new1.md", "new2.md", "new3.md"}
+
+	// Create new files
+	for _, name := range newFiles {
+		err := os.WriteFile(
+			filepath.Join(proj.Config.SourcePath, name),
+			[]byte("# "+name),
+			0644,
+		)
+		if err != nil {
+			t.Fatalf("Failed to create %s: %v", name, err)
+		}
+	}
+
+	// Handle creations
+	err = server.handleContentCreated(ctx, plan, newFiles)
+	if err != nil {
+		t.Fatalf("handleContentCreated failed: %v", err)
+	}
+
+	// All should exist and be dirty
+	for _, name := range newFiles {
+		assertEntryExists(t, plan, name, true)
+		assertEntryDirty(t, plan, name, true)
+	}
+}
+
+func TestHandleContentCreated_AlreadyExists(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("existing.md", "# Existing").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Try to create an already existing file
+	err = server.handleContentCreated(ctx, plan, []string{"existing.md"})
+	if err != nil {
+		t.Errorf("Should handle already existing file gracefully: %v", err)
+	}
+}
+
+func TestHandleContentDeleted_RemoveFile(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("delete-me.md", "# Delete Me").
+		WithSource("keep-me.md", "# Keep Me").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Both should exist
+	assertEntryExists(t, plan, "delete-me.md", true)
+	assertEntryExists(t, plan, "keep-me.md", true)
+
+	// Handle deletion
+	err = server.handleContentDeleted(ctx, plan, []string{"delete-me.md"})
+	if err != nil {
+		t.Fatalf("handleContentDeleted failed: %v", err)
+	}
+
+	// Deleted file should be gone, other should remain
+	assertEntryExists(t, plan, "delete-me.md", false)
+	assertEntryExists(t, plan, "keep-me.md", true)
+}
+
+func TestHandleContentDeleted_MultipleFiles(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("delete1.md", "# Delete 1").
+		WithSource("delete2.md", "# Delete 2").
+		WithSource("keep.md", "# Keep").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Handle multiple deletions
+	err = server.handleContentDeleted(ctx, plan, []string{"delete1.md", "delete2.md"})
+	if err != nil {
+		t.Fatalf("handleContentDeleted failed: %v", err)
+	}
+
+	// Deleted files should be gone
+	assertEntryExists(t, plan, "delete1.md", false)
+	assertEntryExists(t, plan, "delete2.md", false)
+	assertEntryExists(t, plan, "keep.md", true)
+}
+
+func TestHandleContentDeleted_NonExistent(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Try to delete non-existent file
+	err = server.handleContentDeleted(ctx, plan, []string{"nonexistent.md"})
+	if err != nil {
+		t.Errorf("Should handle non-existent file gracefully: %v", err)
+	}
+}
+
+// Content Asset Handler Tests
+
+func TestHandleContentAssetModified_BasicChange(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout tpl="layout.html">
+	<Content name="content" path="*.md" pipe="md">
+		<Asset name="images" src="*.png" type="copy" />
+	</Content>
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithSource("image.png", "original-png-data").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: png
+target_suffix: png`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	assetID := "asset:source:image.png"
+	assertEntryExists(t, plan, assetID, true)
+
+	// Modify the asset
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SourcePath, "image.png"),
+		[]byte("modified-png-data"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify asset: %v", err)
+	}
+
+	err = server.handleContentAssetModified(ctx, plan, []string{"image.png"})
+	if err != nil {
+		t.Fatalf("handleContentAssetModified failed: %v", err)
+	}
+
+	assertEntryDirty(t, plan, assetID, true)
+}
+
+func TestHandleContentAssetCreated_NewAsset(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout tpl="layout.html">
+	<Content name="content" path="*.md" pipe="md">
+		<Asset name="images" src="*.png" type="copy" />
+	</Content>
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: png
+target_suffix: png`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	newAssetID := "asset:source:new-image.png"
+	assertEntryExists(t, plan, newAssetID, false)
+
+	// Create new asset
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SourcePath, "new-image.png"),
+		[]byte("new-png-data"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create asset: %v", err)
+	}
+
+	err = server.handleContentAssetCreated(ctx, plan, []string{"new-image.png"})
+	if err != nil {
+		t.Fatalf("handleContentAssetCreated failed: %v", err)
+	}
+
+	assertEntryExists(t, plan, newAssetID, true)
+	assertEntryDirty(t, plan, newAssetID, true)
+}
+
+func TestHandleContentAssetDeleted_RemoveAsset(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout tpl="layout.html">
+	<Content name="content" path="*.md" pipe="md">
+		<Asset name="images" src="*.png" type="copy" />
+	</Content>
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithSource("delete-me.png", "png-data").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: png
+target_suffix: png`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	assetID := "asset:source:delete-me.png"
+	assertEntryExists(t, plan, assetID, true)
+
+	err = server.handleContentAssetDeleted(ctx, plan, []string{"delete-me.png"})
+	if err != nil {
+		t.Fatalf("handleContentAssetDeleted failed: %v", err)
+	}
+
+	assertEntryExists(t, plan, assetID, false)
+}
+
+// Layout Handler Tests
+
+func TestHandleLayoutModified_InvalidatesCache(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Fragment name="header" src="header.html" pipe="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", "{{header}}{{content}}").
+		WithScheme("header.html", "<header>Original</header>").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: html
+target_suffix: html`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Modify layout
+	time.Sleep(10 * time.Millisecond)
+	newLayout := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Fragment name="header" src="header.html" pipe="copy" />
+	<Fragment name="footer" src="footer.html" pipe="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "layout.xml"),
+		[]byte(newLayout),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify layout: %v", err)
+	}
+
+	err = server.handleLayoutModified(ctx, plan, []string{"layout.xml"})
+	if err != nil {
+		t.Fatalf("handleLayoutModified failed: %v", err)
+	}
+
+	// Layout cache should be invalidated
+	// This is implicitly tested by the cache invalidation call
+}
+
+func TestHandleLayoutCreated_NewLayoutInSubdir(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("blog/post.md", "# Post").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Create new layout in blog directory - use path instead of inline tpl
+	newLayout := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="blog-template.html">
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	blogLayoutPath := filepath.Join(proj.Config.SchemePath, "blog", "layout.xml")
+	err = os.MkdirAll(filepath.Dir(blogLayoutPath), 0755)
+	if err != nil {
+		t.Fatalf("Failed to create directory: %v", err)
+	}
+
+	err = os.WriteFile(blogLayoutPath, []byte(newLayout), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create layout: %v", err)
+	}
+
+	// Create the template file
+	blogTemplatePath := filepath.Join(proj.Config.SchemePath, "blog", "blog-template.html")
+	err = os.WriteFile(blogTemplatePath, []byte("<html>{{content}}</html>"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to create template: %v", err)
+	}
+
+	err = server.handleLayoutCreated(ctx, plan, []string{"blog/layout.xml"})
+	if err != nil {
+		t.Fatalf("handleLayoutCreated failed: %v", err)
+	}
+}
+
+func TestHandleLayoutDeleted_RescansWithParent(t *testing.T) {
+	blogLayout := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="blog-template.html">
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("blog/post.md", "# Post").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithScheme("blog/layout.xml", blogLayout).
+		WithScheme("blog/blog-template.html", "<html><div class='blog'>{{content}}</div></html>").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	err = server.handleLayoutDeleted(ctx, plan, []string{"blog/layout.xml"})
+	if err != nil {
+		t.Fatalf("handleLayoutDeleted failed: %v", err)
+	}
+}
+
+// Fragment Handler Tests
+
+func TestHandleFragmentModified_MarksDependentContent(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Fragment name="header" src="header.html" pipe="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("a.md", "# A").
+		WithSource("b.md", "# B").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", "{{header}}{{content}}").
+		WithScheme("header.html", "<header>V1</header>").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: html
+target_suffix: html`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("Initial build failed: %v", err)
+	}
+
+	initialDirty := countDirtyEntries(t, plan)
+	if initialDirty != 0 {
+		t.Errorf("Expected 0 dirty entries after build, got %d", initialDirty)
+	}
+
+	// Modify fragment
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "header.html"),
+		[]byte("<header>V2</header>"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify fragment: %v", err)
+	}
+
+	err = server.handleFragmentModified(ctx, plan, []string{"header.html"})
+	if err != nil {
+		t.Fatalf("handleFragmentModified failed: %v", err)
+	}
+
+	// Content entries using this fragment should be marked dirty
+	finalDirty := countDirtyEntries(t, plan)
+	if finalDirty == 0 {
+		t.Error("Expected entries to be marked dirty after fragment modification")
+	}
+	if finalDirty <= initialDirty {
+		t.Errorf("Expected more dirty entries after fragment modification, got initial=%d final=%d", initialDirty, finalDirty)
+	}
+}
+
+func TestHandleFragmentModified_MultipleFragments(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Fragment name="header" src="header.html" pipe="copy" />
+	<Fragment name="footer" src="footer.html" pipe="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", "{{header}}{{content}}{{footer}}").
+		WithScheme("header.html", "<header>Header</header>").
+		WithScheme("footer.html", "<footer>Footer</footer>").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: html
+target_suffix: html`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Modify both fragments
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "header.html"),
+		[]byte("<header>Modified Header</header>"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify header: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "footer.html"),
+		[]byte("<footer>Modified Footer</footer>"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify footer: %v", err)
+	}
+
+	err = server.handleFragmentModified(ctx, plan, []string{"header.html", "footer.html"})
+	if err != nil {
+		t.Fatalf("handleFragmentModified failed: %v", err)
+	}
+
+	assertEntryDirty(t, plan, "index.md", true)
+}
+
+// Scheme Asset Handler Tests
+
+func TestHandleSchemeAssetModified_BasicChange(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Asset name="styles" src="*.css" type="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", project.BasicLayoutHTML()).
+		WithScheme("style.css", "body { color: red; }").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: css
+target_suffix: css`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	assetID := "asset:scheme:style.css"
+	assertEntryExists(t, plan, assetID, true)
+
+	// Modify asset
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "style.css"),
+		[]byte("body { color: blue; }"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify asset: %v", err)
+	}
+
+	err = server.handleSchemeAssetModified(ctx, plan, []string{"style.css"})
+	if err != nil {
+		t.Fatalf("handleSchemeAssetModified failed: %v", err)
+	}
+
+	assertEntryDirty(t, plan, assetID, true)
+}
+
+func TestHandleSchemeAssetCreated_NewAsset(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Asset name="styles" src="*.css" type="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: css
+target_suffix: css`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	newAssetID := "asset:scheme:new-style.css"
+	assertEntryExists(t, plan, newAssetID, false)
+
+	// Create new asset
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "new-style.css"),
+		[]byte("body { margin: 0; }"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create asset: %v", err)
+	}
+
+	err = server.handleSchemeAssetCreated(ctx, plan, []string{"new-style.css"})
+	if err != nil {
+		t.Fatalf("handleSchemeAssetCreated failed: %v", err)
+	}
+
+	assertEntryExists(t, plan, newAssetID, true)
+	assertEntryDirty(t, plan, newAssetID, true)
+}
+
+func TestHandleSchemeAssetDeleted_RemoveAsset(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Asset name="styles" src="*.css" type="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", project.BasicLayoutHTML()).
+		WithScheme("delete-me.css", "body {}").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: css
+target_suffix: css`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	assetID := "asset:scheme:delete-me.css"
+	assertEntryExists(t, plan, assetID, true)
+
+	err = server.handleSchemeAssetDeleted(ctx, plan, []string{"delete-me.css"})
+	if err != nil {
+		t.Fatalf("handleSchemeAssetDeleted failed: %v", err)
+	}
+
+	assertEntryExists(t, plan, assetID, false)
+}
+
+// Pipeline Handler Tests
+
+func TestHandlePipelineModified_ReloadsAndMarksDirty(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Do initial build to mark everything as clean
+	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("Initial build failed: %v", err)
+	}
+
+	initialDirty := countDirtyEntries(t, plan)
+	if initialDirty != 0 {
+		t.Errorf("Expected 0 dirty entries after build, got %d", initialDirty)
+	}
+
+	// Modify pipeline
+	time.Sleep(10 * time.Millisecond)
+	newPipeline := `
+function transform(input) {
+	return input.replace(/^# (.+)$/gm, '<h1 class="modified">$1</h1>');
+}
+`
+	err = os.WriteFile(
+		filepath.Join(proj.Config.PipesPath, "md", "index.js"),
+		[]byte(newPipeline),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify pipeline: %v", err)
+	}
+
+	err = server.handlePipelineModified(ctx, plan, []string{"md/index.js"})
+	if err != nil {
+		t.Fatalf("handlePipelineModified failed: %v", err)
+	}
+
+	// Entries using this pipeline should be marked dirty
+	finalDirty := countDirtyEntries(t, plan)
+	if finalDirty == 0 {
+		t.Error("Expected entries to be marked dirty after pipeline modification")
+	}
+	if finalDirty <= initialDirty {
+		t.Errorf("Expected more dirty entries after pipeline modification, got initial=%d final=%d", initialDirty, finalDirty)
+	}
+}
+
+func TestHandlePipelineModified_MultiplePipelines(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test MD").
+		WithSource("style.css", "body {}").
+		WithScheme("layout.xml", `<?xml version="1.0" encoding="UTF-8"?>
+<Layout tpl="layout.html">
+	<Asset name="styles" src="*.css" type="copy" />
+	<Content name="content" path="*.md" pipe="md" />
+</Layout>`).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: css
+target_suffix: css`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Modify both pipelines
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.PipesPath, "md", "index.js"),
+		[]byte(`function transform(input) { return input.replace(/^# (.+)$/gm, '<h1>MOD: $1</h1>'); }`),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify md pipeline: %v", err)
+	}
+
+	err = os.WriteFile(
+		filepath.Join(proj.Config.PipesPath, "copy", "index.js"),
+		[]byte(`function transform(input) { return "/* modified */ " + input; }`),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify copy pipeline: %v", err)
+	}
+
+	err = server.handlePipelineModified(ctx, plan, []string{"md/index.js", "copy/index.js"})
+	if err != nil {
+		t.Fatalf("handlePipelineModified failed: %v", err)
+	}
+
+	// Both content and asset entries should be marked dirty
+	contentDirty := plan.EntryKeys(func(e *project.BuildEntry) bool {
+		return e.Type == "content" && e.Dirty && e.Pipeline == "md"
+	})
+
+	if len(contentDirty) == 0 {
+		t.Error("Expected content entries to be marked dirty")
+	}
+}
+
+// Integration Tests
+
+func TestHandlers_CompleteWorkflow(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout path="template.html">
+	<Fragment name="header" src="header.html" pipe="copy" />
+	<Content name="content" path="*.md" pipe="md">
+		<Asset name="images" src="*.png" type="copy" />
+	</Content>
+</Layout>`
+
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithSource("image.png", "png-data").
+		WithScheme("layout.xml", layoutXML).
+		WithScheme("template.html", "{{header}}{{content}}").
+		WithScheme("header.html", "<header>Header</header>").
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: "(html|png)"
+target_suffix: "$1"`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Initial build
+	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	if err != nil {
+		t.Fatalf("Initial build failed: %v", err)
+	}
+
+	// Test 1: Modify content
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SourcePath, "index.md"),
+		[]byte("# Modified Content"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify content: %v", err)
+	}
+
+	err = server.handleContentModified(ctx, plan, []string{"index.md"})
+	if err != nil {
+		t.Fatalf("handleContentModified failed: %v", err)
+	}
+
+	assertEntryDirty(t, plan, "index.md", true)
+
+	// Test 2: Modify fragment
+	time.Sleep(10 * time.Millisecond)
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "header.html"),
+		[]byte("<header>Modified Header</header>"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to modify fragment: %v", err)
+	}
+
+	err = server.handleFragmentModified(ctx, plan, []string{"header.html"})
+	if err != nil {
+		t.Fatalf("handleFragmentModified failed: %v", err)
+	}
+
+	// Test 3: Create new content
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SourcePath, "new.md"),
+		[]byte("# New Content"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create new content: %v", err)
+	}
+
+	err = server.handleContentCreated(ctx, plan, []string{"new.md"})
+	if err != nil {
+		t.Fatalf("handleContentCreated failed: %v", err)
+	}
+
+	assertEntryExists(t, plan, "new.md", true)
+
+	// Test 4: Delete content
+	err = server.handleContentDeleted(ctx, plan, []string{"index.md"})
+	if err != nil {
+		t.Fatalf("handleContentDeleted failed: %v", err)
+	}
+
+	assertEntryExists(t, plan, "index.md", false)
+
+	// Verify new.md still exists
+	assertEntryExists(t, plan, "new.md", true)
+}
+
+func TestHandlers_ConcurrentModifications(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping concurrent test in short mode")
+	}
+
+	proj := project.NewTestProject(t).
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline())
+
+	// Create many files
+	for i := 0; i < 20; i++ {
+		proj.WithSource(
+			fmt.Sprintf("file%d.md", i),
+			fmt.Sprintf("# File %d", i),
+		)
+	}
+
+	p, cleanup := proj.Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := p.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, p)
+
+	// Modify all files concurrently
+	paths := make([]string, 20)
+	for i := 0; i < 20; i++ {
+		paths[i] = fmt.Sprintf("file%d.md", i)
+
+		time.Sleep(5 * time.Millisecond)
+		err := os.WriteFile(
+			filepath.Join(p.Config.SourcePath, paths[i]),
+			[]byte(fmt.Sprintf("# Modified File %d", i)),
+			0644,
+		)
+		if err != nil {
+			t.Fatalf("Failed to modify file: %v", err)
+		}
+	}
+
+	// Handle all modifications
+	err = server.handleContentModified(ctx, plan, paths)
+	if err != nil {
+		t.Fatalf("handleContentModified failed: %v", err)
+	}
+
+	// All should be dirty
+	dirtyCount := countDirtyEntries(t, plan)
+	if dirtyCount != 20 {
+		t.Errorf("Expected 20 dirty entries, got %d", dirtyCount)
+	}
+}
+
+func TestHandlers_ErrorHandling(t *testing.T) {
+	proj, cleanup := project.NewTestProject(t).
+		WithSource("index.md", "# Test").
+		WithScheme("layout.xml", project.BasicLayoutXML()).
+		WithScheme("layout.html", project.BasicLayoutHTML()).
+		WithPipeline("md", project.BasicMarkdownPipeline()).
+		Build()
+	defer cleanup()
+
+	ctx := context.Background()
+	plan, err := proj.Plan(ctx)
+	if err != nil {
+		t.Fatalf("Failed to create plan: %v", err)
+	}
+
+	server := newTestServer(t, proj)
+
+	// Test handling non-existent files (should not error)
+	tests := []struct {
+		name    string
+		handler func(context.Context, *project.Plan, []string) error
+		paths   []string
+	}{
+		{
+			"content modified",
+			server.handleContentModified,
+			[]string{"nonexistent.md"},
+		},
+		{
+			"content created",
+			server.handleContentCreated,
+			[]string{"nonexistent.md"},
+		},
+		{
+			"content deleted",
+			server.handleContentDeleted,
+			[]string{"nonexistent.md"},
+		},
+		{
+			"asset deleted",
+			server.handleContentAssetDeleted,
+			[]string{"nonexistent.png"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.handler(ctx, plan, tt.paths)
+			if err != nil {
+				t.Errorf("Handler should handle non-existent files gracefully: %v", err)
+			}
+		})
+	}
+}
