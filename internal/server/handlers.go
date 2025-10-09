@@ -206,8 +206,8 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						Type:           "asset",
 						SourcePath:     path,
 						SourceRoot:     "source",
-						OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.AssetType),
-						Pipeline:       a.AssetType,
+						OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.Pipe),
+						Pipeline:       a.Pipe,
 						BaseDir:        filepath.Dir(path),
 						FragmentHashes: make(map[string]string),
 					}
@@ -222,7 +222,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 
 					log.IInfo(log.Handler).
 						Str("id", entry.ID).
-						Str("pipeline", a.AssetType).
+						Str("pipeline", a.Pipe).
 						Msg("new asset added to plan")
 				}
 			}
@@ -454,8 +454,8 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 					Type:           "asset",
 					SourcePath:     path,
 					SourceRoot:     "scheme",
-					OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.AssetType),
-					Pipeline:       a.AssetType,
+					OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.Pipe),
+					Pipeline:       a.Pipe,
 					BaseDir:        filepath.Dir(path),
 					FragmentHashes: make(map[string]string),
 				}
@@ -470,7 +470,7 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 
 				log.IInfo(log.Handler).
 					Str("id", entry.ID).
-					Str("pipeline", a.AssetType).
+					Str("pipeline", a.Pipe).
 					Msg("new scheme asset added to plan")
 			}
 		}

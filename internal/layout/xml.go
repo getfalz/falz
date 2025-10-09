@@ -32,7 +32,7 @@ type Fragment struct {
 	// XML
 	XMLName xml.Name `xml:"Fragment"`
 	Name    string   `xml:"name,attr"`
-	Source  string   `xml:"src,attr"`
+	Path    string   `xml:"src,attr"`
 	Pipe    string   `xml:"pipe,attr"`
 }
 
@@ -52,8 +52,7 @@ type Asset struct {
 	XMLName xml.Name `xml:"Asset"`
 	Name    string   `xml:"name,attr"`
 	Source  string   `xml:"src,attr"`
-	// TODO rename to pipe. it is more clear
-	AssetType string `xml:"type,attr"`
+	Pipe    string   `xml:"pipe,attr"`
 }
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -87,11 +86,11 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := a.Validate(); err != nil {
 					return err
 				}
-				a.pipeline, err = l.pipelines.Get(a.AssetType)
+				a.pipeline, err = l.pipelines.Get(a.Pipe)
 				if err != nil {
 					log.FFatal(log.Layout).
 						Str("where", "layout.asset").
-						Str("type", a.AssetType).
+						Str("type", a.Pipe).
 						Str("name", a.Name).
 						Err(err).Msg("pipeline not found for asset")
 
@@ -127,11 +126,11 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				// initialize assets pipelines
 				for i, a := range c.assetElms {
-					p, err := l.pipelines.Get(a.AssetType)
+					p, err := l.pipelines.Get(a.Pipe)
 					if err != nil {
 						log.FFatal(log.Layout).
 							Str("where", "layout.content.asset").
-							Str("type", a.AssetType).
+							Str("type", a.Pipe).
 							Str("name", a.Name).
 							Err(err).Msg("pipeline not found for content asset")
 					}

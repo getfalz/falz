@@ -38,7 +38,7 @@ const wsClient string = `
 `
 
 func (f *Fragment) Render(ctx context.Context, renderPath string) (string, string, error) {
-	files, err := utils.FindFile(f.root.FS(), renderPath, f.Source)
+	files, err := utils.FindFile(f.root.FS(), renderPath, f.Path)
 	if err != nil {
 		return "", "", err
 	}
@@ -46,7 +46,7 @@ func (f *Fragment) Render(ctx context.Context, renderPath string) (string, strin
 	fragment := filepath.ToSlash(files[0])
 	log.TTrace(log.Layout).
 		Str("fragment", f.Name).
-		Str("src", f.Source).
+		Str("src", f.Path).
 		Str("file", fragment).Msg("fragment: resolved")
 
 	content, err := fs.ReadFile(f.root.FS(), fragment)
@@ -127,7 +127,7 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *os.Root) (
 	for _, f := range l.fragments {
 		output, fragmentPath, err := f.Render(ctx, l.path)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: render fragment name=%q src=%q: %w", l.path, f.Name, f.Source, err)
+			return "", nil, fmt.Errorf("layout %q: render fragment name=%q src=%q: %w", l.path, f.Name, f.Path, err)
 		}
 		tplVariables[f.Name] = output
 		deps = append(deps, fragmentPath)
@@ -135,7 +135,7 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *os.Root) (
 		log.TTrace(log.Layout).
 			Str("layout_rel", l.path).
 			Str("fragment", f.Name).
-			Str("src", f.Source).
+			Str("src", f.Path).
 			Str("dep", fragmentPath).
 			Msg("fragment rendered")
 	}
@@ -189,7 +189,7 @@ func (f *Fragment) Validate() error {
 	if f.Name == "" {
 		return errors.New("element <Fragment>: missing required field: name")
 	}
-	if f.Source == "" {
+	if f.Path == "" {
 		return errors.New("element <Fragment>: missing required field: src")
 	}
 	return nil

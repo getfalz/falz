@@ -177,8 +177,8 @@ func (fc *FileClassifier) classifySchemeFile(path string) FileType {
 	for _, lyt := range lmap {
 		for _, f := range lyt.Fragments() {
 			// TODO: DEBUG
-			fmt.Printf("===Fragments: %s = %s:%s", path, dir, f.Source)
-			if path == filepath.ToSlash(filepath.Join(dir, f.Source)) {
+			fmt.Printf("===Fragments: %s = %s:%s", path, dir, f.Path)
+			if path == filepath.ToSlash(filepath.Join(dir, f.Path)) {
 				return FileTypeFragment
 			}
 		}

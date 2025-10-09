@@ -219,8 +219,8 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 								Type:           "asset",
 								SourcePath:     rel,
 								SourceRoot:     "source",
-								OutputPath:     p.ComputeOutputPath(filepath.Dir(rel), rel, a.AssetType),
-								Pipeline:       a.AssetType,
+								OutputPath:     p.ComputeOutputPath(filepath.Dir(rel), rel, a.Pipe),
+								Pipeline:       a.Pipe,
 								BaseDir:        filepath.Dir(rel),
 								FragmentHashes: make(map[string]string),
 							}
@@ -248,8 +248,8 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 							Type:           "asset",
 							SourcePath:     rel,
 							SourceRoot:     "scheme",
-							OutputPath:     p.ComputeOutputPath(filepath.Dir(rel), rel, a.AssetType),
-							Pipeline:       a.AssetType,
+							OutputPath:     p.ComputeOutputPath(filepath.Dir(rel), rel, a.Pipe),
+							Pipeline:       a.Pipe,
 							BaseDir:        filepath.Dir(rel),
 							FragmentHashes: make(map[string]string),
 						}
@@ -334,7 +334,7 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 						for _, rel := range matches {
 							id := fmt.Sprintf("asset:source:%s", rel)
-							p.updateOrCreateAssetEntry(ctx, plan, id, rel, "source", a.AssetType, filepath.Dir(rel))
+							p.updateOrCreateAssetEntry(ctx, plan, id, rel, "source", a.Pipe, filepath.Dir(rel))
 						}
 					}
 				}
@@ -348,7 +348,7 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 					for _, rel := range matches {
 						id := fmt.Sprintf("asset:scheme:%s", rel)
-						p.updateOrCreateAssetEntry(ctx, plan, id, rel, "scheme", a.AssetType, filepath.Dir(rel))
+						p.updateOrCreateAssetEntry(ctx, plan, id, rel, "scheme", a.Pipe, filepath.Dir(rel))
 					}
 				}
 			}
