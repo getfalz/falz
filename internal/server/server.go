@@ -296,8 +296,7 @@ func RunServer(c context.Context, p *project.Project) error {
 		}
 	}
 
-	// TODO remove unncesessary config
-	if p.Config.FsWatcher.Content || p.Config.FsWatcher.Theme || p.Config.FsWatcher.Pipes {
+	if p.Config.FsWatcher.Enabled {
 		go func() {
 			if err := s.Watch(ctx); err != nil && !errors.Is(err, context.Canceled) {
 				log.EError(log.Server).Err(err).Msg("file watcher exited with error")

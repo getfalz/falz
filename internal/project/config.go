@@ -23,15 +23,14 @@ type ServerConfig struct {
 }
 
 type FsWatcherConfig struct {
-	HotReload bool `yaml:"hot_reload" default:"false"`
-	Content   bool `yaml:"content" default:"false"`
-	Theme     bool `yaml:"theme" default:"false"`
-	Pipes     bool `yaml:"pipes" default:"false"`
+	Enabled   bool `yaml:"enabled" default:"true"`     // Enable file system watcher
+	HotReload bool `yaml:"hot_reload" default:"false"` // Enable hot-reload
 }
 
 // TODO set start/end tag for layout.parseTpl
 type TemplateConfig struct {
-	Type string `yaml:"type" default:"simple"`
+	OpenTag  string `yaml:"type" default:"{{"`
+	CloseTag string `yaml:"close_tag" default:"}}"`
 }
 
 type HooksConfig struct {
@@ -40,14 +39,14 @@ type HooksConfig struct {
 }
 
 type CraeftConfig struct {
-	OutputPath string   `yaml:"output,omitempty" default:"dist"`
-	Ignore     []string `yaml:"ignore,omitempty"`
+	OutputPath string   `yaml:"output,omitempty" default:"dist"` // Output folder for build
+	Ignore     []string `yaml:"ignore,omitempty"`                // Ignore files/folders in source
 	Debug      bool     `yaml:"debug,omitempty" default:"false"` // should save in-between files? see main.go
 
-	Layout string `yaml:"layout,omitempty" default:"layout.xml"`
+	Layout string `yaml:"layout,omitempty" default:"layout.xml"` // Which files categorize as layout Can be a pattern like *.xml
 
 	Scheme         string         `yaml:"scheme,omitempty"`
-	Pipes          []string       `yaml:"pipes,omitempty" default:"[\"md\"]"`
+	Pipes          []string       `yaml:"pipes,omitempty" default:"[\"md\"]"` // List of enabled pipes
 	TemplateConfig TemplateConfig `yaml:"template_config,omitempty"`
 
 	SourcePath string `yaml:"-"`
@@ -58,7 +57,7 @@ type CraeftConfig struct {
 	Server    ServerConfig    `yaml:"server,omitempty"`
 	FsWatcher FsWatcherConfig `yaml:"file_watcher,omitempty"`
 
-	Variables map[string]any `yaml:"variables,omitempty"`
+	Variables map[string]any `yaml:"variables,omitempty"` // Key/value pair of variables available when building. Variables starting with a $ will be replaced with env vars
 	Hooks     HooksConfig    `yaml:"hooks,omitempty"`
 }
 
@@ -124,7 +123,7 @@ func (c *CraeftConfig) IsValid() error {
 	// 	return errors.New("no theme specified in config file")
 	// }
 
-	if c.FsWatcher.HotReload && (!c.FsWatcher.Content || !c.FsWatcher.Theme || !c.FsWatcher.Pipes) {
+	if c.FsWatcher.HotReload && !c.FsWatcher.Enabled {
 		return errors.New("hot-reload enabled, but no file watcher enabled")
 	}
 

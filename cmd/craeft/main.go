@@ -74,19 +74,9 @@ func main() {
 						Usage: "Port for the server",
 					},
 					&cli.BoolFlag{
-						Name:  "watch-content",
-						Usage: "Enable file watcher on content folder",
+						Name:  "watch",
+						Usage: "Enable file watcher",
 						Value: true,
-					},
-					&cli.BoolFlag{
-						Name:  "watch-theme",
-						Usage: "Enable file watcher on theme folder",
-						Value: false,
-					},
-					&cli.BoolFlag{
-						Name:  "watch-pipes",
-						Usage: "Enable file watcher on pipes folder",
-						Value: false,
 					},
 					&cli.BoolFlag{
 						Name:  "hot-reload",
@@ -104,10 +94,8 @@ func main() {
 					if c.Int("port") != 0 {
 						p.Config.Server.Port = c.Int("port")
 					}
-					p.Config.FsWatcher.Content = c.Bool("watch-content")
-					p.Config.FsWatcher.Theme = c.Bool("watch-theme")
-					p.Config.FsWatcher.Pipes = c.Bool("watch-pipes")
-					p.Config.FsWatcher.HotReload = (c.Bool("watch-content") || c.Bool("watch-theme") || c.Bool("watch-pipes")) && c.Bool("hot-reload")
+					p.Config.FsWatcher.Enabled = c.Bool("watch")
+					p.Config.FsWatcher.HotReload = c.Bool("watch") && c.Bool("hot-reload")
 
 					return nil
 				},
