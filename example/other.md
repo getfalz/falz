@@ -1,3 +1,0 @@
-# Other
-
-hallo world!

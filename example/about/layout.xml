@@ -1,9 +1,0 @@
-<Layout
-    template="main.tpl"
-    css="styles.scss"
-    >
-    <Fragment src="main.header" />
-    <Content path="*.md"
-        pipeline="uppercase"
-        />
-</Layout>
