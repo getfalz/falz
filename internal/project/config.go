@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 
 	"craeft/internal/log"
 
@@ -16,6 +17,7 @@ const xdgConfigFolder = "craeft"
 const configSchemesFolder = "schemes"
 const configPipesFolder = "pipes"
 const projectRootFolder = ".craeft"
+const manifestoFile = ".manifest.json"
 
 type ServerConfig struct {
 	Host string `yaml:"host" default:"localhost"`
@@ -36,6 +38,14 @@ type TemplateConfig struct {
 type HooksConfig struct {
 	Pre  []string `yaml:"pre_scripts"`
 	Post []string `yaml:"post_scripts"`
+}
+
+// BuildConfig configures the incremental build
+type BuildConfig struct {
+	ForceRebuild bool `yaml:"force,omitempty" default:"false"`  // Ignore cache, rebuild everything
+	Concurrency  int  `yaml:"concurrency,omitempty"`            // Number of CPUs. It defaults to the number of logical CPUs
+	UseCAS       bool `yaml:"use_cas,omitempty" default:"true"` // Use content-addressable storage
+	CleanStale   bool `yaml:"clean,omitempty" default:"false"`  // Remove outputs for deleted sources
 }
 
 type CraeftConfig struct {
@@ -59,6 +69,8 @@ type CraeftConfig struct {
 
 	Variables map[string]any `yaml:"variables,omitempty"` // Key/value pair of variables available when building. Variables starting with a $ will be replaced with env vars
 	Hooks     HooksConfig    `yaml:"hooks,omitempty"`
+
+	Build BuildConfig `yaml:"build,omitempty"`
 }
 
 func LoadConfig(base string) (*CraeftConfig, error) {
@@ -89,6 +101,11 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 	}
 
 	config.Variables = resolveEnvVars(config.Variables).(map[string]any)
+
+	if config.Build.Concurrency <= 0 {
+		config.Build.Concurrency = runtime.NumCPU()
+	}
+
 	return config, nil
 }
 

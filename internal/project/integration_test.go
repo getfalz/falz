@@ -36,16 +36,15 @@ source_suffix: "(html|css)"
 target_suffix: "$1"`,
 			"index.js": `function transform(ctx, input) { return input; }`,
 		}).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 2
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Initial build
-	stats, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 2,
-		UseCAS:      true,
-	})
+	stats, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats.BuiltEntries == 0 {
@@ -67,10 +66,7 @@ target_suffix: "$1"`,
 	}
 
 	// Incremental build (no changes)
-	stats2, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 2,
-		UseCAS:      true,
-	})
+	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats2.DirtyEntries != 0 {
@@ -91,11 +87,14 @@ func TestIntegration_BlogSite(t *testing.T) {
 		WithScheme("blog/layout.xml", blogLayout).
 		WithScheme("blog/template.html", "<article>{{post}}</article>").
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 2
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
-	stats, err := proj.Build(ctx, BuildOptions{Concurrency: 2})
+	stats, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats.BuiltEntries != 3 {
@@ -113,13 +112,15 @@ func TestIntegration_ChangeDetection(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Initial build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	// Modify source file
@@ -134,7 +135,7 @@ func TestIntegration_ChangeDetection(t *testing.T) {
 	}
 
 	// Build again - should detect change
-	stats2, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats2.DirtyEntries != 1 {
@@ -168,13 +169,16 @@ source_suffix: html
 target_suffix: html`,
 			"index.js": `function transform(ctx, input) { return input; }`,
 		}).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
 	// Initial build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	content1, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
@@ -194,7 +198,7 @@ target_suffix: html`,
 	}
 
 	// Rebuild - should detect fragment change
-	_, err = proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err = proj.Build(ctx)
 	AssertNoError(t, err)
 
 	content2, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
@@ -219,13 +223,16 @@ target_suffix: html`,
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", pipelineV1).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
 	// Initial build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	content1, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
@@ -254,7 +261,7 @@ target_suffix: html`,
 	}
 
 	// Rebuild
-	_, err = proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err = proj.Build(ctx)
 	AssertNoError(t, err)
 
 	content2, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
@@ -271,7 +278,10 @@ func TestIntegration_LargeProject(t *testing.T) {
 	proj := NewTestProject(t).
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
-		WithPipeline("md", BasicMarkdownPipeline())
+		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 4
+		})
 
 	// Create 100 files
 	for i := 0; i < 100; i++ {
@@ -287,10 +297,7 @@ func TestIntegration_LargeProject(t *testing.T) {
 
 	// Time the build
 	start := time.Now()
-	stats, err := p.Build(ctx, BuildOptions{
-		Concurrency: 4,
-		UseCAS:      true,
-	})
+	stats, err := p.Build(ctx)
 	duration := time.Since(start)
 
 	AssertNoError(t, err)
@@ -304,10 +311,7 @@ func TestIntegration_LargeProject(t *testing.T) {
 
 	// Incremental build should be much faster
 	start = time.Now()
-	stats2, err := p.Build(ctx, BuildOptions{
-		Concurrency: 4,
-		UseCAS:      true,
-	})
+	stats2, err := p.Build(ctx)
 	duration2 := time.Since(start)
 
 	AssertNoError(t, err)
@@ -343,11 +347,14 @@ target_suffix: html`,
 </Layout>`).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("bad", badPipeline).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
-	stats, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	stats, err := proj.Build(ctx)
 
 	// Should complete but with errors
 	if stats == nil {
@@ -374,12 +381,13 @@ func TestIntegration_VariableSubstitution(t *testing.T) {
 				"siteTitle": "My Site",
 				"author":    "John Doe",
 			}
+			c.Build.Concurrency = 1
 		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	// Variables should be available to pipelines
@@ -393,13 +401,15 @@ func TestIntegration_CleanBuild(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Initial build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	AssertFileExists(t, proj.Config.OutputPath, "keep.html")
@@ -409,10 +419,7 @@ func TestIntegration_CleanBuild(t *testing.T) {
 	os.Remove(filepath.Join(proj.Config.SourcePath, "remove.md"))
 
 	// Build with clean
-	_, err = proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-		CleanStale:  true,
-	})
+	_, err = proj.Build(ctx)
 	AssertNoError(t, err)
 
 	// Verify stale file is removed
@@ -431,16 +438,15 @@ func TestIntegration_CASReuse(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Build with CAS
-	stats1, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-		UseCAS:      true,
-	})
+	stats1, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	cacheSize1 := stats1.BytesCached
@@ -450,10 +456,7 @@ func TestIntegration_CASReuse(t *testing.T) {
 	os.MkdirAll(proj.Config.OutputPath, 0755)
 
 	// Build again - should restore from CAS
-	stats2, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-		UseCAS:      true,
-	})
+	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats2.CacheHits == 0 {

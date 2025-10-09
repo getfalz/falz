@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -252,7 +251,7 @@ func (s *Server) processChanges(ctx context.Context, changes <-chan FileChange) 
 func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) error {
 	start := time.Now()
 
-	plan, err := s.project.CurrentPlan(ctx)
+	plan, err := s.project.CurrentPlan()
 	if err != nil {
 		return fmt.Errorf("get current plan: %w", err)
 	}
@@ -303,13 +302,7 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 		Int("dirty", dirtyCount).
 		Msg("starting incremental rebuild")
 
-	opts := project.BuildOptions{
-		Concurrency: runtime.NumCPU(),
-		UseCAS:      true,
-		CleanStale:  false,
-	}
-
-	stats, err := s.project.BuildFromPlan(ctx, plan, opts)
+	stats, err := s.project.BuildFromPlan(ctx, plan)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		return fmt.Errorf("incremental build: %w", err)
 	}

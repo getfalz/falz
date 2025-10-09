@@ -297,7 +297,7 @@ func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error
 	return out, nil
 }
 
-func (p *Project) CurrentPlan(ctx context.Context) (*Plan, error) {
+func (p *Project) CurrentPlan() (*Plan, error) {
 	p.currentPlanMu.Lock()
 	defer p.currentPlanMu.Unlock()
 

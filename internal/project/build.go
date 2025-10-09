@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -14,14 +13,6 @@ import (
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
 )
-
-// BuildOptions configures the incremental build
-type BuildOptions struct {
-	ForceRebuild bool // Ignore cache, rebuild everything
-	Concurrency  int  // Number of concurrent workers
-	UseCAS       bool // Use content-addressable storage
-	CleanStale   bool // Remove outputs for deleted sources
-}
 
 // BuildStats tracks build statistics
 type BuildStats struct {
@@ -54,7 +45,7 @@ type ProcessResult struct {
 }
 
 // Build performs an incremental build
-func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, error) {
+func (p *Project) Build(ctx context.Context) (*BuildStats, error) {
 	start := time.Now()
 
 	planStart := time.Now()
@@ -65,7 +56,7 @@ func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, er
 
 	planDuration := time.Since(planStart)
 
-	stats, err := p.BuildFromPlan(ctx, plan, opts)
+	stats, err := p.BuildFromPlan(ctx, plan)
 	stats.PlanDuration = planDuration
 	stats.Duration = time.Since(start)
 
@@ -73,17 +64,13 @@ func (p *Project) Build(ctx context.Context, opts BuildOptions) (*BuildStats, er
 }
 
 // BuildFromPlan builds only dirty entries from an existing plan
-func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan, opts BuildOptions) (*BuildStats, error) {
+func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, error) {
 	start := time.Now()
 	stats := &BuildStats{
 		TotalEntries: len(plan.entries),
 	}
 
-	if opts.Concurrency <= 0 {
-		opts.Concurrency = runtime.NumCPU()
-	}
-
-	if opts.CleanStale {
+	if p.Config.Build.CleanStale {
 		removed := p.cleanStaleEntries(plan)
 		if len(removed) > 0 {
 			log.IInfo(log.Build).Int("removed", len(removed)).Msg("cleaned stale entries")
@@ -105,7 +92,7 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan, opts BuildOptio
 		Msg("starting incremental build")
 
 	buildStart := time.Now()
-	buildStats := p.runBuild(ctx, plan, dirtyEntries, opts)
+	buildStats := p.runBuild(ctx, plan, dirtyEntries)
 	stats.BuildDuration = time.Since(buildStart)
 
 	stats.BuiltEntries = buildStats.Built
@@ -115,8 +102,7 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan, opts BuildOptio
 	stats.BytesCached = buildStats.BytesCached
 	stats.Errors = buildStats.Errors
 
-	// TODO change manifest path
-	if err := plan.Manifest.Save(filepath.Join(p.Config.OutputPath, ".craeft-manifest.json")); err != nil {
+	if err := plan.Manifest.Save(filepath.Join(p.Config.OutputPath, manifestoFile)); err != nil {
 		log.Warn(fmt.Sprintf("failed to save manifest: %v", err))
 	}
 
@@ -178,7 +164,6 @@ func (p *Project) runBuild(
 	ctx context.Context,
 	plan *Plan,
 	entries []*BuildEntry,
-	opts BuildOptions,
 ) *BuildResult {
 	result := &BuildResult{
 		Errors: make([]error, 0),
@@ -193,9 +178,9 @@ func (p *Project) runBuild(
 	writeChan := make(chan *ProcessResult, 100)
 	errChan := make(chan error, len(entries))
 
-	buildWg := p.buildStage(ctx, buildChan, writeChan, plan, opts, metrics, errChan)
+	buildWg := p.buildStage(ctx, buildChan, writeChan, plan, metrics, errChan)
 
-	writeWg := p.writeStage(ctx, writeChan, plan, opts, metrics, errChan)
+	writeWg := p.writeStage(ctx, writeChan, plan, metrics, errChan)
 
 	func() {
 		defer close(buildChan)
@@ -238,13 +223,12 @@ func (p *Project) buildStage(
 	in <-chan *BuildEntry,
 	out chan<- *ProcessResult,
 	plan *Plan,
-	opts BuildOptions,
 	metrics *buildMetrics,
 	errChan chan<- error,
 ) *sync.WaitGroup {
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, opts.Concurrency)
+	sem := make(chan struct{}, p.Config.Build.Concurrency)
 
 	wg.Add(1)
 	go func() {
@@ -277,7 +261,7 @@ func (p *Project) buildStage(
 				}
 
 				var result *ProcessResult
-				inCache := opts.UseCAS && !opts.ForceRebuild && plan.CAS != nil && plan.CAS.Has(work.Hash)
+				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(work.Hash)
 
 				if inCache {
 					var data []byte
@@ -306,7 +290,7 @@ func (p *Project) buildStage(
 					if result.Error == nil {
 						metrics.cacheMisses.Add(1)
 
-						if opts.UseCAS && plan.CAS != nil && result.Data != nil {
+						if p.Config.Build.UseCAS && plan.CAS != nil && result.Data != nil {
 							if err := plan.CAS.Store(work.Hash, result.Data); err != nil {
 								// TODO warn?
 								log.Warn(fmt.Sprintf("cache store failed for %s: %v", work.ID, err))
@@ -356,12 +340,11 @@ func (p *Project) writeStage(
 	ctx context.Context,
 	in <-chan *ProcessResult,
 	plan *Plan,
-	opts BuildOptions,
 	metrics *buildMetrics,
 	errChan chan<- error,
 ) *sync.WaitGroup {
 
-	numWorkers := min(4, max(2, opts.Concurrency/4))
+	numWorkers := min(4, max(2, p.Config.Build.Concurrency/4))
 	var wg sync.WaitGroup
 
 	for range numWorkers {

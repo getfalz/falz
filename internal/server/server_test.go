@@ -14,25 +14,11 @@ import (
 	"github.com/rjeczalik/notify"
 )
 
-// Test helpers
-
 func newTestServer(t *testing.T, proj *project.Project) *Server {
 	t.Helper()
 	s := NewServer(proj)
 	return s
 }
-
-// func waitForCondition(t *testing.T, timeout time.Duration, check func() bool) bool {
-// 	t.Helper()
-// 	deadline := time.Now().Add(timeout)
-// 	for time.Now().Before(deadline) {
-// 		if check() {
-// 			return true
-// 		}
-// 		time.Sleep(10 * time.Millisecond)
-// 	}
-// 	return false
-// }
 
 // FileClassifier Tests
 
@@ -611,7 +597,7 @@ func TestServer_HotReloadSetup(t *testing.T) {
 		WithScheme("layout.html", project.BasicLayoutHTML()).
 		WithPipeline("md", project.BasicMarkdownPipeline()).
 		WithConfig(func(c *project.CraeftConfig) {
-			c.FsWatcher.Content = true
+			c.FsWatcher.Enabled = true
 			c.FsWatcher.HotReload = true
 		}).
 		Build()
@@ -656,26 +642,21 @@ func TestServer_ChangeDetectionIntegration(t *testing.T) {
 		WithScheme("layout.xml", project.BasicLayoutXML()).
 		WithScheme("layout.html", project.BasicLayoutHTML()).
 		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithConfig(func(c *project.CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Initial build
-	_, err := proj.Build(ctx, project.BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	if err != nil {
 		t.Fatalf("Initial build failed: %v", err)
 	}
 
 	server := newTestServer(t, proj)
 
-	// Get initial plan
-	_, err = proj.CurrentPlan(ctx)
-	if err != nil {
-		t.Fatalf("Failed to get current plan: %v", err)
-	}
-
-	// Simulate file change
 	changes := []FileChange{
 		{
 			Path: "index.md",
@@ -685,7 +666,6 @@ func TestServer_ChangeDetectionIntegration(t *testing.T) {
 		},
 	}
 
-	// Modify actual file
 	time.Sleep(10 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SourcePath, "index.md"),
@@ -701,7 +681,6 @@ func TestServer_ChangeDetectionIntegration(t *testing.T) {
 		t.Errorf("handleChangeBatch failed: %v", err)
 	}
 
-	// Verify output was updated
 	outputPath := filepath.Join(proj.Config.OutputPath, "index.html")
 	content, err := os.ReadFile(outputPath)
 	if err != nil {
@@ -725,20 +704,21 @@ func TestServer_MultipleFileChanges(t *testing.T) {
 		WithScheme("layout.xml", project.BasicLayoutXML()).
 		WithScheme("layout.html", project.BasicLayoutHTML()).
 		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithConfig(func(c *project.CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// Initial build
-	_, err := proj.Build(ctx, project.BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	if err != nil {
 		t.Fatalf("Initial build failed: %v", err)
 	}
 
 	server := newTestServer(t, proj)
 
-	// Modify multiple files
 	for _, name := range []string{"a.md", "b.md", "c.md"} {
 		time.Sleep(10 * time.Millisecond)
 		err := os.WriteFile(
@@ -762,7 +742,6 @@ func TestServer_MultipleFileChanges(t *testing.T) {
 		t.Errorf("handleChangeBatch failed: %v", err)
 	}
 
-	// Verify all outputs were updated
 	for _, name := range []string{"a.html", "b.html", "c.html"} {
 		outputPath := filepath.Join(proj.Config.OutputPath, name)
 		content, err := os.ReadFile(outputPath)
@@ -788,7 +767,6 @@ func TestServer_RegisterHandlers(t *testing.T) {
 
 	server := newTestServer(t, proj)
 
-	// Verify all expected handlers are registered
 	expectedHandlers := []struct {
 		fileType FileType
 		modType  ModType

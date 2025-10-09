@@ -57,6 +57,9 @@ func TestHandleContentModified_BasicChange(t *testing.T) {
 		WithScheme("layout.xml", project.BasicLayoutXML()).
 		WithScheme("layout.html", project.BasicLayoutHTML()).
 		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithConfig(func(c *project.CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
@@ -68,7 +71,7 @@ func TestHandleContentModified_BasicChange(t *testing.T) {
 
 	server := newTestServer(t, proj)
 
-	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	_, err = proj.BuildFromPlan(ctx, plan)
 	if err != nil {
 		t.Fatalf("Initial build failed: %v", err)
 	}
@@ -673,6 +676,9 @@ source_suffix: html
 target_suffix: html`,
 			"index.js": `function transform(input) { return input; }`,
 		}).
+		WithConfig(func(c *project.CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
@@ -684,7 +690,7 @@ target_suffix: html`,
 
 	server := newTestServer(t, proj)
 
-	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	_, err = proj.BuildFromPlan(ctx, plan)
 	if err != nil {
 		t.Fatalf("Initial build failed: %v", err)
 	}
@@ -938,6 +944,9 @@ func TestHandlePipelineModified_ReloadsAndMarksDirty(t *testing.T) {
 		WithScheme("layout.xml", project.BasicLayoutXML()).
 		WithScheme("layout.html", project.BasicLayoutHTML()).
 		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithConfig(func(c *project.CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
@@ -949,8 +958,7 @@ func TestHandlePipelineModified_ReloadsAndMarksDirty(t *testing.T) {
 
 	server := newTestServer(t, proj)
 
-	// Do initial build to mark everything as clean
-	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	_, err = proj.BuildFromPlan(ctx, plan)
 	if err != nil {
 		t.Fatalf("Initial build failed: %v", err)
 	}
@@ -1084,6 +1092,9 @@ source_suffix: "(html|png)"
 target_suffix: "$1"`,
 			"index.js": `function transform(input) { return input; }`,
 		}).
+		WithConfig(func(c *project.CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
@@ -1095,8 +1106,7 @@ target_suffix: "$1"`,
 
 	server := newTestServer(t, proj)
 
-	// Initial build
-	_, err = proj.BuildFromPlan(ctx, plan, project.BuildOptions{Concurrency: 1})
+	_, err = proj.BuildFromPlan(ctx, plan)
 	if err != nil {
 		t.Fatalf("Initial build failed: %v", err)
 	}
@@ -1186,7 +1196,7 @@ func TestHandlers_ConcurrentModifications(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	plan, err := p.Plan(ctx)
+	plan, err := p.CurrentPlan()
 	if err != nil {
 		t.Fatalf("Failed to create plan: %v", err)
 	}

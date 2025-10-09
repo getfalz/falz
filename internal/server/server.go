@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -266,14 +265,7 @@ func RunServer(c context.Context, p *project.Project) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	// TODO: use project options
-	opt := project.BuildOptions{
-		Concurrency: runtime.NumCPU(),
-		UseCAS:      true,
-		CleanStale:  true,
-	}
-
-	stats, err := p.Build(ctx, opt)
+	stats, err := p.Build(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
 		log.EError(log.Build).
 			Err(err).

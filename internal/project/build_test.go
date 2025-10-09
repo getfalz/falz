@@ -15,13 +15,14 @@ func TestBuild_SimpleMarkdownFile(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
-	stats, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-	})
+	stats, err := proj.Build(ctx)
 
 	AssertNoError(t, err)
 
@@ -41,17 +42,19 @@ func TestBuild_IncrementalBuild_NoChanges(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// First build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	// Second build should detect no changes
-	stats2, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats2.DirtyEntries != 0 {
@@ -68,20 +71,19 @@ func TestBuild_ForceRebuild(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+			c.Build.ForceRebuild = true
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// First build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
-	// Force rebuild
-	stats, err := proj.Build(ctx, BuildOptions{
-		Concurrency:  1,
-		ForceRebuild: true,
-	})
+	stats, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats.BuiltEntries == 0 {
@@ -94,7 +96,10 @@ func TestBuild_ConcurrentBuild(t *testing.T) {
 	proj := NewTestProject(t).
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
-		WithPipeline("md", BasicMarkdownPipeline())
+		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 4
+		})
 
 	for i := 0; i < 10; i++ {
 		proj.WithSource(fmt.Sprintf("page%d.md", i), "# Page")
@@ -104,9 +109,7 @@ func TestBuild_ConcurrentBuild(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	stats, err := p.Build(ctx, BuildOptions{
-		Concurrency: 4,
-	})
+	stats, err := p.Build(ctx)
 
 	AssertNoError(t, err)
 
@@ -122,13 +125,15 @@ func TestBuild_CleanStaleEntries(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// First build
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	// Remove old.md from source
@@ -136,10 +141,7 @@ func TestBuild_CleanStaleEntries(t *testing.T) {
 	os.Remove(oldPath)
 
 	// Build with clean stale
-	_, err = proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-		CleanStale:  true,
-	})
+	_, err = proj.Build(ctx)
 	AssertNoError(t, err)
 
 	// old.html should be removed
@@ -155,16 +157,16 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
 	// First build with CAS
-	stats1, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-		UseCAS:      true,
-	})
+	stats1, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats1.CacheMisses == 0 {
@@ -176,10 +178,7 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 	os.MkdirAll(proj.Config.OutputPath, 0755)
 
 	// Second build should use cache
-	stats2, err := proj.Build(ctx, BuildOptions{
-		Concurrency: 1,
-		UseCAS:      true,
-	})
+	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats2.CacheHits == 0 {
@@ -206,11 +205,14 @@ func TestBuild_MultipleLayouts(t *testing.T) {
 		WithScheme("blog/template1.html", "<div class='blog'>{{content}}</div>").
 		WithScheme("docs/template2.html", "<div class='docs'>{{content}}</div>").
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
-	stats, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	stats, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats.BuiltEntries != 2 {
@@ -227,13 +229,16 @@ func TestBuild_ContextCancellation(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Cancel immediately
 
-	_, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	_, err := proj.Build(ctx)
 
 	if err == nil || !errors.Is(err, context.Canceled) {
 		t.Error("Expected context.Canceled error")
@@ -246,11 +251,14 @@ func TestBuild_BuildStats(t *testing.T) {
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
+		WithConfig(func(c *CraeftConfig) {
+			c.Build.Concurrency = 1
+		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
-	stats, err := proj.Build(ctx, BuildOptions{Concurrency: 1})
+	stats, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
 	if stats.Duration == 0 {

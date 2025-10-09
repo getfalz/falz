@@ -154,7 +154,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 
 func BasicLayoutXML() string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
+<Layout path="layout.html">
 	<Content name="content" path="*.md" pipe="md" />
 </Layout>`
 }
@@ -174,7 +174,7 @@ entry_point: index.js
 source_suffix: md
 target_suffix: html`,
 		"index.js": `
-function transform(ctx, input) {
+function transform(input) {
 	return input.replace(/^# (.+)$/gm, '<h1>$1</h1>');
 }
 `,

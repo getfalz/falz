@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"runtime"
 	"time"
 
 	"craeft/internal/log"
@@ -25,12 +24,8 @@ func Build(c *cli.Context) error {
 	defer stop()
 
 	start := time.Now()
-	opt := project.BuildOptions{
-		Concurrency: runtime.GOMAXPROCS(0),
-		UseCAS:      true,
-	}
 
-	stats, err := p.Build(ctx, opt)
+	stats, err := p.Build(ctx)
 	dur := time.Since(start)
 
 	switch {
