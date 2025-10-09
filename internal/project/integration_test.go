@@ -14,8 +14,8 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout tpl="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" path="*.md" pipe="md">
-		<Asset name="styles" src="*.css" type="copy" />
+	<Content name="content" src="*.md" pipe="md">
+		<Asset name="styles" src="*.css" pipe="copy" />
 	</Content>
 	<Fragment name="footer" src="footer.html" pipe="copy" />
 </Layout>`
@@ -76,8 +76,8 @@ target_suffix: "$1"`,
 
 func TestIntegration_BlogSite(t *testing.T) {
 	blogLayout := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="blog/template.html">
-	<Content name="post" path="posts/*.md" pipe="md" />
+<Layout src="blog/template.html">
+	<Content name="post" src="posts/*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -153,7 +153,7 @@ func TestIntegration_LayoutChange(t *testing.T) {
 	layoutV1 := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout tpl="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" path="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -343,7 +343,7 @@ target_suffix: html`,
 		WithSource("index.md", "# Test").
 		WithScheme("layout.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <Layout tpl="layout.html">
-	<Content name="content" path="*.md" pipe="bad" />
+	<Content name="content" src="*.md" pipe="bad" />
 </Layout>`).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("bad", badPipeline).

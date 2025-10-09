@@ -154,8 +154,8 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 
 func BasicLayoutXML() string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="layout.html">
-	<Content name="content" path="*.md" pipe="md" />
+<Layout src="layout.html">
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 }
 

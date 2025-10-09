@@ -78,7 +78,7 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 			}
 
 			for _, cc := range lyt.Contents() {
-				glob := filepath.ToSlash(filepath.Join(base, cc.Path))
+				glob := filepath.ToSlash(filepath.Join(base, cc.Source))
 				matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
 				if err != nil || len(matches) == 0 {
 					continue

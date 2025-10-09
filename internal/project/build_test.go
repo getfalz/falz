@@ -188,13 +188,13 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 
 func TestBuild_MultipleLayouts(t *testing.T) {
 	layout1 := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="template1.html">
-	<Content name="content" path="blog/*.md" pipe="md" />
+<Layout src="template1.html">
+	<Content name="content" src="blog/*.md" pipe="md" />
 </Layout>`
 
 	layout2 := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="template2.html">
-	<Content name="content" path="docs/*.md" pipe="md" />
+<Layout src="template2.html">
+	<Content name="content" src="docs/*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).

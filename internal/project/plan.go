@@ -178,7 +178,7 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 				key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
 
 				for _, cc := range lyt.Contents() {
-					glob := filepath.ToSlash(filepath.Join(base, cc.Path))
+					glob := filepath.ToSlash(filepath.Join(base, cc.Source))
 					matches, err := fs.Glob(p.SourceRoot.FS(), glob)
 					if err != nil {
 						continue
@@ -315,7 +315,7 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 				}
 
 				for _, cc := range lyt.Contents() {
-					glob := filepath.ToSlash(filepath.Join(base, cc.Path))
+					glob := filepath.ToSlash(filepath.Join(base, cc.Source))
 					matches, err := fs.Glob(p.SourceRoot.FS(), glob)
 					if err != nil {
 						continue

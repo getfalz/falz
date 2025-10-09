@@ -142,7 +142,7 @@ func (fc *FileClassifier) classifySourceFile(path string) FileType {
 
 	for _, lyt := range lmap {
 		for _, cc := range lyt.Contents() {
-			glob := filepath.ToSlash(filepath.Join(dir, cc.Path))
+			glob := filepath.ToSlash(filepath.Join(dir, cc.Source))
 			matched, err := filepath.Match(glob, path)
 			if err == nil && matched {
 				return FileTypeContent
@@ -177,8 +177,8 @@ func (fc *FileClassifier) classifySchemeFile(path string) FileType {
 	for _, lyt := range lmap {
 		for _, f := range lyt.Fragments() {
 			// TODO: DEBUG
-			fmt.Printf("===Fragments: %s = %s:%s", path, dir, f.Path)
-			if path == filepath.ToSlash(filepath.Join(dir, f.Path)) {
+			fmt.Printf("===Fragments: %s = %s:%s", path, dir, f.Source)
+			if path == filepath.ToSlash(filepath.Join(dir, f.Source)) {
 				return FileTypeFragment
 			}
 		}

@@ -32,7 +32,7 @@ type Fragment struct {
 	// XML
 	XMLName xml.Name `xml:"Fragment"`
 	Name    string   `xml:"name,attr"`
-	Path    string   `xml:"src,attr"`
+	Source  string   `xml:"src,attr"`
 	Pipe    string   `xml:"pipe,attr"`
 }
 
@@ -40,7 +40,7 @@ type Content struct {
 	// XML
 	XMLName   xml.Name `xml:"Content"`
 	Name      string
-	Path      string
+	Source    string
 	Pipe      string
 	assetElms []Asset
 }
@@ -61,7 +61,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		switch attr.Name.Local {
 		case "tpl":
 			l.tpl = attr.Value
-		case "path":
+		case "src":
 			l.tplPath = attr.Value
 		}
 	}
@@ -149,8 +149,8 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		switch attr.Name.Local {
 		case "name":
 			c.Name = attr.Value
-		case "path":
-			c.Path = attr.Value
+		case "src":
+			c.Source = attr.Value
 		case "pipe":
 			c.Pipe = attr.Value
 		}

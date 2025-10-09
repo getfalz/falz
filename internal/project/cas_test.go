@@ -185,9 +185,9 @@ func TestPlan_GetDirtyEntries(t *testing.T) {
 
 func TestPlan_GetEntriesByType(t *testing.T) {
 	assetLayout := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
-	<Content name="content" path="*.md" pipe="md">
-		<Asset name="style" src="*.css" type="copy" />
+<Layout src="layout.html">
+	<Content name="content" src="*.md" pipe="md">
+		<Asset name="style" src="*.css" pipe="copy" />
 	</Content>
 </Layout>`
 
@@ -282,7 +282,7 @@ func TestPlan_MultipleFiles(t *testing.T) {
 func TestPlan_NestedDirectories(t *testing.T) {
 	layout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout tpl="layout.html">
-	<Content name="content" path="**/*.md" pipe="md" />
+	<Content name="content" src="**/*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).

@@ -45,9 +45,9 @@ func TestFileClassifier_ClassifySourceContent(t *testing.T) {
 
 func TestFileClassifier_ClassifySourceAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="layout.html">
-	<Content name="content" path="*.md" pipe="md">
-		<Asset name="images" src="*.png" type="copy" />
+<Layout src="layout.html">
+	<Content name="content" src="*.md" pipe="md">
+		<Asset name="images" src="*.png" pipe="copy" />
 	</Content>
 </Layout>`
 
@@ -96,9 +96,9 @@ func TestFileClassifier_ClassifyLayout(t *testing.T) {
 
 func TestFileClassifier_ClassifyFragment(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="template.html">
+<Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" path="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -360,9 +360,9 @@ func TestHandlers_ContentDeleted(t *testing.T) {
 
 func TestHandlers_LayoutModified(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="template.html">
+<Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" path="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -391,10 +391,10 @@ target_suffix: html`,
 
 	// Modify layout
 	newLayout := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="template.html">
+<Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Fragment name="footer" src="footer.html" pipe="copy" />
-	<Content name="content" path="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	err = os.WriteFile(
@@ -414,9 +414,9 @@ target_suffix: html`,
 
 func TestHandlers_FragmentModified(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout path="template.html">
+<Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" path="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).

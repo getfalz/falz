@@ -21,7 +21,7 @@ const (
 
 const (
 	layoutTpl = `<Layout tpl="{{body}}">
-	<Content name="body" path="*.txt"/>
+	<Content name="body" src="*.txt"/>
 </Layout>`
 )
 
