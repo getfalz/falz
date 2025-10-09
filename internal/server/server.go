@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -164,7 +163,7 @@ func (fc *FileClassifier) classifySourceFile(path string) FileType {
 
 // classifySchemeFile determines if a scheme file is layout, fragment, or asset
 func (fc *FileClassifier) classifySchemeFile(path string) FileType {
-	if strings.HasSuffix(path, fc.project.Config.Layout) {
+	if ok, err := filepath.Match(fc.project.Config.Layout, path); err == nil && ok {
 		return FileTypeLayout
 	}
 
