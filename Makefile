@@ -18,3 +18,33 @@ prod:
 
 clean:
 	rm -rf $(BIN_DIR)
+	rm -f coverage.out coverage.html
+	go clean -testcache
+
+
+# TESTS
+test:
+	@echo "Running all tests..."
+	go test -v ./...
+
+test-server:
+	@echo "Running server tests..."
+	go test -v ./internal/server/
+
+test-project:
+	@echo "Running project tests..."
+	go test -v ./internal/project/
+
+
+test-coverage:
+	@echo "Generating coverage report..."
+	go test -coverprofile=coverage.out ./...
+	go tool cover -html=coverage.out -o coverage.html
+	@echo "Coverage report generated: coverage.html"
+
+test-race:
+	@echo "Running tests with race detector..."
+	go test -race -v ./...
+
+check: test-race test-coverage
+	@echo "All checks passed!"

@@ -57,7 +57,7 @@ func LoadManifest(path string) (*Manifest, error) {
 	return &m, nil
 }
 
-// SaveManifest saves the manifest to disk atomically
+// Save saves the manifest to disk atomically
 func (m *Manifest) Save(path string) error {
 	m.entriesMu.Lock()
 	m.Updated = time.Now()

@@ -9,6 +9,7 @@ import (
 
 	"craeft/internal/log"
 
+	"github.com/adrg/xdg"
 	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
@@ -42,10 +43,11 @@ type HooksConfig struct {
 
 // BuildConfig configures the incremental build
 type BuildConfig struct {
-	ForceRebuild bool `yaml:"force,omitempty" default:"false"`  // Ignore cache, rebuild everything
-	Concurrency  int  `yaml:"concurrency,omitempty"`            // Number of CPUs. It defaults to the number of logical CPUs
-	UseCAS       bool `yaml:"use_cas,omitempty" default:"true"` // Use content-addressable storage
-	CleanStale   bool `yaml:"clean,omitempty" default:"false"`  // Remove outputs for deleted sources
+	ForceRebuild bool   `yaml:"force,omitempty" default:"false"`  // Ignore cache, rebuild everything
+	Concurrency  int    `yaml:"concurrency,omitempty"`            // Number of CPUs. It defaults to the number of logical CPUs
+	UseCAS       bool   `yaml:"use_cas,omitempty" default:"true"` // Use content-addressable storage
+	CASPath      string `yaml:"cas_path,omitempty"`               // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
+	CleanStale   bool   `yaml:"clean,omitempty" default:"false"`  // Remove outputs for deleted sources
 }
 
 type CraeftConfig struct {
@@ -104,6 +106,10 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 
 	if config.Build.Concurrency <= 0 {
 		config.Build.Concurrency = runtime.NumCPU()
+	}
+
+	if config.Build.CASPath == "" {
+		config.Build.CASPath = filepath.Join(xdg.CacheHome, xdgConfigFolder)
 	}
 
 	return config, nil

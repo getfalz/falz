@@ -65,7 +65,7 @@ func (f *Fragment) Render(ctx context.Context, renderPath string) (string, strin
 
 	log.DDebug(log.Layout).
 		Str("fragment", f.Name).
-		Str("path", fragment).
+		Str("src", fragment).
 		Msg("fragment rendered")
 
 	return result, fragment, nil
@@ -200,7 +200,7 @@ func (c *Content) Validate() error {
 		return errors.New("element <Content>: missing required field: name")
 	}
 	if c.Source == "" {
-		return errors.New("element <Content>: missing required field: path")
+		return errors.New("element <Content>: missing required field: src")
 	}
 	return nil
 }

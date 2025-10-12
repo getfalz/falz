@@ -101,7 +101,7 @@ func TestBuild_ConcurrentBuild(t *testing.T) {
 			c.Build.Concurrency = 4
 		})
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		proj.WithSource(fmt.Sprintf("page%d.md", i), "# Page")
 	}
 
@@ -127,6 +127,7 @@ func TestBuild_CleanStaleEntries(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 1
+			c.Build.CleanStale = true
 		}).
 		Build()
 	defer cleanup()

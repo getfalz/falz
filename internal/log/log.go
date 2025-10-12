@@ -134,16 +134,6 @@ func Trace(msg string, tags ...Tag) {
 	applyTags(event, tags...).Msg(msg)
 }
 
-func Debug(msg string, tags ...Tag) {
-	event := logger.Debug()
-	applyTags(event, tags...).Msg(msg)
-}
-
-func Info(msg string, tags ...Tag) {
-	event := logger.Info()
-	applyTags(event, tags...).Msg(msg)
-}
-
 func Warn(msg string, tags ...Tag) {
 	event := logger.Warn()
 	applyTags(event, tags...).Msg(msg)
@@ -154,10 +144,5 @@ func Error(err error, tags ...Tag) {
 }
 func Fatal(msg string, tags ...Tag) {
 	event := logger.Fatal()
-	applyTags(event, tags...).Msg(msg)
-}
-
-func Panic(msg string, tags ...Tag) {
-	event := logger.Panic()
 	applyTags(event, tags...).Msg(msg)
 }

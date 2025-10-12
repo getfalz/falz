@@ -167,7 +167,7 @@ func TestIntegration_LayoutChange(t *testing.T) {
 entry_point: index.js
 source_suffix: html
 target_suffix: html`,
-			"index.js": `function transform(ctx, input) { return input; }`,
+			"index.js": `function transform(input) { return input; }`,
 		}).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 1
@@ -440,6 +440,8 @@ func TestIntegration_CASReuse(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 1
+			c.Build.UseCAS = true
+			c.Build.CASPath = "./cas"
 		}).
 		Build()
 	defer cleanup()
@@ -451,7 +453,6 @@ func TestIntegration_CASReuse(t *testing.T) {
 
 	cacheSize1 := stats1.BytesCached
 
-	// Delete output
 	os.RemoveAll(proj.Config.OutputPath)
 	os.MkdirAll(proj.Config.OutputPath, 0755)
 
@@ -463,10 +464,8 @@ func TestIntegration_CASReuse(t *testing.T) {
 		t.Error("Expected cache hits when rebuilding from CAS")
 	}
 
-	// Output should be recreated
 	AssertFileExists(t, proj.Config.OutputPath, "index.html")
 
-	// Cache size shouldn't grow (same content)
 	if stats2.BytesCached > cacheSize1 {
 		t.Logf("Cache grew from %d to %d bytes", cacheSize1, stats2.BytesCached)
 	}

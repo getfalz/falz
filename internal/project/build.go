@@ -174,6 +174,7 @@ func (p *Project) runBuild(
 
 	metrics := &buildMetrics{}
 
+	// TODO 100? what about Config.Concurrency*2 or 4
 	buildChan := make(chan *BuildEntry, 100)
 	writeChan := make(chan *ProcessResult, 100)
 	errChan := make(chan error, len(entries))
@@ -264,7 +265,21 @@ func (p *Project) buildStage(
 				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(work.Hash)
 
 				if inCache {
-					var data []byte
+					outputPath := filepath.Join(p.Config.OutputPath, work.OutputPath)
+					err := plan.CAS.Link(work.Hash, outputPath)
+					if err == nil {
+						result = &ProcessResult{
+							Entry:  work,
+							Cached: true,
+						}
+						metrics.cacheHits.Add(1)
+						metrics.processed.Add(1)
+
+						out <- result
+						return
+					}
+
+					log.Warn(fmt.Sprintf("CAS link failed for %s: %v (falling back to read)", work.ID, err))
 					data, err := plan.CAS.Restore(work.Hash)
 					if err == nil {
 						result = &ProcessResult{
@@ -273,30 +288,22 @@ func (p *Project) buildStage(
 							Cached: true,
 						}
 						metrics.cacheHits.Add(1)
-					} else {
-						// TODO warn?
-						log.Warn(fmt.Sprintf("cache restore failed for %s: %v", work.ID, err))
-						result = &ProcessResult{
-							Entry:  work,
-							Error:  fmt.Errorf("cache restore failed: %w", err),
-							Cached: false,
-						}
+						metrics.processed.Add(1)
+						out <- result
+						return
 					}
+
+					log.Warn(fmt.Sprintf("CAS restore failed for %s: %v", work.ID, err))
 				}
 
-				if !inCache || result.Error != nil {
-					result = p.processEntry(ctx, work)
+				result = p.processEntry(ctx, work)
 
-					if result.Error == nil {
-						metrics.cacheMisses.Add(1)
+				if result.Error == nil {
+					metrics.cacheMisses.Add(1)
 
-						if p.Config.Build.UseCAS && plan.CAS != nil && result.Data != nil {
-							if err := plan.CAS.Store(work.Hash, result.Data); err != nil {
-								// TODO warn?
-								log.Warn(fmt.Sprintf("cache store failed for %s: %v", work.ID, err))
-							} else {
-								metrics.bytesCached.Add(int64(len(result.Data)))
-							}
+					if p.Config.Build.UseCAS && plan.CAS != nil && result.Data != nil {
+						if err := plan.CAS.Store(work.Hash, result.Data); err == nil {
+							metrics.bytesCached.Add(int64(len(result.Data)))
 						}
 					}
 				}
@@ -304,22 +311,10 @@ func (p *Project) buildStage(
 				metrics.processed.Add(1)
 
 				if result.Error != nil {
-					if ctx.Err() != nil {
-						return
-					}
-					select {
-					case <-ctx.Done():
-						return
-					case errChan <- result.Error:
-					default:
-						log.EError(log.Build).
-							Err(result.Error).
-							Msg("BUG: error channel full despite being sized to len(entries)")
-					}
+					errChan <- result.Error
+					return
 				}
-
-				// cached results with errors should not be written
-				if !result.Cached && result.Error == nil && result.Data != nil {
+				if result.Data != nil {
 					if ctx.Err() != nil {
 						return
 					}
@@ -369,10 +364,6 @@ func (p *Project) writeStage(
 							case <-ctx.Done():
 								return
 							case errChan <- err:
-							default:
-								log.EError(log.Build).
-									Err(err).
-									Msg("BUG: error channel full despite being sized to len(entries)")
 							}
 							continue
 						}

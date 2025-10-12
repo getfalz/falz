@@ -57,18 +57,21 @@ type Plan struct {
 func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	start := time.Now()
 
-	// TODO use another file name
-	manifest, err := LoadManifest(filepath.Join(p.Config.OutputPath, ".craeft-manifest.json"))
+	manifest, err := LoadManifest(filepath.Join(p.Config.OutputPath, manifestoFile))
 	if err != nil {
 		log.Warn(fmt.Sprintf("Failed to load manifest: %v", err))
 		manifest = NewManifest()
 	}
 
-	// TODO use another cache dir
-	// TODO CAS is optional. respect that
-	cas, err := NewCAS(filepath.Join(p.Config.OutputPath, ".craeft-cache"))
-	if err != nil {
-		return nil, fmt.Errorf("create CAS: %w", err)
+	var cas *CAS
+	if p.Config.Build.UseCAS {
+		cas, err = NewCAS(p.Config.Build.CASPath)
+		if err != nil {
+			return nil, fmt.Errorf("create CAS: %w", err)
+		}
+		log.TTrace(log.Plan).
+			Str("path", p.Config.Build.CASPath).
+			Msg("CAS enabled")
 	}
 
 	plan := &Plan{
@@ -294,20 +297,17 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 				return fs.SkipDir
 			}
 
-			lmap, err := p.getLayoutsForDir(path)
-			if err == nil && len(lmap) > 0 {
-				return fs.SkipDir
-			}
-
 			base := filepath.ToSlash(path)
-			if err != nil {
-				return nil
+			lmap, err := p.getLayoutsForDir(path)
+			if base != startDir {
+				if err == nil && len(lmap) > 0 {
+					return fs.SkipDir
+				}
 			}
 
 			for _, lyt := range lmap {
 				key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
 
-				// TODO check this warmup?
 				_, err := p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
 				if err != nil {
 					log.Warn(fmt.Sprintf("warm up layout %s: %v", key.RelLayoutPath, err))

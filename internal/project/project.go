@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -99,8 +98,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		Pipelines:       config.Pipes,
 		PipelinesPath:   config.PipesPath,
 		SourceDirectory: srcAbs,
-		// TODO set poolsize in config?
-		PoolSize: runtime.NumCPU(),
+		PoolSize:        config.Build.Concurrency,
 	})
 	if err := reg.LoadAll(); err != nil {
 		_ = sourceRoot.Close()
