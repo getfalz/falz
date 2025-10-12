@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func TestHashCache_FileHashing(t *testing.T) {
+func TestHash_Cache_FileHashing(t *testing.T) {
 	cache := NewHashCache()
 
 	fs := fstest.MapFS{
@@ -32,7 +32,7 @@ func TestHashCache_FileHashing(t *testing.T) {
 	}
 }
 
-func TestHashCache_InvalidatesOnChange(t *testing.T) {
+func TestHash_Cache_InvalidatesOnChange(t *testing.T) {
 	cache := NewHashCache()
 
 	modTime1 := time.Now()
@@ -67,7 +67,7 @@ func TestHashCache_InvalidatesOnChange(t *testing.T) {
 	}
 }
 
-func TestHashBytes(t *testing.T) {
+func TestHash_Bytes(t *testing.T) {
 	data := []byte("test data")
 	hash1 := HashBytes(data)
 	hash2 := HashBytes(data)
@@ -81,7 +81,7 @@ func TestHashBytes(t *testing.T) {
 	}
 }
 
-func TestHashString(t *testing.T) {
+func TestHash_String(t *testing.T) {
 	str := "test string"
 	hash1 := HashString(str)
 	hash2 := HashString(str)
@@ -96,7 +96,7 @@ func TestHashString(t *testing.T) {
 	}
 }
 
-func TestCombineHashes(t *testing.T) {
+func TestHash_CombineHashes(t *testing.T) {
 	hash1 := HashString("a")
 	hash2 := HashString("b")
 	hash3 := HashString("c")
@@ -115,7 +115,7 @@ func TestCombineHashes(t *testing.T) {
 	}
 }
 
-func TestEntryHash_Compute(t *testing.T) {
+func TestHash_EntryHash_Compute(t *testing.T) {
 	entryHash := EntryHash{
 		ContentHash:  HashString("content"),
 		LayoutHash:   HashString("layout"),
@@ -142,7 +142,7 @@ func TestEntryHash_Compute(t *testing.T) {
 	}
 }
 
-func TestEntryHash_EmptyFragments(t *testing.T) {
+func TestHash_EntryHash_EmptyFragments(t *testing.T) {
 	entryHash := EntryHash{
 		ContentHash:    HashString("content"),
 		LayoutHash:     "",

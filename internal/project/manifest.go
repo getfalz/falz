@@ -115,15 +115,15 @@ func (m *Manifest) IsDirty(id string, currentHash string) bool {
 }
 
 // CleanStale removes entries that are no longer in the current plan
-func (m *Manifest) CleanStale(currentIDs map[string]struct{}) []string {
+func (m *Manifest) CleanStale(currentIDs map[string]struct{}) []ManifestEntry {
 	m.entriesMu.Lock()
 	defer m.entriesMu.Unlock()
 
-	var removed []string
-	for id := range m.Entries {
+	var removed []ManifestEntry
+	for id, entry := range m.Entries {
 		if _, exists := currentIDs[id]; !exists {
+			removed = append(removed, entry)
 			delete(m.Entries, id)
-			removed = append(removed, id)
 		}
 	}
 	return removed

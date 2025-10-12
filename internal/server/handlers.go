@@ -84,28 +84,15 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 					continue
 				}
 
-				_, err = s.project.WarmUpLayout(ctx, key, lyt)
+				_, err = s.project.Layouts.GetOrBuild(ctx, s.project.SchemeRoot, key, lyt)
 				if err != nil {
 					log.Warn(fmt.Sprintf("warm up layout for new content %s: %v", path, err))
 					continue
 				}
 
-				entry := &project.BuildEntry{
-					ID:             path,
-					Type:           "content",
-					SourcePath:     path,
-					SourceRoot:     "source",
-					OutputPath:     s.project.ComputeOutputPath(base, path, cc.Pipe),
-					Layout:         lyt,
-					LayoutKey:      key,
-					Pipeline:       cc.Pipe,
-					ContentName:    cc.Name,
-					BaseDir:        base,
-					FragmentHashes: make(map[string]string),
-				}
-
-				if err := s.project.ComputeEntryHash(ctx, entry, plan); err != nil {
-					log.Warn(fmt.Sprintf("compute hash for new content %s: %v", path, err))
+				entry, err := s.project.CreateEntryWithHash(ctx, plan, "content", "source", path, base, cc.Pipe, cc.Name, lyt)
+				if err != nil {
+					log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
 					continue
 				}
 
@@ -201,19 +188,9 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						continue
 					}
 
-					entry := &project.BuildEntry{
-						ID:             id,
-						Type:           "asset",
-						SourcePath:     path,
-						SourceRoot:     "source",
-						OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.Pipe),
-						Pipeline:       a.Pipe,
-						BaseDir:        filepath.Dir(path),
-						FragmentHashes: make(map[string]string),
-					}
-
-					if err := s.project.ComputeEntryHash(ctx, entry, plan); err != nil {
-						log.Warn(fmt.Sprintf("compute hash for new asset %s: %v", path, err))
+					entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, filepath.Base(path), a.Pipe, a.Name, nil)
+					if err != nil {
+						log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
 						continue
 					}
 
@@ -448,20 +425,9 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 					continue
 				}
 
-				id := fmt.Sprintf("asset:scheme:%s", path)
-				entry := &project.BuildEntry{
-					ID:             id,
-					Type:           "asset",
-					SourcePath:     path,
-					SourceRoot:     "scheme",
-					OutputPath:     s.project.ComputeOutputPath(filepath.Dir(path), path, a.Pipe),
-					Pipeline:       a.Pipe,
-					BaseDir:        filepath.Dir(path),
-					FragmentHashes: make(map[string]string),
-				}
-
-				if err := s.project.ComputeEntryHash(ctx, entry, plan); err != nil {
-					log.Warn(fmt.Sprintf("compute hash for new scheme asset %s: %v", path, err))
+				entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "scheme", path, filepath.Dir(path), a.Pipe, a.Name, nil)
+				if err != nil {
+					log.Warn(fmt.Sprintf("create scheme asset %s: %v", path, err))
 					continue
 				}
 

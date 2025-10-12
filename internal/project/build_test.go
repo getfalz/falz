@@ -53,7 +53,6 @@ func TestBuild_IncrementalBuild_NoChanges(t *testing.T) {
 	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
-	// Second build should detect no changes
 	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
@@ -92,7 +91,6 @@ func TestBuild_ForceRebuild(t *testing.T) {
 }
 
 func TestBuild_ConcurrentBuild(t *testing.T) {
-	// Create multiple files
 	proj := NewTestProject(t).
 		WithScheme("layout.xml", BasicLayoutXML()).
 		WithScheme("layout.html", BasicLayoutHTML()).
@@ -137,15 +135,12 @@ func TestBuild_CleanStaleEntries(t *testing.T) {
 	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
-	// Remove old.md from source
 	oldPath := filepath.Join(proj.Config.SourcePath, "old.md")
 	os.Remove(oldPath)
 
-	// Build with clean stale
 	_, err = proj.Build(ctx)
 	AssertNoError(t, err)
 
-	// old.html should be removed
 	oldOutput := filepath.Join(proj.Config.OutputPath, "old.html")
 	if _, err := os.Stat(oldOutput); !os.IsNotExist(err) {
 		t.Error("Expected old.html to be removed")
@@ -160,13 +155,14 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 1
+			c.Build.UseCAS = true
+			c.Build.CASPath = "cas"
 		}).
 		Build()
 	defer cleanup()
 
 	ctx := context.Background()
 
-	// First build with CAS
 	stats1, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
@@ -174,11 +170,9 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 		t.Error("Expected cache misses on first build")
 	}
 
-	// Delete output
 	os.RemoveAll(proj.Config.OutputPath)
 	os.MkdirAll(proj.Config.OutputPath, 0755)
 
-	// Second build should use cache
 	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
@@ -190,12 +184,12 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 func TestBuild_MultipleLayouts(t *testing.T) {
 	layout1 := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template1.html">
-	<Content name="content" src="blog/*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	layout2 := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template2.html">
-	<Content name="content" src="docs/*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -237,7 +231,7 @@ func TestBuild_ContextCancellation(t *testing.T) {
 	defer cleanup()
 
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
+	cancel()
 
 	_, err := proj.Build(ctx)
 

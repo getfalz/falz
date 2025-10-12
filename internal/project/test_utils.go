@@ -1,47 +1,10 @@
 package project
 
 import (
-	"io/fs"
 	"os"
 	"path/filepath"
 	"testing"
-	"testing/fstest"
-	"time"
 )
-
-// TestFS wraps fstest.MapFS to provide os.Root-like functionality
-type TestFS struct {
-	mapFS fstest.MapFS
-	root  string
-}
-
-// NewTestFS creates a new in-memory filesystem for testing
-func NewTestFS(files map[string]string) *TestFS {
-	mapFS := make(fstest.MapFS)
-	for path, content := range files {
-		mapFS[path] = &fstest.MapFile{
-			Data:    []byte(content),
-			Mode:    0644,
-			ModTime: time.Now(),
-		}
-	}
-	return &TestFS{
-		mapFS: mapFS,
-		root:  "/test",
-	}
-}
-
-func (t *TestFS) FS() fs.FS {
-	return t.mapFS
-}
-
-func (t *TestFS) Stat(name string) (fs.FileInfo, error) {
-	return fs.Stat(t.mapFS, name)
-}
-
-func (t *TestFS) Close() error {
-	return nil
-}
 
 type TestProjectBuilder struct {
 	t             *testing.T
@@ -139,6 +102,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 	b.config.SchemePath = schemeDir
 	b.config.OutputPath = outputDir
 	b.config.PipesPath = pipesDir
+	b.config.Build.CASPath = filepath.Join(tempDir, b.config.Build.CASPath)
 
 	proj, err := New(b.config)
 	if err != nil {

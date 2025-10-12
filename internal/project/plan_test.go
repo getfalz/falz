@@ -56,47 +56,6 @@ func TestPlan_GetDirtyEntries(t *testing.T) {
 	}
 }
 
-func TestPlan_GetEntriesByType(t *testing.T) {
-	assetLayout := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="style" src="*.css" pipe="copy" />
-	</Content>
-</Layout>`
-
-	proj, cleanup := NewTestProject(t).
-		WithSource("index.md", "# Test").
-		WithSource("style.css", "body { color: red; }").
-		WithScheme("layout.xml", assetLayout).
-		WithScheme("layout.html", BasicLayoutHTML()).
-		WithPipeline("md", BasicMarkdownPipeline()).
-		WithPipeline("copy", map[string]string{
-			"config.yaml": `name: copy
-entry_point: index.js
-source_suffix: css
-target_suffix: css`,
-			"index.js": `function transform(ctx, input) { return input; }`,
-		}).
-		Build()
-	defer cleanup()
-
-	ctx := context.Background()
-	plan, err := proj.Plan(ctx)
-	if err != nil {
-		t.Fatalf("Failed to create plan: %v", err)
-	}
-
-	contentEntries := plan.GetEntriesByType("content")
-	assetEntries := plan.GetEntriesByType("asset")
-
-	if len(contentEntries) == 0 {
-		t.Error("Expected content entries")
-	}
-	if len(assetEntries) == 0 {
-		t.Error("Expected asset entries")
-	}
-}
-
 func TestPlan_HashComputation(t *testing.T) {
 	proj, cleanup := NewTestProject(t).
 		WithSource("index.md", "# Test").

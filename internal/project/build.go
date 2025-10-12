@@ -72,6 +72,7 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, e
 
 	if p.Config.Build.CleanStale {
 		removed := p.cleanStaleEntries(plan)
+		fmt.Printf("Removed %d stale entries, removed : %v\n", len(removed), removed)
 		if len(removed) > 0 {
 			log.IInfo(log.Build).Int("removed", len(removed)).Msg("cleaned stale entries")
 		}
@@ -79,6 +80,10 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, e
 
 	dirtyEntries := plan.GetDirtyEntries()
 	stats.DirtyEntries = len(dirtyEntries)
+
+	if p.Config.Build.ForceRebuild {
+		dirtyEntries = plan.GetAllEntries()
+	}
 
 	if len(dirtyEntries) == 0 {
 		log.IInfo(log.Build).Msg("no changes detected, everything up to date")
@@ -130,15 +135,16 @@ func (p *Project) cleanStaleEntries(plan *Plan) []string {
 
 	removed := plan.Manifest.CleanStale(currentIDs)
 
-	for _, id := range removed {
-		if entry, ok := plan.Manifest.Get(id); ok {
-			if err := p.outRoot.Remove(entry.OutputPath); err != nil && !os.IsNotExist(err) {
-				log.Warn(fmt.Sprintf("failed to remove stale output %s: %v", entry.OutputPath, err))
-			}
+	var removedIds []string
+	for _, entry := range removed {
+		removedIds = append(removedIds, entry.OutputPath)
+
+		if err := p.outRoot.Remove(entry.OutputPath); err != nil && !os.IsNotExist(err) {
+			log.Warn(fmt.Sprintf("failed to remove stale output %s: %v", entry.OutputPath, err))
 		}
 	}
 
-	return removed
+	return removedIds
 }
 
 type BuildResult struct {
@@ -169,18 +175,13 @@ func (p *Project) runBuild(
 		Errors: make([]error, 0),
 	}
 
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	metrics := &buildMetrics{}
 
-	// TODO 100? what about Config.Concurrency*2 or 4
-	buildChan := make(chan *BuildEntry, 100)
-	writeChan := make(chan *ProcessResult, 100)
+	buildChan := make(chan *BuildEntry, p.Config.Build.Concurrency*2)
+	writeChan := make(chan *ProcessResult, p.Config.Build.Concurrency*4)
 	errChan := make(chan error, len(entries))
 
 	buildWg := p.buildStage(ctx, buildChan, writeChan, plan, metrics, errChan)
-
 	writeWg := p.writeStage(ctx, writeChan, plan, metrics, errChan)
 
 	func() {
@@ -468,7 +469,7 @@ func (p *Project) processEntry(
 			return result
 		}
 
-		vars.Set(entry.ContentName, transformed)
+		vars.Set(entry.TagName, transformed)
 		output := tpl.ExecuteString(vars)
 		result.Data = []byte(output)
 	} else {

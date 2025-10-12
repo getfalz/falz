@@ -11,17 +11,29 @@ import (
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
+)
 
-	"github.com/valyala/fasttemplate"
+type EntryType string
+
+const (
+	EntryTypeContent EntryType = "content"
+	EntryTypeAsset   EntryType = "asset"
+)
+
+type SourceType string
+
+const (
+	SourceTypeSource SourceType = "source"
+	SourceTypeScheme SourceType = "scheme"
 )
 
 // BuildEntry represents any file to be built (content or asset)
 type BuildEntry struct {
-	ID         string // Unique identifier: "content/about.md" or "assets/style.css"
-	Type       string // "content" or "asset"
-	SourcePath string // Source file path
-	SourceRoot string // "source" or "scheme"
-	OutputPath string // Where to write the result
+	ID         string     // Unique identifier: "content/about.md" or "assets/style.css"
+	Type       EntryType  // "content" or "asset"
+	SourceRoot SourceType // Source root: "source" or "scheme"
+	SourcePath string     // Source file path
+	OutputPath string     // Where to write the result
 
 	// Hash components
 	Hash           string            // Combined hash of all inputs
@@ -31,11 +43,11 @@ type BuildEntry struct {
 	FragmentHashes map[string]string // Fragment dependencies (empty for assets)
 
 	// Build information
-	Layout      *layout.Layout // nil for assets
-	LayoutKey   LayoutKey      // empty for assets
-	Pipeline    string         // Pipeline name
-	ContentName string         // Content slot name (empty for assets)
-	BaseDir     string         // Base directory
+	Layout    *layout.Layout // nil for assets
+	LayoutKey LayoutKey      // empty for assets
+	Pipeline  string         // Pipeline name
+	TagName   string         // Content slot name (empty for assets)
+	BaseDir   string         // Base directory
 
 	// State
 	Dirty     bool      // Needs rebuilding
@@ -108,11 +120,20 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 
 	return plan, nil
 }
+
 func (p *Plan) HasEntry(key string) bool {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	_, ok := p.entries[key]
 	return ok
+}
+
+// TODO could replace HasEntry
+func (p *Plan) Entry(key string) (*BuildEntry, bool) {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	e, ok := p.entries[key]
+	return e, ok
 }
 
 func (p *Plan) LenEntries() int {
@@ -130,6 +151,26 @@ func (p *Plan) DeleteEntry(key string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	delete(p.entries, key)
+}
+
+// RemoveIf removes entries matching the predicate and optionally updates the manifest
+// Returns the IDs of removed entries
+func (p *Plan) RemoveIf(predicate func(*BuildEntry) bool, updateManifest bool) []string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	removed := []string{}
+	for id, entry := range p.entries {
+		if predicate(entry) {
+			delete(p.entries, id)
+			if updateManifest {
+				p.Manifest.Delete(id)
+			}
+			removed = append(removed, id)
+		}
+	}
+
+	return removed
 }
 
 func (p *Plan) UpdateEntry(key string, fn func(entry *BuildEntry) error) error {
@@ -156,6 +197,68 @@ func (p *Plan) EntryKeys(predicate func(*BuildEntry) bool) []string {
 	return keys
 }
 
+func (p *Project) createEntry(
+	entryType EntryType,
+	sourceType SourceType,
+	rel string,
+	base string,
+	pipeName string,
+	tagName string,
+	lyt *layout.Layout,
+) *BuildEntry {
+
+	id := rel
+	if entryType == "asset" {
+		switch sourceType {
+		case "scheme":
+			id = fmt.Sprintf("asset:scheme:%s", id)
+		case "source":
+			id = fmt.Sprintf("asset:source:%s", id)
+		}
+	}
+
+	e := &BuildEntry{
+		ID:             id,
+		Type:           entryType,
+		SourcePath:     rel,
+		SourceRoot:     sourceType,
+		OutputPath:     p.ComputeOutputPath(base, rel, pipeName),
+		Pipeline:       pipeName,
+		TagName:        tagName,
+		BaseDir:        base,
+		FragmentHashes: make(map[string]string),
+	}
+
+	if entryType == "content" && lyt != nil {
+		key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
+
+		e.Layout = lyt
+		e.LayoutKey = key
+	}
+
+	return e
+}
+
+func (p *Project) CreateEntryWithHash(
+	ctx context.Context,
+	plan *Plan,
+	entryType EntryType,
+	sourceType SourceType,
+	rel string,
+	base string,
+	pipeName string,
+	tagName string,
+	lyt *layout.Layout,
+) (*BuildEntry, error) {
+
+	entry := p.createEntry(entryType, sourceType, rel, base, pipeName, tagName, lyt)
+
+	if err := p.computeEntryHash(ctx, entry, plan); err != nil {
+		return nil, fmt.Errorf("compute hash for %s: %w", rel, err)
+	}
+	return entry, nil
+}
+
 // scanFiles walks the source directory for content
 func (p *Project) scanFiles(plan *Plan) (int, error) {
 	srcFS := p.SourceRoot.FS()
@@ -178,8 +281,6 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 			}
 
 			for _, lyt := range lmap {
-				key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
-
 				for _, cc := range lyt.Contents() {
 					glob := filepath.ToSlash(filepath.Join(base, cc.Source))
 					matches, err := fs.Glob(p.SourceRoot.FS(), glob)
@@ -188,24 +289,10 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 					}
 
 					for _, rel := range matches {
-						entry := &BuildEntry{
-							ID:             rel,
-							Type:           "content",
-							SourcePath:     rel,
-							SourceRoot:     "source",
-							OutputPath:     p.ComputeOutputPath(base, rel, cc.Pipe),
-							Layout:         lyt,
-							LayoutKey:      key,
-							Pipeline:       cc.Pipe,
-							ContentName:    cc.Name,
-							BaseDir:        base,
-							FragmentHashes: make(map[string]string),
-						}
+						entry := p.createEntry("content", "source", rel, base, cc.Pipe, cc.Name, lyt)
 
-						plan.mu.Lock()
-						plan.entries[entry.ID] = entry
+						plan.AddEntry(entry.ID, entry)
 						changed++
-						plan.mu.Unlock()
 					}
 
 					for _, a := range cc.Assets() {
@@ -216,22 +303,10 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 						}
 
 						for _, rel := range matches {
-							id := fmt.Sprintf("asset:source:%s", rel)
-							entry := &BuildEntry{
-								ID:             id,
-								Type:           "asset",
-								SourcePath:     rel,
-								SourceRoot:     "source",
-								OutputPath:     p.ComputeOutputPath(filepath.Dir(rel), rel, a.Pipe),
-								Pipeline:       a.Pipe,
-								BaseDir:        filepath.Dir(rel),
-								FragmentHashes: make(map[string]string),
-							}
+							entry := p.createEntry("asset", "source", rel, filepath.Dir(rel), a.Pipe, a.Name, nil)
 
-							plan.mu.Lock()
-							plan.entries[entry.ID] = entry
+							plan.AddEntry(entry.ID, entry)
 							changed++
-							plan.mu.Unlock()
 						}
 					}
 
@@ -245,22 +320,11 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 					}
 
 					for _, rel := range matches {
-						id := fmt.Sprintf("asset:scheme:%s", rel)
-						entry := &BuildEntry{
-							ID:             id,
-							Type:           "asset",
-							SourcePath:     rel,
-							SourceRoot:     "scheme",
-							OutputPath:     p.ComputeOutputPath(filepath.Dir(rel), rel, a.Pipe),
-							Pipeline:       a.Pipe,
-							BaseDir:        filepath.Dir(rel),
-							FragmentHashes: make(map[string]string),
-						}
+						entry := p.createEntry("asset", "scheme", rel, filepath.Dir(rel), a.Pipe, a.Name, nil)
 
-						plan.mu.Lock()
-						plan.entries[entry.ID] = entry
+						plan.AddEntry(entry.ID, entry)
+
 						changed++
-						plan.mu.Unlock()
 					}
 				}
 
@@ -322,7 +386,10 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 					}
 
 					for _, rel := range matches {
-						p.updateOrCreateContentEntry(ctx, plan, rel, lyt, key, cc)
+						if err := p.updateOrCreateContentEntry(ctx, plan, rel, lyt, key, cc); err != nil {
+							log.Warn(fmt.Sprintf("updating or creating content %s: %v", rel, err))
+							continue
+						}
 					}
 
 					for _, a := range cc.Assets() {
@@ -334,7 +401,11 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 						for _, rel := range matches {
 							id := fmt.Sprintf("asset:source:%s", rel)
-							p.updateOrCreateAssetEntry(ctx, plan, id, rel, "source", a.Pipe, filepath.Dir(rel))
+							if err := p.updateOrCreateAssetEntry(ctx, plan, id, rel, "source", a.Pipe, filepath.Dir(rel)); err != nil {
+								log.Warn(fmt.Sprintf("updating or creating asset %s: %v", rel, err))
+								continue
+
+							}
 						}
 					}
 				}
@@ -348,7 +419,9 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 					for _, rel := range matches {
 						id := fmt.Sprintf("asset:scheme:%s", rel)
-						p.updateOrCreateAssetEntry(ctx, plan, id, rel, "scheme", a.Pipe, filepath.Dir(rel))
+						if err := p.updateOrCreateAssetEntry(ctx, plan, id, rel, "scheme", a.Pipe, filepath.Dir(rel)); err != nil {
+							log.Warn(fmt.Sprintf("updating or creating asset %s: %v", rel, err))
+						}
 					}
 				}
 			}
@@ -356,9 +429,6 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 		return nil
 	})
-}
-func (p *Project) WarmUpLayout(ctx context.Context, key LayoutKey, lyt *layout.Layout) (*fasttemplate.Template, error) {
-	return p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
 }
 
 func (p *Project) warmupLayouts(ctx context.Context, plan *Plan) error {
@@ -417,17 +487,8 @@ func (p *Plan) computeHashes(ctx context.Context, project *Project) error {
 				return
 			}
 
-			if err := project.ComputeEntryHash(ctx, e, p); err != nil {
-				if ctx.Err() != nil {
-					return
-				}
-				select {
-				case errChan <- err:
-				default:
-					log.EError(log.Build).
-						Err(err).
-						Msg("BUG: error channel full despite being sized to len(entries)")
-				}
+			if err := project.computeEntryHash(ctx, e, p); err != nil {
+				errChan <- err
 			}
 		}(entry)
 	}
@@ -443,7 +504,7 @@ func (p *Plan) computeHashes(ctx context.Context, project *Project) error {
 	return errors.Join(errs...)
 }
 
-func (p *Project) ComputeEntryHash(ctx context.Context, e *BuildEntry, plan *Plan) error {
+func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Plan) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -509,6 +570,26 @@ func (p *Project) ComputeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 	return nil
 }
 
+// updateEntryHashes recomputes all hashes for an entry
+func (p *Project) updateEntryHashes(ctx context.Context, entry *BuildEntry, plan *Plan) error {
+	oldHash := entry.Hash
+
+	if err := p.computeEntryHash(ctx, entry, plan); err != nil {
+		return err
+	}
+
+	if entry.Hash != oldHash {
+		entry.Dirty = true
+		log.DDebug(log.Plan).
+			Str("id", entry.ID).
+			Str("old_hash", oldHash[:8]).
+			Str("new_hash", entry.Hash[:8]).
+			Msg("hash changed, marked for rebuild")
+	}
+
+	return nil
+}
+
 // diff compares the plan against the manifest
 func (p *Plan) diff() int {
 	p.mu.Lock()
@@ -525,6 +606,17 @@ func (p *Plan) diff() int {
 	return changed
 }
 
+func (p *Plan) GetAllEntries() []*BuildEntry {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+
+	var all []*BuildEntry
+	for _, entry := range p.entries {
+		all = append(all, entry)
+	}
+	return all
+}
+
 // GetDirtyEntries returns all entries that need rebuilding
 func (p *Plan) GetDirtyEntries() []*BuildEntry {
 	p.mu.RLock()
@@ -539,20 +631,6 @@ func (p *Plan) GetDirtyEntries() []*BuildEntry {
 	return dirty
 }
 
-// GetEntriesByType returns entries filtered by type
-func (p *Plan) GetEntriesByType(entryType string) []*BuildEntry {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-
-	var entries []*BuildEntry
-	for _, entry := range p.entries {
-		if entry.Type == entryType {
-			entries = append(entries, entry)
-		}
-	}
-	return entries
-}
-
 // ComputeOutputPath determines the output path for a file
 func (p *Project) ComputeOutputPath(base, rel, pipe string) string {
 	pl, err := p.Pipes.Get(pipe)
@@ -565,7 +643,6 @@ func (p *Project) ComputeOutputPath(base, rel, pipe string) string {
 	return filepath.Join(base, target)
 }
 
-// updateOrCreateContentEntry updates an existing content entry or creates a new one
 func (p *Project) updateOrCreateContentEntry(
 	ctx context.Context,
 	plan *Plan,
@@ -573,55 +650,43 @@ func (p *Project) updateOrCreateContentEntry(
 	lyt *layout.Layout,
 	key LayoutKey,
 	cc layout.Content,
-) {
-	plan.mu.Lock()
-	existingEntry, exists := plan.entries[rel]
-	plan.mu.Unlock()
+) error {
 
-	if exists && existingEntry.LayoutKey == key {
-		// Entry exists with correct layout, just update hashes
-		if err := p.updateEntryHashes(ctx, existingEntry, plan); err != nil {
-			log.Warn(fmt.Sprintf("update entry hash %s: %v", rel, err))
+	entry, exists := plan.Entry(rel)
+
+	if exists && entry.LayoutKey == key {
+		err := plan.UpdateEntry(rel, func(e *BuildEntry) error {
+			return p.updateEntryHashes(ctx, e, plan)
+		})
+
+		if err != nil {
+			log.WWarn(log.Plan).
+				Err(err).
+				Str("id", rel).
+				Msg("hash update failed, recreating entry")
+		} else {
+			return nil
 		}
-	} else {
-		// Entry doesn't exist or has wrong layout
-		if exists {
-			plan.mu.Lock()
-			delete(plan.entries, rel)
-			plan.mu.Unlock()
-		}
-
-		// Create new entry
-		entry := &BuildEntry{
-			ID:             rel,
-			Type:           "content",
-			SourcePath:     rel,
-			SourceRoot:     "source",
-			OutputPath:     p.ComputeOutputPath(key.BaseDir, rel, cc.Pipe),
-			Layout:         lyt,
-			LayoutKey:      key,
-			Pipeline:       cc.Pipe,
-			ContentName:    cc.Name,
-			BaseDir:        key.BaseDir,
-			FragmentHashes: make(map[string]string),
-		}
-
-		if err := p.ComputeEntryHash(ctx, entry, plan); err != nil {
-			log.Warn(fmt.Sprintf("compute entry hash %s: %v", rel, err))
-			return
-		}
-
-		entry.Dirty = true
-
-		plan.mu.Lock()
-		plan.entries[entry.ID] = entry
-		plan.mu.Unlock()
-
-		log.DDebug(log.Plan).
-			Str("id", rel).
-			Str("layout", key.RelLayoutPath).
-			Msg("new content entry added")
 	}
+
+	if exists {
+		plan.DeleteEntry(rel)
+	}
+
+	entry, err := p.CreateEntryWithHash(ctx, plan, "content", "source", rel, key.BaseDir, cc.Pipe, cc.Name, lyt)
+	if err != nil {
+		return err
+	}
+
+	entry.Dirty = true
+	plan.AddEntry(entry.ID, entry)
+
+	log.DDebug(log.Plan).
+		Str("id", rel).
+		Str("layout", key.RelLayoutPath).
+		Msg("new content entry added")
+
+	return nil
 }
 
 // updateOrCreateAssetEntry updates an existing asset entry or creates a new one
@@ -630,86 +695,39 @@ func (p *Project) updateOrCreateAssetEntry(
 	plan *Plan,
 	id string,
 	rel string,
-	sourceRoot string,
+	sourceRoot SourceType,
 	pipeline string,
 	baseDir string,
-) {
-	plan.mu.Lock()
-	existingEntry, exists := plan.entries[id]
-	plan.mu.Unlock()
+) error {
+	_, exists := plan.Entry(id)
 
 	if exists {
-		// Entry exists, update hashes
-		if err := p.updateEntryHashes(ctx, existingEntry, plan); err != nil {
-			log.Warn(fmt.Sprintf("update asset hash %s: %v", rel, err))
+		err := plan.UpdateEntry(rel, func(e *BuildEntry) error {
+			return p.updateEntryHashes(ctx, e, plan)
+		})
+
+		if err != nil {
+			log.WWarn(log.Plan).
+				Err(err).
+				Str("id", id).
+				Msg("hash update failed, recreating entry")
+		} else {
+			return nil
 		}
-	} else {
-		// Create new entry
-		entry := &BuildEntry{
-			ID:             id,
-			Type:           "asset",
-			SourcePath:     rel,
-			SourceRoot:     sourceRoot,
-			OutputPath:     p.ComputeOutputPath(baseDir, rel, pipeline),
-			Pipeline:       pipeline,
-			BaseDir:        baseDir,
-			FragmentHashes: make(map[string]string),
-		}
-
-		if err := p.ComputeEntryHash(ctx, entry, plan); err != nil {
-			log.Warn(fmt.Sprintf("compute asset hash %s: %v", rel, err))
-			return
-		}
-
-		entry.Dirty = true
-
-		plan.mu.Lock()
-		plan.entries[entry.ID] = entry
-		plan.mu.Unlock()
-
-		log.DDebug(log.Plan).
-			Str("id", id).
-			Str("pipeline", pipeline).
-			Msg("new asset entry added")
 	}
-}
 
-// updateEntryHashes recomputes all hashes for an entry
-func (p *Project) updateEntryHashes(ctx context.Context, entry *BuildEntry, plan *Plan) error {
-	oldHash := entry.Hash
-
-	if err := p.ComputeEntryHash(ctx, entry, plan); err != nil {
+	entry, err := p.CreateEntryWithHash(ctx, plan, "asset", sourceRoot, rel, baseDir, pipeline, "", nil)
+	if err != nil {
 		return err
 	}
 
-	if entry.Hash != oldHash {
-		entry.Dirty = true
-		log.DDebug(log.Plan).
-			Str("id", entry.ID).
-			Str("old_hash", oldHash[:8]).
-			Str("new_hash", entry.Hash[:8]).
-			Msg("hash changed, marked for rebuild")
-	}
+	entry.Dirty = true
+	plan.AddEntry(entry.ID, entry)
+
+	log.DDebug(log.Plan).
+		Str("id", id).
+		Str("pipeline", pipeline).
+		Msg("new asset entry added")
 
 	return nil
-}
-
-// RemoveIf removes entries matching the predicate and optionally updates the manifest
-// Returns the IDs of removed entries
-func (p *Plan) RemoveIf(predicate func(*BuildEntry) bool, updateManifest bool) []string {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	removed := []string{}
-	for id, entry := range p.entries {
-		if predicate(entry) {
-			delete(p.entries, id)
-			if updateManifest {
-				p.Manifest.Delete(id)
-			}
-			removed = append(removed, id)
-		}
-	}
-
-	return removed
 }

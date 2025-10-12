@@ -12,7 +12,7 @@ import (
 
 func TestIntegration_CompleteWorkflow(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="template.html">
+<Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Content name="content" src="*.md" pipe="md">
 		<Asset name="styles" src="*.css" pipe="copy" />
@@ -34,7 +34,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 entry_point: index.js
 source_suffix: "(html|css)"
 target_suffix: "$1"`,
-			"index.js": `function transform(ctx, input) { return input; }`,
+			"index.js": `function transform(input) { return input; }`,
 		}).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 2
@@ -51,7 +51,6 @@ target_suffix: "$1"`,
 		t.Fatal("Expected files to be built")
 	}
 
-	// Verify outputs
 	AssertFileExists(t, proj.Config.OutputPath, "index.html")
 	AssertFileExists(t, proj.Config.OutputPath, "about.html")
 	AssertFileExists(t, proj.Config.OutputPath, "style.css")
@@ -76,8 +75,8 @@ target_suffix: "$1"`,
 
 func TestIntegration_BlogSite(t *testing.T) {
 	blogLayout := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout src="blog/template.html">
-	<Content name="post" src="posts/*.md" pipe="md" />
+<Layout src="template.html">
+	<Content name="post" src="*.md" pipe="md" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -151,7 +150,7 @@ func TestIntegration_ChangeDetection(t *testing.T) {
 
 func TestIntegration_LayoutChange(t *testing.T) {
 	layoutV1 := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="template.html">
+<Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
@@ -213,7 +212,7 @@ func TestIntegration_PipelineChange(t *testing.T) {
 entry_point: index.js
 source_suffix: md
 target_suffix: html`,
-		"index.js": `function transform(ctx, input) {
+		"index.js": `function transform(input) {
 	return input.replace(/^# (.+)$/gm, '<h1>V1: $1</h1>');
 }`,
 	}
@@ -242,7 +241,7 @@ target_suffix: html`,
 
 	// Modify pipeline
 	time.Sleep(10 * time.Millisecond)
-	pipelineJS := `function transform(ctx, input) {
+	pipelineJS := `function transform(input) {
 	return input.replace(/^# (.+)$/gm, '<h1>V2: $1</h1>');
 }`
 	err = os.WriteFile(
@@ -334,7 +333,7 @@ func TestIntegration_ErrorHandling(t *testing.T) {
 entry_point: index.js
 source_suffix: md
 target_suffix: html`,
-		"index.js": `function transform(ctx, input) {
+		"index.js": `function transform(input) {
 	throw new Error("Pipeline error");
 }`,
 	}
@@ -342,7 +341,7 @@ target_suffix: html`,
 	proj, cleanup := NewTestProject(t).
 		WithSource("index.md", "# Test").
 		WithScheme("layout.xml", `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
+<Layout src="layout.html">
 	<Content name="content" src="*.md" pipe="bad" />
 </Layout>`).
 		WithScheme("layout.html", BasicLayoutHTML()).
