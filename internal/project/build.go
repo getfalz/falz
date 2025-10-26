@@ -494,15 +494,14 @@ func (p *Project) writeResult(
 ) error {
 	entry := result.Entry
 
-	dst := filepath.Join(entry.BaseDir, entry.OutputPath)
-	fullPath := filepath.Join(p.Config.OutputPath, dst)
+	fullPath := filepath.Join(p.Config.OutputPath, entry.OutputPath)
 
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return fmt.Errorf("create dir for %s: %w", dst, err)
+		return fmt.Errorf("create dir for %s: %w", entry.OutputPath, err)
 	}
 
 	if err := os.WriteFile(fullPath, result.Data, 0644); err != nil {
-		return fmt.Errorf("write %s: %w", dst, err)
+		return fmt.Errorf("write %s: %w", entry.OutputPath, err)
 	}
 
 	plan.Manifest.Set(entry.ID, ManifestEntry{

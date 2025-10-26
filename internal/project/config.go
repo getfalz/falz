@@ -43,11 +43,12 @@ type HooksConfig struct {
 
 // BuildConfig configures the incremental build
 type BuildConfig struct {
-	ForceRebuild bool   `yaml:"force,omitempty" default:"false"`  // Ignore cache, rebuild everything
-	Concurrency  int    `yaml:"concurrency,omitempty"`            // Number of CPUs. It defaults to the number of logical CPUs
-	UseCAS       bool   `yaml:"use_cas,omitempty" default:"true"` // Use content-addressable storage
-	CASPath      string `yaml:"cas_path,omitempty"`               // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
-	CleanStale   bool   `yaml:"clean,omitempty" default:"false"`  // Remove outputs for deleted sources
+	ForceRebuild bool   `yaml:"force,omitempty" default:"false"`    // Ignore cache, rebuild everything
+	Concurrency  int    `yaml:"concurrency,omitempty"`              // Number of CPUs. It defaults to the number of logical CPUs
+	UseCAS       bool   `yaml:"use_cas,omitempty" default:"true"`   // Use content-addressable storage
+	CASPath      string `yaml:"cas_path,omitempty"`                 // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
+	CleanStale   bool   `yaml:"clean,omitempty" default:"false"`    // Remove outputs for deleted sources
+	PipeTimeout  int    `yaml:"pipe_timeout,omitempty" default:"3"` // Timeout for each pipe in seconds
 }
 
 type CraeftConfig struct {

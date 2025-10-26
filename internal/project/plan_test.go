@@ -92,7 +92,7 @@ func TestPlan_MultipleFiles(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline())
 
 	// Add multiple source files
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		filename := "page" + string(rune('0'+i)) + ".md"
 		proj.WithSource(filename, "# Page")
 	}

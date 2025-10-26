@@ -336,6 +336,7 @@ func TestLayout_HotReload(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
 			c.FsWatcher.HotReload = true
+			c.FsWatcher.Enabled = true
 		}).
 		Build()
 	defer cleanup()

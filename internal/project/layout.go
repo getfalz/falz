@@ -61,6 +61,7 @@ func (lc *LayoutCache) GetOrBuild(
 	log.DDebug(log.Layout).
 		Str("rel_layout", key.RelLayoutPath).
 		Str("base_dir", key.BaseDir).
+		Int("fragments", len(lyt.Fragments())).
 		Msg("cache miss; building template")
 
 	v, err, _ := lc.sf.Do(key.RelLayoutPath+"|"+key.BaseDir, func() (any, error) {
@@ -187,4 +188,33 @@ func (lc *LayoutCache) InvalidateAndGetAffected(paths ...string) []LayoutKey {
 		Msg("cache invalidated")
 
 	return out
+}
+
+func (lc *LayoutCache) InvalidateByKey(key LayoutKey) {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+
+	entry, ok := lc.data[key]
+	if !ok {
+		return
+	}
+
+	// Remove from data
+	delete(lc.data, key)
+
+	// Clean up reverse index
+	for _, dep := range entry.deps {
+		if idx, ok := lc.reverse[dep]; ok {
+			delete(idx, key)
+			if len(idx) == 0 {
+				delete(lc.reverse, dep)
+			}
+		}
+	}
+
+	log.DDebug(log.Layout).
+		Str("rel_layout", key.RelLayoutPath).
+		Str("base_dir", key.BaseDir).
+		Int("deps", len(entry.deps)).
+		Msg("layout key invalidated")
 }

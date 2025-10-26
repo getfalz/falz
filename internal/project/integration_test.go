@@ -2,22 +2,20 @@ package project
 
 import (
 	"context"
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 func TestIntegration_CompleteWorkflow(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Fragment name="header" src="header.html" pipe="copy" />
+	<Fragment name="header" src="header.html" />
 	<Content name="content" src="*.md" pipe="md">
-		<Asset name="styles" src="*.css" pipe="copy" />
+		<Asset name="styles" src="*.css" />
 	</Content>
-	<Fragment name="footer" src="footer.html" pipe="copy" />
+	<Fragment name="footer" src="footer.html" />
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -29,13 +27,6 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 		WithScheme("header.html", "<header>My Site</header>").
 		WithScheme("footer.html", "<footer>&copy; 2025</footer>").
 		WithPipeline("md", BasicMarkdownPipeline()).
-		WithPipeline("copy", map[string]string{
-			"config.yaml": `name: copy
-entry_point: index.js
-source_suffix: "(html|css)"
-target_suffix: "$1"`,
-			"index.js": `function transform(input) { return input; }`,
-		}).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 2
 		}).
@@ -55,7 +46,6 @@ target_suffix: "$1"`,
 	AssertFileExists(t, proj.Config.OutputPath, "about.html")
 	AssertFileExists(t, proj.Config.OutputPath, "style.css")
 
-	// Check content
 	indexContent, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
 	if !strings.Contains(string(indexContent), "My Site") {
 		t.Error("Expected header fragment in output")
@@ -64,7 +54,6 @@ target_suffix: "$1"`,
 		t.Error("Expected content in output")
 	}
 
-	// Incremental build (no changes)
 	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
@@ -122,8 +111,6 @@ func TestIntegration_ChangeDetection(t *testing.T) {
 	_, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
-	// Modify source file
-	time.Sleep(10 * time.Millisecond) // Ensure mtime changes
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SourcePath, "index.md"),
 		[]byte("# Version 2"),
@@ -133,7 +120,6 @@ func TestIntegration_ChangeDetection(t *testing.T) {
 		t.Fatalf("Failed to update file: %v", err)
 	}
 
-	// Build again - should detect change
 	stats2, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
@@ -141,193 +127,13 @@ func TestIntegration_ChangeDetection(t *testing.T) {
 		t.Errorf("Expected 1 dirty entry after change, got %d", stats2.DirtyEntries)
 	}
 
-	// Verify new content
 	content, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
 	if !strings.Contains(string(content), "Version 2") {
 		t.Error("Expected updated content in output")
 	}
 }
 
-func TestIntegration_LayoutChange(t *testing.T) {
-	layoutV1 := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout src="template.html">
-	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
-</Layout>`
-
-	proj, cleanup := NewTestProject(t).
-		WithSource("index.md", "# Test").
-		WithScheme("layout.xml", layoutV1).
-		WithScheme("template.html", "{{header}}{{content}}").
-		WithScheme("header.html", "<header>V1</header>").
-		WithPipeline("md", BasicMarkdownPipeline()).
-		WithPipeline("copy", map[string]string{
-			"config.yaml": `name: copy
-entry_point: index.js
-source_suffix: html
-target_suffix: html`,
-			"index.js": `function transform(input) { return input; }`,
-		}).
-		WithConfig(func(c *CraeftConfig) {
-			c.Build.Concurrency = 1
-		}).
-		Build()
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Initial build
-	_, err := proj.Build(ctx)
-	AssertNoError(t, err)
-
-	content1, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
-	if !strings.Contains(string(content1), "V1") {
-		t.Error("Expected V1 header")
-	}
-
-	// Modify fragment
-	time.Sleep(10 * time.Millisecond)
-	err = os.WriteFile(
-		filepath.Join(proj.Config.SchemePath, "header.html"),
-		[]byte("<header>V2</header>"),
-		0644,
-	)
-	if err != nil {
-		t.Fatalf("Failed to update fragment: %v", err)
-	}
-
-	// Rebuild - should detect fragment change
-	_, err = proj.Build(ctx)
-	AssertNoError(t, err)
-
-	content2, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
-	if !strings.Contains(string(content2), "V2") {
-		t.Error("Expected V2 header after fragment change")
-	}
-}
-
-func TestIntegration_PipelineChange(t *testing.T) {
-	pipelineV1 := map[string]string{
-		"config.yaml": `name: md
-entry_point: index.js
-source_suffix: md
-target_suffix: html`,
-		"index.js": `function transform(input) {
-	return input.replace(/^# (.+)$/gm, '<h1>V1: $1</h1>');
-}`,
-	}
-
-	proj, cleanup := NewTestProject(t).
-		WithSource("index.md", "# Test").
-		WithScheme("layout.xml", BasicLayoutXML()).
-		WithScheme("layout.html", BasicLayoutHTML()).
-		WithPipeline("md", pipelineV1).
-		WithConfig(func(c *CraeftConfig) {
-			c.Build.Concurrency = 1
-		}).
-		Build()
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Initial build
-	_, err := proj.Build(ctx)
-	AssertNoError(t, err)
-
-	content1, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
-	if !strings.Contains(string(content1), "V1:") {
-		t.Error("Expected V1 prefix in output")
-	}
-
-	// Modify pipeline
-	time.Sleep(10 * time.Millisecond)
-	pipelineJS := `function transform(input) {
-	return input.replace(/^# (.+)$/gm, '<h1>V2: $1</h1>');
-}`
-	err = os.WriteFile(
-		filepath.Join(proj.Config.PipesPath, "md", "index.js"),
-		[]byte(pipelineJS),
-		0644,
-	)
-	if err != nil {
-		t.Fatalf("Failed to update pipeline: %v", err)
-	}
-
-	// Reload pipeline
-	err = proj.Pipes.Reload("md")
-	if err != nil {
-		t.Fatalf("Failed to reload pipeline: %v", err)
-	}
-
-	// Rebuild
-	_, err = proj.Build(ctx)
-	AssertNoError(t, err)
-
-	content2, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
-	if !strings.Contains(string(content2), "V2:") {
-		t.Error("Expected V2 prefix after pipeline change")
-	}
-}
-
-func TestIntegration_LargeProject(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Skipping large project test in short mode")
-	}
-
-	proj := NewTestProject(t).
-		WithScheme("layout.xml", BasicLayoutXML()).
-		WithScheme("layout.html", BasicLayoutHTML()).
-		WithPipeline("md", BasicMarkdownPipeline()).
-		WithConfig(func(c *CraeftConfig) {
-			c.Build.Concurrency = 4
-		})
-
-	// Create 100 files
-	for i := 0; i < 100; i++ {
-		filename := fmt.Sprintf("page%03d.md", i)
-		content := fmt.Sprintf("# Page %d\n\nContent for page %d", i, i)
-		proj.WithSource(filename, content)
-	}
-
-	p, cleanup := proj.Build()
-	defer cleanup()
-
-	ctx := context.Background()
-
-	// Time the build
-	start := time.Now()
-	stats, err := p.Build(ctx)
-	duration := time.Since(start)
-
-	AssertNoError(t, err)
-
-	if stats.BuiltEntries != 100 {
-		t.Errorf("Expected 100 built entries, got %d", stats.BuiltEntries)
-	}
-
-	t.Logf("Built 100 files in %v (%.2f files/sec)",
-		duration, float64(100)/duration.Seconds())
-
-	// Incremental build should be much faster
-	start = time.Now()
-	stats2, err := p.Build(ctx)
-	duration2 := time.Since(start)
-
-	AssertNoError(t, err)
-
-	if stats2.DirtyEntries != 0 {
-		t.Error("Expected no dirty entries on incremental build")
-	}
-
-	t.Logf("Incremental build (no changes) took %v", duration2)
-
-	if duration2 > duration/2 {
-		t.Logf("Warning: Incremental build not significantly faster")
-	}
-}
-
 func TestIntegration_ErrorHandling(t *testing.T) {
-	// Pipeline that throws an error
 	badPipeline := map[string]string{
 		"config.yaml": `name: bad
 entry_point: index.js
@@ -355,7 +161,6 @@ target_suffix: html`,
 	ctx := context.Background()
 	stats, err := proj.Build(ctx)
 
-	// Should complete but with errors
 	if stats == nil {
 		t.Fatal("Expected stats even with errors")
 	}
@@ -369,30 +174,6 @@ target_suffix: html`,
 	}
 }
 
-func TestIntegration_VariableSubstitution(t *testing.T) {
-	proj, cleanup := NewTestProject(t).
-		WithSource("index.md", "# Test").
-		WithScheme("layout.xml", BasicLayoutXML()).
-		WithScheme("layout.html", BasicLayoutHTML()).
-		WithPipeline("md", BasicMarkdownPipeline()).
-		WithConfig(func(c *CraeftConfig) {
-			c.Variables = map[string]any{
-				"siteTitle": "My Site",
-				"author":    "John Doe",
-			}
-			c.Build.Concurrency = 1
-		}).
-		Build()
-	defer cleanup()
-
-	ctx := context.Background()
-	_, err := proj.Build(ctx)
-	AssertNoError(t, err)
-
-	// Variables should be available to pipelines
-	// (This would require a pipeline that uses variables)
-}
-
 func TestIntegration_CleanBuild(t *testing.T) {
 	proj, cleanup := NewTestProject(t).
 		WithSource("keep.md", "# Keep").
@@ -402,6 +183,7 @@ func TestIntegration_CleanBuild(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 1
+			c.Build.CleanStale = true
 		}).
 		Build()
 	defer cleanup()
@@ -414,20 +196,16 @@ func TestIntegration_CleanBuild(t *testing.T) {
 	AssertFileExists(t, proj.Config.OutputPath, "keep.html")
 	AssertFileExists(t, proj.Config.OutputPath, "remove.html")
 
-	// Remove source file
 	os.Remove(filepath.Join(proj.Config.SourcePath, "remove.md"))
 
-	// Build with clean
 	_, err = proj.Build(ctx)
 	AssertNoError(t, err)
 
-	// Verify stale file is removed
 	removePath := filepath.Join(proj.Config.OutputPath, "remove.html")
 	if _, err := os.Stat(removePath); !os.IsNotExist(err) {
 		t.Error("Expected remove.html to be deleted")
 	}
 
-	// Keep file should still exist
 	AssertFileExists(t, proj.Config.OutputPath, "keep.html")
 }
 

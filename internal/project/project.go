@@ -97,6 +97,7 @@ func New(config *CraeftConfig) (*Project, error) {
 	reg := pipeline.NewRegistry(&pipeline.RegistryConfig{
 		Pipelines:       config.Pipes,
 		PipelinesPath:   config.PipesPath,
+		PipeTimeout:     time.Duration(config.Build.PipeTimeout),
 		SourceDirectory: srcAbs,
 		PoolSize:        config.Build.Concurrency,
 	})
