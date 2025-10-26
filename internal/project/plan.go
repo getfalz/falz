@@ -702,7 +702,7 @@ func (p *Project) updateOrCreateAssetEntry(
 	_, exists := plan.Entry(id)
 
 	if exists {
-		err := plan.UpdateEntry(rel, func(e *BuildEntry) error {
+		err := plan.UpdateEntry(id, func(e *BuildEntry) error {
 			return p.updateEntryHashes(ctx, e, plan)
 		})
 

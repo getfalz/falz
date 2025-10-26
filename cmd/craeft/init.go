@@ -16,6 +16,7 @@ const (
 	craeftDir  = ".craeft"
 	configFile = "config.yaml"
 	schemeDir  = "schemes"
+	pipesDir   = "pipes"
 	layoutFile = "layout.xml"
 )
 
@@ -31,6 +32,9 @@ func Init(c *cli.Context) error {
 	}
 
 	if err := os.MkdirAll(filepath.Join(craeftDir, schemeDir), 0755); err != nil {
+		return fmt.Errorf("failed to create .craeft directory: %w", err)
+	}
+	if err := os.MkdirAll(filepath.Join(craeftDir, pipesDir), 0755); err != nil {
 		return fmt.Errorf("failed to create .craeft directory: %w", err)
 	}
 
