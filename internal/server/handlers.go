@@ -140,7 +140,7 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 			continue
 		}
 
-		_ = plan.UpdateEntry(path, func(entry *project.BuildEntry) error {
+		_ = plan.UpdateEntry(id, func(entry *project.BuildEntry) error {
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
@@ -188,7 +188,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						continue
 					}
 
-					entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, filepath.Base(path), a.Pipe, a.Name, nil)
+					entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, filepath.Dir(path), a.Pipe, a.Name, nil)
 					if err != nil {
 						log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
 						continue
@@ -234,7 +234,15 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 			Str("dir", dir).
 			Msg("layout modified, rescanning directory")
 
-		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
+		affectedKeys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+			return e.Type == "content" &&
+				filepath.ToSlash(e.LayoutKey.RelLayoutPath) == filepath.ToSlash(path)
+		})
+
+		for _, entryID := range affectedKeys {
+			entry, _ := plan.Entry(entryID)
+			s.project.Layouts.InvalidateByKey(entry.LayoutKey)
+		}
 
 		log.DDebug(log.Handler).
 			Str("layout", path).
@@ -471,7 +479,7 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 			pipelineNames[parts[0]] = struct{}{}
 		}
 	}
-	fmt.Printf("TODO: pipeline modified: %v", pipelineNames)
+	fmt.Printf("TODO: pipeline modified: %v\n", pipelineNames)
 
 	for pipeName := range pipelineNames {
 		if err := s.project.Pipes.Reload(pipeName); err != nil {

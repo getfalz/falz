@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
-	"time"
 
 	"craeft/internal/project"
 )
@@ -76,11 +76,8 @@ func TestHandleContentModified_BasicChange(t *testing.T) {
 		t.Fatalf("Initial build failed: %v", err)
 	}
 
-	// Initially should not be dirty
 	assertEntryDirty(t, plan, "index.md", false)
 
-	// Modify the file
-	time.Sleep(10 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SourcePath, "index.md"),
 		[]byte("# Modified Content"),
@@ -90,13 +87,11 @@ func TestHandleContentModified_BasicChange(t *testing.T) {
 		t.Fatalf("Failed to modify file: %v", err)
 	}
 
-	// Handle the modification
 	err = server.handleContentModified(ctx, plan, []string{"index.md"})
 	if err != nil {
 		t.Fatalf("handleContentModified failed: %v", err)
 	}
 
-	// Should now be dirty
 	assertEntryDirty(t, plan, "index.md", true)
 }
 
@@ -119,9 +114,7 @@ func TestHandleContentModified_MultipleFiles(t *testing.T) {
 
 	server := newTestServer(t, proj)
 
-	// Modify all files
 	for _, name := range []string{"a.md", "b.md", "c.md"} {
-		time.Sleep(10 * time.Millisecond)
 		err := os.WriteFile(
 			filepath.Join(proj.Config.SourcePath, name),
 			[]byte("# Modified "+name),
@@ -137,7 +130,6 @@ func TestHandleContentModified_MultipleFiles(t *testing.T) {
 		t.Fatalf("handleContentModified failed: %v", err)
 	}
 
-	// All should be dirty
 	for _, name := range []string{"a.md", "b.md", "c.md"} {
 		assertEntryDirty(t, plan, name, true)
 	}
@@ -368,7 +360,7 @@ func TestHandleContentDeleted_NonExistent(t *testing.T) {
 
 func TestHandleContentAssetModified_BasicChange(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
+<Layout src="layout.html">
 	<Content name="content" src="*.md" pipe="md">
 		<Asset name="images" src="*.png" pipe="copy" />
 	</Content>
@@ -401,8 +393,6 @@ target_suffix: png`,
 	assetID := "asset:source:image.png"
 	assertEntryExists(t, plan, assetID, true)
 
-	// Modify the asset
-	time.Sleep(10 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SourcePath, "image.png"),
 		[]byte("modified-png-data"),
@@ -422,7 +412,7 @@ target_suffix: png`,
 
 func TestHandleContentAssetCreated_NewAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
+<Layout src="layout.html">
 	<Content name="content" src="*.md" pipe="md">
 		<Asset name="images" src="*.png" pipe="copy" />
 	</Content>
@@ -475,7 +465,7 @@ target_suffix: png`,
 
 func TestHandleContentAssetDeleted_RemoveAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
+<Layout src="layout.html">
 	<Content name="content" src="*.md" pipe="md">
 		<Asset name="images" src="*.png" pipe="copy" />
 	</Content>
@@ -549,8 +539,19 @@ target_suffix: html`,
 
 	server := newTestServer(t, proj)
 
-	// Modify layout
-	time.Sleep(10 * time.Millisecond)
+	layoutKey := project.LayoutKey{
+		RelLayoutPath: "layout.xml",
+		BaseDir:       ".",
+	}
+
+	initialDeps, ok := proj.Layouts.GetDeps(layoutKey)
+	if !ok {
+		t.Fatal("Expected layout to be cached initially.")
+	}
+
+	initialDepCount := len(initialDeps)
+	t.Logf("Initial deps: %d - %v", initialDepCount, initialDeps)
+
 	newLayout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
@@ -567,13 +568,68 @@ target_suffix: html`,
 		t.Fatalf("Failed to modify layout: %v", err)
 	}
 
+	err = os.WriteFile(
+		filepath.Join(proj.Config.SchemePath, "footer.html"),
+		[]byte("<footer>Footer</footer>"),
+		0644,
+	)
+	if err != nil {
+		t.Fatalf("Failed to create footer: %v", err)
+	}
+
+	err = server.handleFragmentModified(ctx, plan, []string{"footer.html"})
+	if err != nil {
+		t.Fatalf("handleFragmentModified failed: %v", err)
+	}
 	err = server.handleLayoutModified(ctx, plan, []string{"layout.xml"})
 	if err != nil {
 		t.Fatalf("handleLayoutModified failed: %v", err)
 	}
 
-	// Layout cache should be invalidated
-	// This is implicitly tested by the cache invalidation call
+	newDeps, ok := proj.Layouts.GetDeps(layoutKey)
+	if !ok {
+		t.Log("Layout cache was invalidated (not yet rebuilt)")
+
+		lmap, _ := proj.GetLayouts(".")
+		lyt := lmap["layout.xml"]
+		_, err = proj.Layouts.GetOrBuild(ctx, proj.SchemeRoot, layoutKey, lyt)
+		if err != nil {
+			t.Fatalf("Failed to rebuild layout: %v", err)
+		}
+
+		newDeps, ok = proj.Layouts.GetDeps(layoutKey)
+		if !ok {
+			t.Fatal("Layout should be cached after GetOrBuild")
+		}
+	}
+
+	t.Logf("New deps: %d - %v", len(newDeps), newDeps)
+
+	if len(newDeps) <= initialDepCount {
+		t.Errorf("Expected more deps after adding footer, got initial=%d, new=%d",
+			initialDepCount, len(newDeps))
+	}
+
+	hasFooter := false
+	for _, dep := range newDeps {
+		if strings.Contains(dep, "footer.html") {
+			hasFooter = true
+			break
+		}
+	}
+
+	if !hasFooter {
+		t.Errorf("Expected footer.html in new deps, got: %v", newDeps)
+	}
+
+	entry, ok := plan.Entry("index.md")
+	if !ok {
+		t.Fatal("Expected to find index.md entry")
+	}
+
+	if !entry.Dirty {
+		t.Error("Expected entry to be marked dirty after layout modification")
+	}
 }
 
 func TestHandleLayoutCreated_NewLayoutInSubdir(t *testing.T) {
@@ -593,7 +649,6 @@ func TestHandleLayoutCreated_NewLayoutInSubdir(t *testing.T) {
 
 	server := newTestServer(t, proj)
 
-	// Create new layout in blog directory - use path instead of inline tpl
 	newLayout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="blog-template.html">
 	<Content name="content" src="*.md" pipe="md" />
@@ -661,7 +716,6 @@ func TestHandleFragmentModified_MarksDependentContent(t *testing.T) {
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Content name="content" src="*.md" pipe="md" />
 </Layout>`
-
 	proj, cleanup := project.NewTestProject(t).
 		WithSource("a.md", "# A").
 		WithSource("b.md", "# B").
@@ -700,8 +754,6 @@ target_suffix: html`,
 		t.Errorf("Expected 0 dirty entries after build, got %d", initialDirty)
 	}
 
-	// Modify fragment
-	time.Sleep(10 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SchemePath, "header.html"),
 		[]byte("<header>V2</header>"),
@@ -716,7 +768,6 @@ target_suffix: html`,
 		t.Fatalf("handleFragmentModified failed: %v", err)
 	}
 
-	// Content entries using this fragment should be marked dirty
 	finalDirty := countDirtyEntries(t, plan)
 	if finalDirty == 0 {
 		t.Error("Expected entries to be marked dirty after fragment modification")
@@ -759,8 +810,6 @@ target_suffix: html`,
 
 	server := newTestServer(t, proj)
 
-	// Modify both fragments
-	time.Sleep(10 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SchemePath, "header.html"),
 		[]byte("<header>Modified Header</header>"),
@@ -824,7 +873,7 @@ target_suffix: css`,
 	assertEntryExists(t, plan, assetID, true)
 
 	// Modify asset
-	time.Sleep(10 * time.Millisecond)
+	// time.Sleep(100 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SchemePath, "style.css"),
 		[]byte("body { color: blue; }"),
@@ -939,13 +988,24 @@ target_suffix: css`,
 // Pipeline Handler Tests
 
 func TestHandlePipelineModified_ReloadsAndMarksDirty(t *testing.T) {
+	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+<Layout tpl="{{content}}">
+	<Content name="content" src="*.md" pipe="copy" />
+</Layout>`
+
 	proj, cleanup := project.NewTestProject(t).
-		WithSource("index.md", "# Test").
-		WithScheme("layout.xml", project.BasicLayoutXML()).
-		WithScheme("layout.html", project.BasicLayoutHTML()).
-		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithSource("index.md", "test").
+		WithScheme("layout.xml", layoutXML).
+		WithPipeline("copy", map[string]string{
+			"config.yaml": `name: copy
+entry_point: index.js
+source_suffix: md
+target_suffix: html`,
+			"index.js": `function transform(input) { console.log('hello'); return input; }`,
+		}).
 		WithConfig(func(c *project.CraeftConfig) {
 			c.Build.Concurrency = 1
+			c.Build.UseCAS = false
 		}).
 		Build()
 	defer cleanup()
@@ -968,15 +1028,14 @@ func TestHandlePipelineModified_ReloadsAndMarksDirty(t *testing.T) {
 		t.Errorf("Expected 0 dirty entries after build, got %d", initialDirty)
 	}
 
-	// Modify pipeline
-	time.Sleep(10 * time.Millisecond)
 	newPipeline := `
 function transform(input) {
-	return input.replace(/^# (.+)$/gm, '<h1 class="modified">$1</h1>');
+	console.log("new", input);
+	return "modified " + input;
 }
 `
 	err = os.WriteFile(
-		filepath.Join(proj.Config.PipesPath, "md", "index.js"),
+		filepath.Join(proj.Config.PipesPath, "copy", "index.js"),
 		[]byte(newPipeline),
 		0644,
 	)
@@ -984,18 +1043,26 @@ function transform(input) {
 		t.Fatalf("Failed to modify pipeline: %v", err)
 	}
 
-	err = server.handlePipelineModified(ctx, plan, []string{"md/index.js"})
+	err = server.handlePipelineModified(ctx, plan, []string{"copy/index.js"})
 	if err != nil {
 		t.Fatalf("handlePipelineModified failed: %v", err)
 	}
 
-	// Entries using this pipeline should be marked dirty
 	finalDirty := countDirtyEntries(t, plan)
 	if finalDirty == 0 {
 		t.Error("Expected entries to be marked dirty after pipeline modification")
 	}
 	if finalDirty <= initialDirty {
 		t.Errorf("Expected more dirty entries after pipeline modification, got initial=%d final=%d", initialDirty, finalDirty)
+	}
+
+	_, err = server.project.BuildFromPlan(ctx, plan)
+	if err != nil {
+		t.Fatalf("second build failed: %v", err)
+	}
+	content2, _ := os.ReadFile(filepath.Join(proj.Config.OutputPath, "index.html"))
+	if !strings.Contains(string(content2), "modified") {
+		t.Error("Expected modified in content after pipeline change")
 	}
 }
 
@@ -1004,7 +1071,7 @@ func TestHandlePipelineModified_MultiplePipelines(t *testing.T) {
 		WithSource("index.md", "# Test MD").
 		WithSource("style.css", "body {}").
 		WithScheme("layout.xml", `<?xml version="1.0" encoding="UTF-8"?>
-<Layout tpl="layout.html">
+<Layout src="layout.html">
 	<Asset name="styles" src="*.css" pipe="copy" />
 	<Content name="content" src="*.md" pipe="md" />
 </Layout>`).
@@ -1029,7 +1096,7 @@ target_suffix: css`,
 	server := newTestServer(t, proj)
 
 	// Modify both pipelines
-	time.Sleep(10 * time.Millisecond)
+	// time.Sleep(100 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.PipesPath, "md", "index.js"),
 		[]byte(`function transform(input) { return input.replace(/^# (.+)$/gm, '<h1>MOD: $1</h1>'); }`),
@@ -1074,7 +1141,7 @@ func TestHandlers_CompleteWorkflow(t *testing.T) {
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Content name="content" src="*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copy" />
+		<Asset name="images" src="*.png" pipe="copyimg" />
 	</Content>
 </Layout>`
 
@@ -1085,11 +1152,18 @@ func TestHandlers_CompleteWorkflow(t *testing.T) {
 		WithScheme("template.html", "{{header}}{{content}}").
 		WithScheme("header.html", "<header>Header</header>").
 		WithPipeline("md", project.BasicMarkdownPipeline()).
+		WithPipeline("copyimg", map[string]string{
+			"config.yaml": `name: copyimg
+entry_point: index.js
+source_suffix: "png"
+target_suffix: "png.out"`,
+			"index.js": `function transform(input) { return input; }`,
+		}).
 		WithPipeline("copy", map[string]string{
 			"config.yaml": `name: copy
 entry_point: index.js
-source_suffix: "(html|png)"
-target_suffix: "$1"`,
+source_suffix: "md"
+target_suffix: "html"`,
 			"index.js": `function transform(input) { return input; }`,
 		}).
 		WithConfig(func(c *project.CraeftConfig) {
@@ -1112,7 +1186,7 @@ target_suffix: "$1"`,
 	}
 
 	// Test 1: Modify content
-	time.Sleep(10 * time.Millisecond)
+	// time.Sleep(100 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SourcePath, "index.md"),
 		[]byte("# Modified Content"),
@@ -1130,7 +1204,7 @@ target_suffix: "$1"`,
 	assertEntryDirty(t, plan, "index.md", true)
 
 	// Test 2: Modify fragment
-	time.Sleep(10 * time.Millisecond)
+	// time.Sleep(100 * time.Millisecond)
 	err = os.WriteFile(
 		filepath.Join(proj.Config.SchemePath, "header.html"),
 		[]byte("<header>Modified Header</header>"),
@@ -1185,7 +1259,7 @@ func TestHandlers_ConcurrentModifications(t *testing.T) {
 		WithPipeline("md", project.BasicMarkdownPipeline())
 
 	// Create many files
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		proj.WithSource(
 			fmt.Sprintf("file%d.md", i),
 			fmt.Sprintf("# File %d", i),
@@ -1196,19 +1270,18 @@ func TestHandlers_ConcurrentModifications(t *testing.T) {
 	defer cleanup()
 
 	ctx := context.Background()
-	plan, err := p.CurrentPlan()
+	plan, err := p.Plan(ctx)
 	if err != nil {
 		t.Fatalf("Failed to create plan: %v", err)
 	}
 
 	server := newTestServer(t, p)
 
-	// Modify all files concurrently
 	paths := make([]string, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		paths[i] = fmt.Sprintf("file%d.md", i)
 
-		time.Sleep(5 * time.Millisecond)
+		// time.Sleep(100 * time.Millisecond)
 		err := os.WriteFile(
 			filepath.Join(p.Config.SourcePath, paths[i]),
 			[]byte(fmt.Sprintf("# Modified File %d", i)),
@@ -1219,13 +1292,11 @@ func TestHandlers_ConcurrentModifications(t *testing.T) {
 		}
 	}
 
-	// Handle all modifications
 	err = server.handleContentModified(ctx, plan, paths)
 	if err != nil {
 		t.Fatalf("handleContentModified failed: %v", err)
 	}
 
-	// All should be dirty
 	dirtyCount := countDirtyEntries(t, plan)
 	if dirtyCount != 20 {
 		t.Errorf("Expected 20 dirty entries, got %d", dirtyCount)
