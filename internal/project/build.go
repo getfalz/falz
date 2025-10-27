@@ -72,7 +72,6 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, e
 
 	if p.Config.Build.CleanStale {
 		removed := p.cleanStaleEntries(plan)
-		fmt.Printf("Removed %d stale entries, removed : %v\n", len(removed), removed)
 		if len(removed) > 0 {
 			log.IInfo(log.Build).Int("removed", len(removed)).Msg("cleaned stale entries")
 		}

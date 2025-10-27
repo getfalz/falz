@@ -16,9 +16,10 @@ import (
 )
 
 type script struct {
-	name   string
-	path   string
-	config *js.JSConfig
+	name    string
+	path    string
+	config  *js.JSConfig
+	timeout time.Duration
 
 	env *js.JsEnv
 }
@@ -31,10 +32,11 @@ func NewScript(name, path string, config *js.JSConfig, code string) (*script, er
 	}
 
 	s := &script{
-		name:   name,
-		path:   path,
-		env:    env,
-		config: config,
+		name:    name,
+		path:    path,
+		env:     env,
+		config:  config,
+		timeout: config.Timeout,
 	}
 
 	if s.env.VM().GlobalObject().Get("transform") == goja.Undefined() {
@@ -44,11 +46,7 @@ func NewScript(name, path string, config *js.JSConfig, code string) (*script, er
 	return s, nil
 }
 
-func (s *script) Index(parCtx context.Context, input []byte, vars Vars) error {
-	// TODO set timeout in config
-	ctx, cancel := context.WithTimeout(parCtx, 1*time.Second)
-	defer cancel()
-
+func (s *script) Index(ctx context.Context, input []byte, vars Vars) error {
 	_, err := s.env.Call(ctx, "index", vars.ToGojaObject(s.env.VM()), s.env.ToValue(input))
 	if err != nil {
 		log.Error(fmt.Errorf("%s:index error: %s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
@@ -63,11 +61,7 @@ func (s *script) Index(parCtx context.Context, input []byte, vars Vars) error {
 	return nil
 }
 
-func (s *script) Transform(parCtx context.Context, input []byte, vars Vars) (string, error) {
-	// TODO set timeout in config
-	ctx, cancel := context.WithTimeout(parCtx, 1*time.Second)
-	defer cancel()
-
+func (s *script) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
 	result, err := s.env.Call(ctx, "transform", vars.ToGojaObject(s.env.VM()), s.env.ToValue(string(input)))
 
 	if err != nil {

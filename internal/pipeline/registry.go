@@ -18,6 +18,7 @@ type RegistryConfig struct {
 	PipelinesPath   string
 	SourceDirectory string
 	PoolSize        int
+	PipeTimeout     time.Duration
 }
 
 type Registry struct {
@@ -76,8 +77,9 @@ func (r *Registry) Reload(name string) error {
 	}
 
 	jscfg := &js.JSConfig{
-		Name: name,
-		Root: r.config.SourceDirectory,
+		Name:    name,
+		Root:    r.config.SourceDirectory,
+		Timeout: r.config.PipeTimeout,
 	}
 
 	newp, err := NewPipeline(path, jscfg, max(1, r.config.PoolSize))

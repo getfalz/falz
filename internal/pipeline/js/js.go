@@ -92,6 +92,8 @@ func NewJs(config *JSConfig, code string) (*JsEnv, error) {
 		return nil, fmt.Errorf("error running pipeline %s: %s", config.Name, err)
 	}
 
+	loop.Start()
+
 	return env, nil
 }
 
@@ -105,10 +107,11 @@ func (env *JsEnv) ToValue(val any) goja.Value {
 
 // JSConfig is a configuration for the JavaScripts environment
 type JSConfig struct {
-	Name   string
-	Path   string
-	Root   string
-	DBPath string
+	Name    string
+	Path    string
+	Root    string
+	DBPath  string
+	Timeout time.Duration
 }
 
 func (env *JsEnv) setupRequire() {
@@ -182,12 +185,11 @@ func (env *JsEnv) callFunc(ctx context.Context, fn goja.Callable, name string, c
 }
 
 func (env *JsEnv) callAsyncFunc(ctx context.Context, fn goja.Callable, name string, ctxVal, vars goja.Value) (goja.Value, error) {
-	var result goja.Value
-	var err error
-	done := make(chan struct{})
-
-	env.loop.Start()
-	defer env.loop.Stop()
+	var (
+		result goja.Value
+		err    error
+		done   = make(chan struct{})
+	)
 
 	stop := bindContextCancel(env.loop, env.loop.vm, ctx)
 	defer stop()
@@ -205,43 +207,49 @@ func (env *JsEnv) callAsyncFunc(ctx context.Context, fn goja.Callable, name stri
 			}
 		}()
 
-		promise, errr := fn(ctxVal, vars)
-		if errr != nil {
-			err = fmt.Errorf("loop.run %s return error %s", name, errr)
+		promiseVal, err := fn(ctxVal, vars)
+		if err != nil {
+			err = fmt.Errorf("loop.run %s return error %s", name, err)
 			close(done)
 			return
 		}
 
-		go func() {
-			if p, ok := promise.Export().(*goja.Promise); ok {
-				for {
-					switch p.State() {
-					case goja.PromiseStateRejected:
-						val := p.Result()
-						err = errors.New(val.String())
+		if _, ok := promiseVal.Export().(*goja.Promise); !ok {
+			result = promiseVal
+			close(done)
+			return
+		}
 
-						env.loop.StopNoWait()
-						close(done)
-						return
-					case goja.PromiseStateFulfilled:
-						result = p.Result()
-						env.loop.StopNoWait()
-						close(done)
-						return
-					case goja.PromiseStatePending:
-						time.Sleep(time.Millisecond * 10)
-						continue
-					default:
-						err = fmt.Errorf("unexpected promise state")
-						env.loop.StopNoWait()
-						close(done)
-						return
-					}
-				}
-			} else {
+		var once sync.Once
+		resolve := func(call goja.FunctionCall) goja.Value {
+			once.Do(func() {
+				result = call.Argument(0)
 				close(done)
+			})
+			return goja.Undefined()
+		}
+		reject := func(call goja.FunctionCall) goja.Value {
+			once.Do(func() {
+				err = errors.New(call.Argument(0).String())
+				close(done)
+			})
+			return goja.Undefined()
+		}
+
+		pObj := promiseVal.ToObject(vm)
+		if thenVal := pObj.Get("then"); thenVal != nil {
+			if thenFn, ok := goja.AssertFunction(thenVal); ok {
+				// promise.then(resolve, reject)
+				_, _ = thenFn(pObj, vm.ToValue(resolve), vm.ToValue(reject))
+				return
 			}
-		}()
+		}
+
+		// fallback in case "then" is not a "real" promise
+		vm.Set("__p", promiseVal)
+		vm.Set("__goResolve", resolve)
+		vm.Set("__goReject", reject)
+		_, _ = vm.RunString(`__p && __p.then(__goResolve, __goReject)`)
 	})
 
 	select {
@@ -254,7 +262,16 @@ func (env *JsEnv) callAsyncFunc(ctx context.Context, fn goja.Callable, name stri
 		}
 		return result, nil
 	case <-ctx.Done():
+		env.loop.RunOnLoop(func(vm *goja.Runtime) {
+			vm.Interrupt(ctx.Err())
+		})
+		env.loop.Terminate()
 		return nil, ctx.Err()
+	case <-time.After(env.config.Timeout):
+		env.loop.RunOnLoop(func(vm *goja.Runtime) {
+			vm.Interrupt(fmt.Errorf("%s timeout after %s", name, env.config.Timeout))
+		})
+		return nil, fmt.Errorf("transform timeout after %s", env.config.Timeout)
 	}
 }
 
@@ -435,6 +452,7 @@ func (env *JsEnv) Close() error {
 	env.rm.Lock()
 	defer env.rm.Unlock()
 	var errs []error
+	env.loop.Stop()
 	for _, resource := range env.resources {
 		err := resource.Close()
 		errs = append(errs, err)

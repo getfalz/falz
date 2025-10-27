@@ -28,8 +28,12 @@ type envPool struct {
 
 func newEnvPool(name, path, code string, cfg *js.JSConfig, n int) (*envPool, error) {
 	p := &envPool{
-		name: name, path: path, code: code, cfg: cfg,
-		ch: make(chan *script, n), size: n,
+		name: name,
+		path: path,
+		code: code,
+		cfg:  cfg,
+		ch:   make(chan *script, n),
+		size: n,
 	}
 	for i := 0; i < n; i++ {
 		w, err := NewScript(name, path, cfg, code)
