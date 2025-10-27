@@ -94,7 +94,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 		b.config.Pipes = append(b.config.Pipes, pipeName)
 	}
 
-	b.config.Build.CASPath = filepath.Join(filepath.Base(b.config.ConfigPath), b.config.Build.CASPath)
+	b.config.Build.CASPath = filepath.Join(filepath.Dir(b.config.ConfigPath), b.config.Build.CASPath)
 
 	proj, err := New(b.config)
 	if err != nil {
