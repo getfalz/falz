@@ -500,8 +500,10 @@ func (p *Project) writeResult(
 		return fmt.Errorf("create dir for %s: %w", entry.OutputPath, err)
 	}
 
-	if err := os.WriteFile(fullPath, result.Data, 0644); err != nil {
-		return fmt.Errorf("write %s: %w", entry.OutputPath, err)
+	if !result.Cached {
+		if err := os.WriteFile(fullPath, result.Data, 0644); err != nil {
+			return fmt.Errorf("write %s: %w", entry.OutputPath, err)
+		}
 	}
 
 	plan.Manifest.Set(entry.ID, ManifestEntry{
