@@ -500,8 +500,20 @@ func (p *Project) writeResult(
 	}
 
 	if !result.Cached {
-		if err := os.WriteFile(fullPath, result.Data, 0644); err != nil {
-			return fmt.Errorf("write %s: %w", entry.OutputPath, err)
+		tmpFile := fullPath + ".tmp"
+
+		if err := os.WriteFile(tmpFile, result.Data, 0644); err != nil {
+			return fmt.Errorf("write temp %s: %w", entry.OutputPath, err)
+		}
+
+		if f, err := os.OpenFile(tmpFile, os.O_RDWR, 0644); err == nil {
+			_ = f.Sync()
+			_ = f.Close()
+		}
+
+		if err := os.Rename(tmpFile, fullPath); err != nil {
+			_ = os.Remove(tmpFile)
+			return fmt.Errorf("rename %s: %w", entry.OutputPath, err)
 		}
 	}
 
