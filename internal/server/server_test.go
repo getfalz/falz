@@ -473,6 +473,7 @@ func TestServer_MultipleFileChanges(t *testing.T) {
 		WithPipeline("md", project.BasicMarkdownPipeline()).
 		WithConfig(func(c *project.CraeftConfig) {
 			c.Build.Concurrency = 1
+			c.Build.UseCAS = false
 		}).
 		Build()
 	defer cleanup()

@@ -41,10 +41,6 @@ func main() {
 				Name:  "output",
 				Usage: "Build path of the project",
 			},
-			&cli.StringFlag{
-				Name:  "scheme",
-				Usage: "Use the given scheme",
-			},
 			&cli.BoolFlag{
 				Name:    "verbose",
 				Usage:   "verbose logging",
@@ -191,14 +187,9 @@ func initialize(c *cli.Context) {
 		log.Fatal(fmt.Sprintf("Error loading config: %v", err))
 	}
 
-	config.SourcePath = currentPath
 	if c.String("output") != "" {
 		config.OutputPath = c.String("output")
 	}
-	if c.String("scheme") != "" {
-		config.Scheme = c.String("scheme")
-	}
-	config.SetPaths()
 
 	printWelcome(c, config.SourcePath, config.OutputPath)
 

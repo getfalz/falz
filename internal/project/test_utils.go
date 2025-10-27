@@ -15,17 +15,19 @@ type TestProjectBuilder struct {
 }
 
 func NewTestProject(t *testing.T) *TestProjectBuilder {
+	tempDir := t.TempDir()
+
+	config, err := LoadConfig(tempDir)
+	if err != nil {
+		t.Fatalf("Failed to load default config: %v", err)
+	}
+
 	return &TestProjectBuilder{
 		t:             t,
 		sourceFiles:   make(map[string]string),
 		schemeFiles:   make(map[string]string),
 		pipelineFiles: make(map[string]map[string]string),
-		config: &CraeftConfig{
-			OutputPath: "/test/dist",
-			Layout:     "layout.xml",
-			Pipes:      []string{"md"},
-			Variables:  make(map[string]any),
-		},
+		config:        config,
 	}
 }
 
@@ -50,21 +52,15 @@ func (b *TestProjectBuilder) WithConfig(modifier func(*CraeftConfig)) *TestProje
 }
 
 func (b *TestProjectBuilder) Build() (*Project, func()) {
-	tempDir := b.t.TempDir()
 
-	sourceDir := filepath.Join(tempDir, "source")
-	schemeDir := filepath.Join(tempDir, "scheme")
-	outputDir := filepath.Join(tempDir, "dist")
-	pipesDir := filepath.Join(tempDir, "pipes")
-
-	for _, dir := range []string{sourceDir, schemeDir, outputDir, pipesDir} {
+	for _, dir := range []string{b.config.SourcePath, b.config.SchemePath, b.config.OutputPath, b.config.PipesPath} {
 		if err := os.MkdirAll(dir, 0755); err != nil {
 			b.t.Fatalf("Failed to create directory %s: %v", dir, err)
 		}
 	}
 
 	for path, content := range b.sourceFiles {
-		fullPath := filepath.Join(sourceDir, path)
+		fullPath := filepath.Join(b.config.SourcePath, path)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			b.t.Fatalf("Failed to create source dir: %v", err)
 		}
@@ -74,7 +70,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 	}
 
 	for path, content := range b.schemeFiles {
-		fullPath := filepath.Join(schemeDir, path)
+		fullPath := filepath.Join(b.config.SchemePath, path)
 		if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 			b.t.Fatalf("Failed to create scheme dir: %v", err)
 		}
@@ -84,7 +80,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 	}
 
 	for pipeName, files := range b.pipelineFiles {
-		pipeDir := filepath.Join(pipesDir, pipeName)
+		pipeDir := filepath.Join(b.config.PipesPath, pipeName)
 		for path, content := range files {
 			fullPath := filepath.Join(pipeDir, path)
 			if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
@@ -98,11 +94,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 		b.config.Pipes = append(b.config.Pipes, pipeName)
 	}
 
-	b.config.SourcePath = sourceDir
-	b.config.SchemePath = schemeDir
-	b.config.OutputPath = outputDir
-	b.config.PipesPath = pipesDir
-	b.config.Build.CASPath = filepath.Join(tempDir, b.config.Build.CASPath)
+	b.config.Build.CASPath = filepath.Join(filepath.Base(b.config.ConfigPath), b.config.Build.CASPath)
 
 	proj, err := New(b.config)
 	if err != nil {

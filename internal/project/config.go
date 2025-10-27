@@ -88,21 +88,24 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 	configFile := filepath.Join(config.ConfigPath, "config.yaml")
 
 	file, err := os.Open(configFile)
-	if err != nil {
+	if err == nil {
+		decoder := yaml.NewDecoder(file)
+		if err := decoder.Decode(&config); err != nil {
+			return nil, err
+		}
+	} else {
 		if os.IsNotExist(err) {
 			log.Warn("config file not found. Using defaults.")
-			return config, nil
 		} else {
 			return nil, err
 		}
 	}
 	defer file.Close()
 
-	decoder := yaml.NewDecoder(file)
-	if err := decoder.Decode(&config); err != nil {
-		return nil, err
-	}
-
+	config.OutputPath = filepath.Join(base, config.OutputPath)
+	config.SourcePath = base
+	config.PipesPath = filepath.Join(config.ConfigPath, configPipesFolder)
+	config.SchemePath = filepath.Join(config.ConfigPath, configSchemesFolder)
 	config.Variables = resolveEnvVars(config.Variables).(map[string]any)
 
 	if config.Build.Concurrency <= 0 {
@@ -116,36 +119,14 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 	return config, nil
 }
 
-func (c *CraeftConfig) SetPaths() {
-	_, err := os.Stat(filepath.Join(c.ConfigPath, configSchemesFolder))
-	if err == nil || !os.IsNotExist(err) {
-		c.SchemePath = filepath.Join(c.ConfigPath, configSchemesFolder)
-	} else {
-		log.Warn(fmt.Sprintf("Schemes folder %q doesn't exist", filepath.Join(c.ConfigPath, configPipesFolder)))
-		// c.SchemePath, err = xdg.ConfigFile(filepath.Join(xdgConfigFolder, configSchemesFolder, c.Scheme))
-		// if err != nil {
-		// 	log.Fatal(fmt.Sprintf("config file has no 'scheme' defined: %s", err))
-		// }
-	}
-
-	// TODO: at some point, pipes can be loaded from .craeft/pipes and .config/craeft/pipes
-	_, err = os.Stat(filepath.Join(c.ConfigPath, configPipesFolder))
-	if err == nil || !os.IsNotExist(err) {
-		c.PipesPath = filepath.Join(c.ConfigPath, configPipesFolder)
-	} else {
-		log.Warn(fmt.Sprintf("Pipes folder %q doesn't exist", filepath.Join(c.ConfigPath, configPipesFolder)))
-		// c.PipesPath, err = xdg.ConfigFile(filepath.Join(xdgConfigFolder, configPipesFolder))
-		// if err != nil {
-		// 	log.Fatal(err.Error())
-		// }
-	}
-
-}
-
 func (c *CraeftConfig) IsValid() error {
-	// if c.Scheme == "" {
-	// 	return errors.New("no theme specified in config file")
-	// }
+
+	for name, dir := range map[string]string{"source": c.SourcePath, "scheme": c.SchemePath, "output": c.OutputPath, "pipes": c.PipesPath} {
+		_, err := os.Stat(dir)
+		if err != nil {
+			return fmt.Errorf("%s folder %q doesn't exist", name, dir)
+		}
+	}
 
 	if c.FsWatcher.HotReload && !c.FsWatcher.Enabled {
 		return errors.New("hot-reload enabled, but no file watcher enabled")
