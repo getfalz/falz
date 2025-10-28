@@ -90,7 +90,7 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 					continue
 				}
 
-				entry, err := s.project.CreateEntryWithHash(ctx, plan, "content", "source", path, base, cc.Pipe, cc.Name, lyt)
+				entry, err := s.project.CreateEntryWithHash(ctx, plan, "content", "source", path, cc.To, base, cc.Pipe, cc.Name, lyt)
 				if err != nil {
 					log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
 					continue
@@ -188,7 +188,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						continue
 					}
 
-					entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, filepath.Dir(path), a.Pipe, a.Name, nil)
+					entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
 					if err != nil {
 						log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
 						continue
@@ -226,6 +226,8 @@ func (s *Server) handleContentAssetDeleted(ctx context.Context, plan *project.Pl
 // Layout handlers
 
 func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	var keys []project.LayoutKey
+
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 
@@ -240,8 +242,10 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 		})
 
 		for _, entryID := range affectedKeys {
-			entry, _ := plan.Entry(entryID)
-			s.project.Layouts.InvalidateByKey(entry.LayoutKey)
+			if entry, ok := plan.Entry(entryID); ok {
+				// s.project.Layouts.InvalidateByKey(entry.LayoutKey)
+				keys = append(keys, entry.LayoutKey)
+			}
 		}
 
 		log.DDebug(log.Handler).
@@ -249,14 +253,8 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 			Int("affected_keys", len(affectedKeys)).
 			Msg("layout cache invalidated")
 
-		if err := s.project.PartialScan(ctx, plan, dir); err != nil {
-			log.EError(log.Handler).
-				Err(err).
-				Str("dir", dir).
-				Msg("partial scan failed")
-		}
 	}
-	return nil
+	return s.project.InvalidateLayouts(ctx, plan, keys, true)
 }
 
 func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, paths []string) error {
@@ -320,55 +318,18 @@ func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, pa
 // Fragment handler
 
 func (s *Server) handleFragmentModified(ctx context.Context, plan *project.Plan, paths []string) error {
+	var keys []project.LayoutKey
 	for _, path := range paths {
 		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
+		keys = append(keys, affectedKeys...)
 
 		log.DDebug(log.Handler).
 			Str("fragment", path).
 			Int("affected_keys", len(affectedKeys)).
 			Msg("fragment modified")
-
-		newHash, err := plan.HashCache.HashFile(s.project.SchemeRoot.FS(), path)
-		if err != nil {
-			log.Warn(fmt.Sprintf("hash fragment %s: %v", path, err))
-			continue
-		}
-
-		for _, key := range affectedKeys {
-
-			keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
-				return e.Type == "content" && e.LayoutKey == key
-			})
-
-			for _, k := range keys {
-				plan.UpdateEntry(k, func(entry *project.BuildEntry) error {
-
-					if oldHash, exists := entry.FragmentHashes[path]; exists && oldHash != newHash {
-						entry.FragmentHashes[path] = newHash
-
-						entryHash := project.EntryHash{
-							ContentHash:    entry.ContentHash,
-							LayoutHash:     entry.LayoutHash,
-							PipelineHash:   entry.PipelineHash,
-							FragmentHashes: entry.FragmentHashes,
-						}
-						entry.Hash = entryHash.Compute()
-						entry.Dirty = true
-
-						log.DDebug(log.Handler).
-							Str("id", entry.ID).
-							Str("fragment", path).
-							Str("old_hash", oldHash[:8]).
-							Str("new_hash", newHash[:8]).
-							Msg("fragment changed, content marked for rebuild")
-					}
-
-					return nil
-				})
-			}
-		}
 	}
-	return nil
+
+	return s.project.InvalidateLayouts(ctx, plan, keys, false)
 }
 
 // Scheme Asset handlers
@@ -433,7 +394,7 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 					continue
 				}
 
-				entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "scheme", path, filepath.Dir(path), a.Pipe, a.Name, nil)
+				entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "scheme", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
 				if err != nil {
 					log.Warn(fmt.Sprintf("create scheme asset %s: %v", path, err))
 					continue

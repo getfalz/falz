@@ -1357,3 +1357,393 @@ func TestHandlers_ErrorHandling(t *testing.T) {
 		})
 	}
 }
+
+// NEW
+// Fragment change -> should warm deps (accessible immediately) and mark dependent entries dirty (no rescan).
+// func TestHandleFragmentModified_WarmsDepsAndMarksDirty(t *testing.T) {
+// 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+// <Layout src="template.html">
+// 	<Fragment name="header" src="header.html" pipe="copy" />
+// 	<Content name="content" src="*.md" pipe="md" />
+// </Layout>`
+//
+// 	proj, cleanup := project.NewTestProject(t).
+// 		WithSource("a.md", "# A").
+// 		WithSource("b.md", "# B").
+// 		WithScheme("layout.xml", layoutXML).
+// 		WithScheme("template.html", "{{header}}{{content}}").
+// 		WithScheme("header.html", "<header>V1</header>").
+// 		WithPipeline("md", project.BasicMarkdownPipeline()).
+// 		WithPipeline("copy", map[string]string{
+// 			"config.yaml": `name: copy
+// entry_point: index.js
+// source_suffix: html
+// target_suffix: html`,
+// 			"index.js": `function transform(input) { return input; }`,
+// 		}).
+// 		WithConfig(func(c *project.CraeftConfig) {
+// 			c.Build.Concurrency = 1
+// 		}).
+// 		Build()
+// 	defer cleanup()
+//
+// 	ctx := context.Background()
+// 	plan, err := proj.Plan(ctx)
+// 	if err != nil {
+// 		t.Fatalf("Failed to create plan: %v", err)
+// 	}
+// 	server := newTestServer(t, proj)
+//
+// 	// Initial build clears dirty flags
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("initial build failed: %v", err)
+// 	}
+// 	if got := countDirtyEntries(t, plan); got != 0 {
+// 		t.Fatalf("expected 0 dirty after initial build, got %d", got)
+// 	}
+//
+// 	// Sanity: deps available before change
+// 	layoutKey := project.LayoutKey{RelLayoutPath: "layout.xml", BaseDir: "."}
+// 	if deps, ok := proj.Layouts.GetDeps(layoutKey); !ok || len(deps) != 2 {
+// 		t.Fatalf("expected initial deps [template.html header.html]; ok=%v deps=%v", ok, deps)
+// 	}
+//
+// 	// Modify the fragment (render-only change)
+// 	if err := os.WriteFile(
+// 		filepath.Join(proj.Config.SchemePath, "header.html"),
+// 		[]byte("<header>V2</header>"),
+// 		0644,
+// 	); err != nil {
+// 		t.Fatalf("Failed to modify fragment: %v", err)
+// 	}
+//
+// 	// Handler must: invalidate -> warm (deps usable right away) -> mark dirty (no rescan)
+// 	if err := server.handleFragmentModified(ctx, plan, []string{"header.html"}); err != nil {
+// 		t.Fatalf("handleFragmentModified failed: %v", err)
+// 	}
+//
+// 	// Deps still accessible immediately (warmup happened)
+// 	if deps, ok := proj.Layouts.GetDeps(layoutKey); !ok || len(deps) != 2 {
+// 		t.Fatalf("deps not accessible after fragment change, ok=%v deps=%v", ok, deps)
+// 	}
+// 	// Entries are marked dirty (both a.md and b.md)
+// 	if got := countDirtyEntries(t, plan); got < 2 {
+// 		t.Fatalf("expected >=2 dirty entries after fragment change, got %d", got)
+// 	}
+// }
+//
+// // Guardrail: InvalidateLayoutsFromPaths(layout.xml) is a no-op (reverse index maps fragments/assets, not layouts).
+// // Ensures handlers for layout events compute layout keys from the plan and call InvalidateLayouts(..., RescanFS:true).
+// func TestInvalidateLayoutsFromPaths_IgnoresLayoutFiles(t *testing.T) {
+// 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
+// <Layout src="template.html">
+// 	<Fragment name="header" src="header.html" pipe="copy" />
+// 	<Content name="content" src="*.md" pipe="md" />
+// </Layout>`
+//
+// 	proj, cleanup := project.NewTestProject(t).
+// 		WithSource("index.md", "# idx").
+// 		WithScheme("layout.xml", layoutXML).
+// 		WithScheme("template.html", "{{header}}{{content}}").
+// 		WithScheme("header.html", "<header>H</header>").
+// 		WithPipeline("md", project.BasicMarkdownPipeline()).
+// 		WithPipeline("copy", map[string]string{
+// 			"config.yaml": `name: copy
+// entry_point: index.js
+// source_suffix: html
+// target_suffix: html`,
+// 			"index.js": `function transform(input) { return input; }`,
+// 		}).
+// 		Build()
+// 	defer cleanup()
+//
+// 	ctx := context.Background()
+// 	plan, err := proj.Plan(ctx)
+// 	if err != nil {
+// 		t.Fatalf("Failed to create plan: %v", err)
+// 	}
+// 	// Warm via initial build
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("initial build failed: %v", err)
+// 	}
+// 	layoutKey := project.LayoutKey{RelLayoutPath: "layout.xml", BaseDir: "."}
+// 	before, ok := proj.Layouts.GetDeps(layoutKey)
+// 	if !ok || len(before) != 2 {
+// 		t.Fatalf("expected initial deps=2, ok=%v deps=%v", ok, before)
+// 	}
+//
+// 	// Using the "paths" helper with a layout file should do nothing (0 affected keys internally).
+// 	if err := proj.InvalidateLayoutsFromPaths(ctx, plan, []string{"layout.xml"}, project.LayoutInvalidationOpts{
+// 		RescanFS: true,
+// 	}); err != nil {
+// 		t.Fatalf("InvalidateLayoutsFromPaths(layout.xml): %v", err)
+// 	}
+// 	after, ok := proj.Layouts.GetDeps(layoutKey)
+// 	if !ok || len(after) != len(before) {
+// 		t.Fatalf("deps unexpectedly changed, ok=%v before=%v after=%v", ok, before, after)
+// 	}
+// }
+//
+// // Content in a subdirectory with NO local layout should use the parent directory layout.
+// func TestContentInSubdir_UsesParentLayout_WhenNoLocalLayout(t *testing.T) {
+// 	layoutRoot := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+//
+// 	proj, cleanup := project.NewTestProject(t).
+// 		WithSource("sub/a.md", "# A").
+// 		WithScheme("layout.xml", layoutRoot).
+// 		WithScheme("template.html", "PARENT-TPL {{header}} {{.Content}}").
+// 		WithScheme("header.html", "PARENT-HEADER").
+// 		WithPipeline("md", project.BasicMarkdownPipeline()).
+// 		Build()
+// 	defer cleanup()
+//
+// 	ctx := context.Background()
+// 	plan, err := proj.Plan(ctx)
+// 	if err != nil {
+// 		t.Fatalf("plan: %v", err)
+// 	}
+// 	// Scan root and sub; sub has no local layout file -> inherits parent
+// 	if err := proj.PartialScan(ctx, plan, "."); err != nil {
+// 		t.Fatalf("partials: %v", err)
+// 	}
+// 	entry, ok := plan.EntryBySource("sub/a.md")
+// 	if !ok {
+// 		t.Fatalf("expected plan to contain sub/a.md")
+// 	}
+// 	// It should be using the parent layout (layout.xml at root), base dir is "sub"
+// 	if entry.LayoutKey.RelLayoutPath != "layout.xml" || entry.LayoutKey.BaseDir != "sub" {
+// 		t.Fatalf("expected parent layout for sub/a.md; got key=%+v", entry.LayoutKey)
+// 	}
+// 	// Build and verify output includes the PARENT template marker
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("build: %v", err)
+// 	}
+// 	out := filepath.Join(proj.Config.OutputPath, "sub", "a.html")
+// 	b, _ := os.ReadFile(out)
+// 	if !strings.Contains(string(b), "PARENT-TPL") {
+// 		t.Fatalf("expected PARENT-TPL marker in output, got: %s", string(b))
+// 	}
+// }
+//
+// // A local layout in the subdirectory takes precedence over the parent layout.
+// func TestSubdirLayout_TakesPrecedence_OverParent(t *testing.T) {
+// 	layoutRoot := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+// 	layoutSub := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+//
+// 	proj, cleanup := project.NewTestProject(t).
+// 		WithSource("sub/a.md", "# A").
+// 		// parent layout & fragments
+// 		WithScheme("layout.xml", layoutRoot).
+// 		WithScheme("template.html", "PARENT-TPL {{header}} {{.Content}}").
+// 		WithScheme("header.html", "PARENT-HEADER").
+// 		// subdir layout & its own template marker
+// 		WithScheme("sub/layout.xml", layoutSub).
+// 		WithScheme("sub/template.html", "SUB-TPL {{header}} {{.Content}}").
+// 		// (no sub/header.html yet -> uses parent header initially)
+// 		WithPipeline("md", project.BasicMarkdownPipeline()).
+// 		Build()
+// 	defer cleanup()
+//
+// 	ctx := context.Background()
+// 	plan, err := proj.Plan(ctx)
+// 	if err != nil {
+// 		t.Fatalf("plan: %v", err)
+// 	}
+// 	if err := proj.PartialScan(ctx, plan, "."); err != nil {
+// 		t.Fatalf("scan: %v", err)
+// 	}
+// 	entry, ok := plan.EntryBySource("sub/a.md")
+// 	if !ok {
+// 		t.Fatalf("sub/a.md missing in plan")
+// 	}
+// 	// Should select sub/layout.xml for RelLayoutPath, with BaseDir "sub"
+// 	if entry.LayoutKey.RelLayoutPath != "sub/layout.xml" || entry.LayoutKey.BaseDir != "sub" {
+// 		t.Fatalf("expected sub layout; got key=%+v", entry.LayoutKey)
+// 	}
+// 	// Build and verify the SUB template marker is used
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("build: %v", err)
+// 	}
+// 	out := filepath.Join(proj.Config.OutputPath, "sub", "a.html")
+// 	b, _ := os.ReadFile(out)
+// 	if !strings.Contains(string(b), "SUB-TPL") {
+// 		t.Fatalf("expected SUB-TPL marker in output, got: %s", string(b))
+// 	}
+// }
+//
+// // Deleting a subdir layout should make matched content fall back to the parent layout (different template).
+// func TestSubdirLayoutDeleted_FallsBackToParent(t *testing.T) {
+// 	layoutRoot := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+// 	layoutSub := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+//
+// 	proj, cleanup := project.NewTestProject(t).
+// 		WithSource("sub/a.md", "# A").
+// 		// parent layout/template/fragment
+// 		WithScheme("layout.xml", layoutRoot).
+// 		WithScheme("template.html", "PARENT-TPL {{header}} {{.Content}}").
+// 		WithScheme("header.html", "PARENT-HEADER").
+// 		// sub layout/template
+// 		WithScheme("sub/layout.xml", layoutSub).
+// 		WithScheme("sub/template.html", "SUB-TPL {{header}} {{.Content}}").
+// 		WithPipeline("md", project.BasicMarkdownPipeline()).
+// 		Build()
+// 	defer cleanup()
+//
+// 	ctx := context.Background()
+// 	plan, err := proj.Plan(ctx)
+// 	if err != nil {
+// 		t.Fatalf("plan: %v", err)
+// 	}
+// 	server := newTestServer(t, proj)
+// 	if err := proj.PartialScan(ctx, plan, "."); err != nil {
+// 		t.Fatalf("scan: %v", err)
+// 	}
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("build: %v", err)
+// 	}
+// 	// Ensure SUB template used initially
+// 	out := filepath.Join(proj.Config.OutputPath, "sub", "a.html")
+// 	b, _ := os.ReadFile(out)
+// 	if !strings.Contains(string(b), "SUB-TPL") {
+// 		t.Fatalf("expected SUB-TPL before deletion, got: %s", string(b))
+// 	}
+// 	// Delete sub/layout.xml and trigger handler (rescan)
+// 	if err := os.Remove(filepath.Join(proj.Config.SchemePath, "sub", "layout.xml")); err != nil {
+// 		t.Fatalf("remove sub/layout.xml: %v", err)
+// 	}
+// 	if err := server.handleLayoutDeleted(ctx, plan, []string{filepath.Join(proj.Config.SchemePath, "sub", "layout.xml")}); err != nil {
+// 		t.Fatalf("handleLayoutDeleted: %v", err)
+// 	}
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("rebuild: %v", err)
+// 	}
+// 	// Now content must fall back to the parent layout/template
+// 	b, _ = os.ReadFile(out)
+// 	if !strings.Contains(string(b), "PARENT-TPL") {
+// 		t.Fatalf("expected fallback to PARENT-TPL after sub layout deletion, got: %s", string(b))
+// 	}
+// 	entry, ok := plan.EntryBySource("sub/a.md")
+// 	if !ok {
+// 		t.Fatalf("sub/a.md missing after deletion rescan")
+// 	}
+// 	if entry.LayoutKey.RelLayoutPath != "layout.xml" || entry.LayoutKey.BaseDir != "sub" {
+// 		t.Fatalf("expected fallback to parent layout key; got key=%+v", entry.LayoutKey)
+// 	}
+// }
+//
+// // Adding a new fragment in subdir should override the same-named fragment previously used from parent.
+// func TestSubdirFragmentOverride_TakesEffect(t *testing.T) {
+// 	layoutRoot := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+// 	layoutSub := `<?xml version="1.0"?>
+// <Layout>
+//   <Template file="template.html"/>
+//   <Fragments>
+//     <Fragment name="header" src="header.html"/>
+//   </Fragments>
+//   <Contents>
+//     <Content src="*.md" pipe="md"/>
+//   </Contents>
+// </Layout>`
+//
+// 	proj, cleanup := project.NewTestProject(t).
+// 		WithSource("sub/a.md", "# A").
+// 		// parent layout/template/header
+// 		WithScheme("layout.xml", layoutRoot).
+// 		WithScheme("template.html", "TPL {{header}} {{.Content}}").
+// 		WithScheme("header.html", "PARENT-H").
+// 		// sub layout/template (initially uses parent header)
+// 		WithScheme("sub/layout.xml", layoutSub).
+// 		WithScheme("sub/template.html", "SUB {{header}} {{.Content}}").
+// 		WithPipeline("md", project.BasicMarkdownPipeline()).
+// 		Build()
+// 	defer cleanup()
+//
+// 	ctx := context.Background()
+// 	plan, err := proj.Plan(ctx)
+// 	if err != nil {
+// 		t.Fatalf("plan: %v", err)
+// 	}
+// 	server := newTestServer(t, proj)
+//
+// 	if err := proj.PartialScan(ctx, plan, "."); err != nil {
+// 		t.Fatalf("scan: %v", err)
+// 	}
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("build: %v", err)
+// 	}
+// 	// Initially render should use parent header
+// 	out := filepath.Join(proj.Config.OutputPath, "sub", "a.html")
+// 	b, _ := os.ReadFile(out)
+// 	if !strings.Contains(string(b), "PARENT-H") {
+// 		t.Fatalf("expected parent header initially, got: %s", string(b))
+// 	}
+// 	// Now create sub/header.html (override) and fire the fragment handler (no rescan)
+// 	if err := os.WriteFile(filepath.Join(proj.Config.SchemePath, "sub", "header.html"), []byte("SUB-H"), 0644); err != nil {
+// 		t.Fatalf("write sub/header.html: %v", err)
+// 	}
+// 	if err := server.handleFragmentModified(ctx, plan, []string{filepath.Join(proj.Config.SchemePath, "sub", "header.html")}); err != nil {
+// 		t.Fatalf("handleFragmentModified: %v", err)
+// 	}
+// 	// Rebuild; should now pick SUB-H
+// 	if _, err := proj.BuildFromPlan(ctx, plan); err != nil {
+// 		t.Fatalf("rebuild: %v", err)
+// 	}
+// 	b, _ = os.ReadFile(out)
+// 	if !strings.Contains(string(b), "SUB-H") {
+// 		t.Fatalf("expected override header SUB-H after creating sub/header.html, got: %s", string(b))
+// 	}
+// }

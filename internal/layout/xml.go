@@ -42,6 +42,7 @@ type Content struct {
 	Name      string
 	Source    string
 	Pipe      string
+	To        string
 	assetElms []Asset
 }
 
@@ -53,6 +54,7 @@ type Asset struct {
 	Name    string   `xml:"name,attr"`
 	Source  string   `xml:"src,attr"`
 	Pipe    string   `xml:"pipe,attr"`
+	To      string   `xml:"to,attr"`
 }
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -153,6 +155,8 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 			c.Source = attr.Value
 		case "pipe":
 			c.Pipe = attr.Value
+		case "to":
+			c.To = attr.Value
 		}
 	}
 

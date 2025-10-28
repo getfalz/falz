@@ -296,6 +296,66 @@ func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error
 	return out, nil
 }
 
+func (p *Project) warmUpLayoutsByKeys(ctx context.Context, keys []LayoutKey) error {
+	if len(keys) == 0 {
+		return nil
+	}
+	var errs []error
+
+	for _, k := range keys {
+		lyt, err := p.loadLayout(k.RelLayoutPath)
+		if err != nil {
+			errs = append(errs, fmt.Errorf("load layout %s: %w", k.RelLayoutPath, err))
+			continue
+		}
+
+		if _, err := p.Layouts.GetOrBuild(ctx, p.SchemeRoot, k, lyt); err != nil {
+			errs = append(errs, fmt.Errorf("build layout %s: %w", k.RelLayoutPath, err))
+			continue
+		}
+	}
+	return errors.Join(errs...)
+}
+func (p *Project) InvalidateLayouts(ctx context.Context, plan *Plan, layoutKeys []LayoutKey, rescan bool) error {
+	if len(layoutKeys) == 0 {
+		return nil
+	}
+
+	var errs []error
+	seenKey := make(map[LayoutKey]struct{}, len(layoutKeys))
+	keys := make([]LayoutKey, 0, len(layoutKeys))
+
+	for _, k := range layoutKeys {
+		if _, ok := seenKey[k]; !ok {
+			seenKey[k] = struct{}{}
+
+			keys = append(keys, k)
+			p.Layouts.InvalidateByKey(k)
+		}
+	}
+
+	if err := p.warmUpLayoutsByKeys(ctx, keys); err != nil {
+		return fmt.Errorf("warmup layouts: %w", err)
+	}
+
+	if rescan {
+		seenBase := make(map[string]struct{})
+		for _, key := range keys {
+			if _, ok := seenBase[key.BaseDir]; !ok {
+				seenBase[key.BaseDir] = struct{}{}
+
+				if err := p.PartialScan(ctx, plan, key.BaseDir); err != nil {
+					errs = append(errs, fmt.Errorf("partial scan failed %q: %w", key.BaseDir, err))
+					continue
+				}
+			}
+		}
+	} else {
+		plan.MarkDirtyByLayoutKeys(keys)
+	}
+	return errors.Join(errs...)
+}
+
 func (p *Project) CurrentPlan() (*Plan, error) {
 	p.currentPlanMu.Lock()
 	defer p.currentPlanMu.Unlock()

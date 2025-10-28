@@ -98,7 +98,8 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 		return nil, fmt.Errorf("scan files: %w", err)
 	}
 
-	if err := p.warmupLayouts(ctx, plan); err != nil {
+	keys := plan.LayoutKeys()
+	if err := p.warmUpLayoutsByKeys(ctx, keys); err != nil {
 		return nil, fmt.Errorf("warmup layouts: %w", err)
 	}
 
@@ -197,17 +198,34 @@ func (p *Plan) EntryKeys(predicate func(*BuildEntry) bool) []string {
 	return keys
 }
 
+func (p *Plan) LayoutKeys() []LayoutKey {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	uniq := make(map[LayoutKey]struct{})
+	for _, e := range p.entries {
+		if e.Type == "content" && e.Layout != nil {
+			uniq[e.LayoutKey] = struct{}{}
+		}
+	}
+	out := make([]LayoutKey, 0, len(uniq))
+	for k := range uniq {
+		out = append(out, k)
+	}
+	return out
+}
+
 func (p *Project) createEntry(
 	entryType EntryType,
 	sourceType SourceType,
-	rel string,
+	sourcePath string,
+	outputPath string,
 	base string,
 	pipeName string,
 	tagName string,
 	lyt *layout.Layout,
 ) *BuildEntry {
 
-	id := rel
+	id := sourcePath
 	if entryType == "asset" {
 		switch sourceType {
 		case "scheme":
@@ -220,9 +238,9 @@ func (p *Project) createEntry(
 	e := &BuildEntry{
 		ID:             id,
 		Type:           entryType,
-		SourcePath:     rel,
+		SourcePath:     sourcePath,
 		SourceRoot:     sourceType,
-		OutputPath:     p.ComputeOutputPath(base, rel, pipeName),
+		OutputPath:     p.ComputeOutputPath(base, sourcePath, pipeName),
 		Pipeline:       pipeName,
 		TagName:        tagName,
 		BaseDir:        base,
@@ -244,17 +262,18 @@ func (p *Project) CreateEntryWithHash(
 	plan *Plan,
 	entryType EntryType,
 	sourceType SourceType,
-	rel string,
-	base string,
+	sourcePath string,
+	outputPath string,
+	baseDir string,
 	pipeName string,
 	tagName string,
 	lyt *layout.Layout,
 ) (*BuildEntry, error) {
 
-	entry := p.createEntry(entryType, sourceType, rel, base, pipeName, tagName, lyt)
+	entry := p.createEntry(entryType, sourceType, sourcePath, outputPath, baseDir, pipeName, tagName, lyt)
 
 	if err := p.computeEntryHash(ctx, entry, plan); err != nil {
-		return nil, fmt.Errorf("compute hash for %s: %w", rel, err)
+		return nil, fmt.Errorf("compute hash for %s: %w", sourcePath, err)
 	}
 	return entry, nil
 }
@@ -288,8 +307,8 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 						continue
 					}
 
-					for _, rel := range matches {
-						entry := p.createEntry("content", "source", rel, base, cc.Pipe, cc.Name, lyt)
+					for _, sourcePath := range matches {
+						entry := p.createEntry("content", "source", sourcePath, cc.To, base, cc.Pipe, cc.Name, lyt)
 
 						plan.AddEntry(entry.ID, entry)
 						changed++
@@ -302,8 +321,8 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 							continue
 						}
 
-						for _, rel := range matches {
-							entry := p.createEntry("asset", "source", rel, filepath.Dir(rel), a.Pipe, a.Name, nil)
+						for _, sourcePath := range matches {
+							entry := p.createEntry("asset", "source", sourcePath, a.To, filepath.Dir(sourcePath), a.Pipe, a.Name, nil)
 
 							plan.AddEntry(entry.ID, entry)
 							changed++
@@ -319,8 +338,8 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 						continue
 					}
 
-					for _, rel := range matches {
-						entry := p.createEntry("asset", "scheme", rel, filepath.Dir(rel), a.Pipe, a.Name, nil)
+					for _, sourcePath := range matches {
+						entry := p.createEntry("asset", "scheme", sourcePath, a.To, filepath.Dir(sourcePath), a.Pipe, a.Name, nil)
 
 						plan.AddEntry(entry.ID, entry)
 
@@ -337,7 +356,7 @@ func (p *Project) scanFiles(plan *Plan) (int, error) {
 }
 
 // PartialScan walks a directory tree and updates plan entries
-// Stops at subdirectories with their own layouts
+// Stops at subdirectories with their own layouts.
 func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) error {
 	srcFS := p.SourceRoot.FS()
 
@@ -371,12 +390,12 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 			for _, lyt := range lmap {
 				key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
-
-				_, err := p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
-				if err != nil {
-					log.Warn(fmt.Sprintf("warm up layout %s: %v", key.RelLayoutPath, err))
-					continue
-				}
+				//
+				// _, err := p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
+				// if err != nil {
+				// 	log.Warn(fmt.Sprintf("warm up layout %s: %v", key.RelLayoutPath, err))
+				// 	continue
+				// }
 
 				for _, cc := range lyt.Contents() {
 					glob := filepath.ToSlash(filepath.Join(base, cc.Source))
@@ -385,9 +404,9 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 						continue
 					}
 
-					for _, rel := range matches {
-						if err := p.updateOrCreateContentEntry(ctx, plan, rel, lyt, key, cc); err != nil {
-							log.Warn(fmt.Sprintf("updating or creating content %s: %v", rel, err))
+					for _, sourcePath := range matches {
+						if err := p.updateOrCreateContentEntry(ctx, plan, sourcePath, lyt, key, cc); err != nil {
+							log.Warn(fmt.Sprintf("updating or creating content %s: %v", sourcePath, err))
 							continue
 						}
 					}
@@ -399,10 +418,10 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 							continue
 						}
 
-						for _, rel := range matches {
-							id := fmt.Sprintf("asset:source:%s", rel)
-							if err := p.updateOrCreateAssetEntry(ctx, plan, id, rel, "source", a.Pipe, filepath.Dir(rel)); err != nil {
-								log.Warn(fmt.Sprintf("updating or creating asset %s: %v", rel, err))
+						for _, sourcePath := range matches {
+							id := fmt.Sprintf("asset:source:%s", sourcePath)
+							if err := p.updateOrCreateAssetEntry(ctx, plan, id, sourcePath, "source", a.Pipe, filepath.Dir(sourcePath), a); err != nil {
+								log.Warn(fmt.Sprintf("updating or creating asset %s: %v", sourcePath, err))
 								continue
 
 							}
@@ -417,10 +436,10 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 						continue
 					}
 
-					for _, rel := range matches {
-						id := fmt.Sprintf("asset:scheme:%s", rel)
-						if err := p.updateOrCreateAssetEntry(ctx, plan, id, rel, "scheme", a.Pipe, filepath.Dir(rel)); err != nil {
-							log.Warn(fmt.Sprintf("updating or creating asset %s: %v", rel, err))
+					for _, sourcePath := range matches {
+						id := fmt.Sprintf("asset:scheme:%s", sourcePath)
+						if err := p.updateOrCreateAssetEntry(ctx, plan, id, sourcePath, "scheme", a.Pipe, filepath.Dir(sourcePath), a); err != nil {
+							log.Warn(fmt.Sprintf("updating or creating asset %s: %v", sourcePath, err))
 						}
 					}
 				}
@@ -429,42 +448,6 @@ func (p *Project) PartialScan(ctx context.Context, plan *Plan, baseDir string) e
 
 		return nil
 	})
-}
-
-func (p *Project) warmupLayouts(ctx context.Context, plan *Plan) error {
-	layoutKeys := make(map[LayoutKey]struct{})
-	for _, entry := range plan.entries {
-		if entry.Type == "content" && entry.Layout != nil {
-			layoutKeys[entry.LayoutKey] = struct{}{}
-		}
-	}
-
-	log.IInfo(log.Layout).
-		Int("layouts", len(layoutKeys)).
-		Msg("warming up layout cache")
-
-	var errs []error
-	for key := range layoutKeys {
-		lmap, err := p.GetLayouts(key.BaseDir)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("get layouts for %s: %w", key.BaseDir, err))
-			continue
-		}
-
-		keyPath := filepath.ToSlash(key.RelLayoutPath)
-		lyt, ok := lmap[keyPath]
-		if !ok {
-			errs = append(errs, fmt.Errorf("layout not found: %s", keyPath))
-			continue
-		}
-
-		_, err = p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("build layout %s: %w", key.RelLayoutPath, err))
-		}
-	}
-
-	return errors.Join(errs...)
 }
 
 // computeHashes calculates hashes for all entries
@@ -618,6 +601,7 @@ func (p *Plan) GetAllEntries() []*BuildEntry {
 }
 
 // GetDirtyEntries returns all entries that need rebuilding
+// TODO could be removed
 func (p *Plan) GetDirtyEntries() []*BuildEntry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
@@ -673,7 +657,7 @@ func (p *Project) updateOrCreateContentEntry(
 		plan.DeleteEntry(rel)
 	}
 
-	entry, err := p.CreateEntryWithHash(ctx, plan, "content", "source", rel, key.BaseDir, cc.Pipe, cc.Name, lyt)
+	entry, err := p.CreateEntryWithHash(ctx, plan, "content", "source", rel, cc.To, key.BaseDir, cc.Pipe, cc.Name, lyt)
 	if err != nil {
 		return err
 	}
@@ -698,6 +682,7 @@ func (p *Project) updateOrCreateAssetEntry(
 	sourceRoot SourceType,
 	pipeline string,
 	baseDir string,
+	as layout.Asset,
 ) error {
 	_, exists := plan.Entry(id)
 
@@ -716,7 +701,7 @@ func (p *Project) updateOrCreateAssetEntry(
 		}
 	}
 
-	entry, err := p.CreateEntryWithHash(ctx, plan, "asset", sourceRoot, rel, baseDir, pipeline, "", nil)
+	entry, err := p.CreateEntryWithHash(ctx, plan, "asset", sourceRoot, rel, as.To, baseDir, pipeline, "", nil)
 	if err != nil {
 		return err
 	}
@@ -730,4 +715,19 @@ func (p *Project) updateOrCreateAssetEntry(
 		Msg("new asset entry added")
 
 	return nil
+}
+
+func (p *Plan) MarkDirtyByLayoutKeys(keys []LayoutKey) {
+	if len(keys) == 0 {
+		return
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, e := range p.entries {
+		for _, k := range keys {
+			if e.LayoutKey == k {
+				e.Dirty = true
+			}
+		}
+	}
 }
