@@ -90,14 +90,26 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 					continue
 				}
 
-				entry, err := s.project.CreateEntryWithHash(ctx, plan, "content", "source", path, cc.To, base, cc.Pipe, cc.Name, lyt)
-				if err != nil {
-					log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
-					continue
+				// entry, err := s.project.CreateEntryWithHash(ctx, plan, "content", "source", path, cc.To, base, cc.Pipe, cc.Name, lyt)
+				// if err != nil {
+				// 	log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
+				// 	continue
+				// }
+				//
+				// entry.Dirty = true
+				// plan.AddEntry(entry.ID, entry)
+				spec := project.EntrySpec{
+					Type:       project.EntryTypeContent,
+					SourceRoot: project.SourceTypeSource,
+					Rel:        path,
+					BaseDir:    base,
+					Pipeline:   cc.Pipe,
+					TagName:    cc.Name,
+					Layout:     lyt,
+					LayoutKey:  project.LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base},
 				}
-
-				entry.Dirty = true
-				plan.AddEntry(entry.ID, entry)
+				// TODO handle ok
+				entry, _ := s.project.UpsertEntry(plan, spec)
 
 				log.IInfo(log.Handler).
 					Str("id", entry.ID).
@@ -188,14 +200,23 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						continue
 					}
 
-					entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
-					if err != nil {
-						log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
-						continue
+					// entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
+					// if err != nil {
+					// 	log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
+					// 	continue
+					// }
+					//
+					// entry.Dirty = true
+					// plan.AddEntry(entry.ID, entry)
+					spec := project.EntrySpec{
+						Type:       project.EntryTypeAsset,
+						SourceRoot: project.SourceTypeSource,
+						Rel:        path,
+						BaseDir:    filepath.Base(path),
+						Pipeline:   a.Pipe,
 					}
-
-					entry.Dirty = true
-					plan.AddEntry(entry.ID, entry)
+					// TODO handle ok
+					entry, _ := s.project.UpsertEntry(plan, spec)
 
 					log.IInfo(log.Handler).
 						Str("id", entry.ID).
@@ -271,11 +292,22 @@ func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, pa
 			return entry.Type == "content" && strings.HasPrefix(entry.BaseDir, dir)
 		}, false)
 
-		if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+		// if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+		// 	log.EError(log.Handler).
+		// 		Err(err).
+		// 		Str("dir", dir).
+		// 		Msg("partial scan failed")
+		// }
+
+		if _, err := s.project.Scan(ctx, plan, dir); err != nil {
 			log.EError(log.Handler).
 				Err(err).
 				Str("dir", dir).
-				Msg("partial scan failed")
+				Msg("scan failed")
+		} else {
+			if _, err := s.project.HashDirty(ctx, plan); err != nil {
+				log.EError(log.Handler).Err(err).Str("dir", dir).Msg("hash dirty failed")
+			}
 		}
 	}
 	return nil
@@ -305,11 +337,22 @@ func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, pa
 			return found
 		}, true)
 
-		if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+		// if err := s.project.PartialScan(ctx, plan, dir); err != nil {
+		// 	log.EError(log.Handler).
+		// 		Err(err).
+		// 		Str("dir", dir).
+		// 		Msg("partial scan failed")
+		// }
+
+		if _, err := s.project.Scan(ctx, plan, dir); err != nil {
 			log.EError(log.Handler).
 				Err(err).
 				Str("dir", dir).
-				Msg("partial scan failed")
+				Msg("scan failed")
+		} else {
+			if _, err := s.project.HashDirty(ctx, plan); err != nil {
+				log.EError(log.Handler).Err(err).Str("dir", dir).Msg("hash dirty failed")
+			}
 		}
 	}
 	return nil
@@ -394,14 +437,23 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 					continue
 				}
 
-				entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "scheme", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
-				if err != nil {
-					log.Warn(fmt.Sprintf("create scheme asset %s: %v", path, err))
-					continue
+				// entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "scheme", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
+				// if err != nil {
+				// 	log.Warn(fmt.Sprintf("create scheme asset %s: %v", path, err))
+				// 	continue
+				// }
+				//
+				// entry.Dirty = true
+				// plan.AddEntry(entry.ID, entry)
+				spec := project.EntrySpec{
+					Type:       project.EntryTypeAsset,
+					SourceRoot: project.SourceTypeScheme,
+					Rel:        path,
+					BaseDir:    filepath.Dir(path),
+					Pipeline:   a.Pipe,
 				}
-
-				entry.Dirty = true
-				plan.AddEntry(entry.ID, entry)
+				// TODO handle ok
+				entry, _ := s.project.UpsertEntry(plan, spec)
 
 				log.IInfo(log.Handler).
 					Str("id", entry.ID).

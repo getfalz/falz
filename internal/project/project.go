@@ -334,9 +334,9 @@ func (p *Project) InvalidateLayouts(ctx context.Context, plan *Plan, layoutKeys 
 		}
 	}
 
-	if err := p.warmUpLayoutsByKeys(ctx, keys); err != nil {
-		return fmt.Errorf("warmup layouts: %w", err)
-	}
+	// if err := p.warmUpLayoutsByKeys(ctx, keys); err != nil {
+	// 	return fmt.Errorf("warmup layouts: %w", err)
+	// }
 
 	if rescan {
 		seenBase := make(map[string]struct{})
@@ -344,11 +344,14 @@ func (p *Project) InvalidateLayouts(ctx context.Context, plan *Plan, layoutKeys 
 			if _, ok := seenBase[key.BaseDir]; !ok {
 				seenBase[key.BaseDir] = struct{}{}
 
-				if err := p.PartialScan(ctx, plan, key.BaseDir); err != nil {
-					errs = append(errs, fmt.Errorf("partial scan failed %q: %w", key.BaseDir, err))
+				if _, err := p.Scan(ctx, plan, key.BaseDir); err != nil {
+					errs = append(errs, fmt.Errorf("scan after layout invalidation for base %q: %w", key.BaseDir, err))
 					continue
 				}
 			}
+		}
+		if _, err := p.HashDirty(ctx, plan); err != nil {
+			return fmt.Errorf("hash dirty after layout invalidation: %w", err)
 		}
 	} else {
 		plan.MarkDirtyByLayoutKeys(keys)
