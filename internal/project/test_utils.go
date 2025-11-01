@@ -19,8 +19,10 @@ func NewTestProject(t *testing.T) *TestProjectBuilder {
 
 	config, err := LoadConfig(tempDir)
 	if err != nil {
-		t.Fatalf("Failed to load default config: %v", err)
+		t.Fatalf("Failed to load default config in %q: %v", tempDir, err)
 	}
+
+	config.SetCasPath(filepath.Join(config.OutputPath, "cas"))
 
 	return &TestProjectBuilder{
 		t:             t,
@@ -94,8 +96,6 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 		b.config.Pipes = append(b.config.Pipes, pipeName)
 	}
 
-	b.config.Build.CASPath = filepath.Join(filepath.Dir(b.config.ConfigPath), b.config.Build.CASPath)
-
 	proj, err := New(b.config)
 	if err != nil {
 		b.t.Fatalf("Failed to create project: %v", err)
@@ -111,7 +111,7 @@ func (b *TestProjectBuilder) Build() (*Project, func()) {
 func BasicLayoutXML() string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" to="{FILENAME}.html" pipe="md" />
 </Layout>`
 }
 

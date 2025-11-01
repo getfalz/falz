@@ -9,7 +9,7 @@ import (
 func TestLayout_BasicParsing(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -33,7 +33,7 @@ func TestLayout_WithFragments(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -84,8 +84,8 @@ target_suffix: html`,
 func TestLayout_WithAssets(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Asset name="styles" src="*.css" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Asset name="styles" src="*.css" pipe="copy" to="{FILENAME}.{EXT}"/>
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -128,8 +128,8 @@ target_suffix: css`,
 func TestLayout_NestedContent(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Content name="content" src="**/*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copy" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html">
+		<Asset name="images" src="*.png" pipe="copy" to="{FILENAME}.{EXT}"/>
 	</Content>
 </Layout>`
 
@@ -165,7 +165,7 @@ func TestLayout_Cache(t *testing.T) {
 
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -211,7 +211,7 @@ func TestLayout_CacheInvalidation(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -275,7 +275,7 @@ func TestLayout_GetDeps(t *testing.T) {
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Fragment name="footer" src="footer.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -327,7 +327,7 @@ target_suffix: html`,
 func TestLayout_HotReload(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).

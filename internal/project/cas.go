@@ -13,13 +13,16 @@ type CAS struct {
 }
 
 // NewCAS creates a new content-addressable storage
-func NewCAS(root string) (*CAS, error) {
-	if err := os.MkdirAll(root, 0755); err != nil {
+func NewCAS(path string) (*CAS, error) {
+	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("cas base is a symlink: %s", path)
+	}
+	if err := os.MkdirAll(path, 0o700); err != nil {
 		return nil, fmt.Errorf("create CAS root: %w", err)
 	}
 
 	return &CAS{
-		root: root,
+		root: path,
 	}, nil
 }
 
@@ -42,19 +45,27 @@ func (c *CAS) Has(key string) bool {
 // Store saves data with the given key
 func (c *CAS) Store(key string, data []byte) error {
 	path := c.keyPath(key)
+	dir := filepath.Dir(path)
+	base := filepath.Base(path)
 
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("create CAS dir: %w", err)
 	}
 
-	tmpPath := path + ".tmp"
-	if err := os.WriteFile(tmpPath, data, 0644); err != nil {
+	tmpName := filepath.Join(dir, "."+base+".tmp")
+	f, err := os.OpenFile(tmpName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return fmt.Errorf("open CAS temp: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	if _, err := f.Write(data); err != nil {
 		return fmt.Errorf("write CAS temp: %w", err)
 	}
 
-	if err := os.Rename(tmpPath, path); err != nil {
-		os.Remove(tmpPath)
-		return fmt.Errorf("rename CAS file: %w", err)
+	if err := os.Rename(f.Name(), path); err != nil {
+		_ = os.Remove(f.Name())
+		return fmt.Errorf("rename tmp CAS file: %w", err)
 	}
 
 	return nil

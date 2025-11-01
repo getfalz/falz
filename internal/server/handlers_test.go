@@ -361,8 +361,8 @@ func TestHandleContentDeleted_NonExistent(t *testing.T) {
 func TestHandleContentAssetModified_BasicChange(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copy" />
+	<Content name="content" src="*.md" to="{FILENAME}.html" pipe="md">
+		<Asset name="images" src="*.png" to="{FILENAME}.png" pipe="copy" />
 	</Content>
 </Layout>`
 
@@ -413,8 +413,8 @@ target_suffix: png`,
 func TestHandleContentAssetCreated_NewAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copy" />
+	<Content name="content" src="*.md" to="{FILENAME}.html" pipe="md">
+		<Asset name="images" src="*.png" to="{FILENAME}.png" pipe="copy" />
 	</Content>
 </Layout>`
 
@@ -466,8 +466,8 @@ target_suffix: png`,
 func TestHandleContentAssetDeleted_RemoveAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copy" />
+	<Content name="content" src="*.md" to="{FILENAME}.html" pipe="md">
+		<Asset name="images" src="*.png" to="{FILENAME}.png" pipe="copy" />
 	</Content>
 </Layout>`
 
@@ -512,7 +512,7 @@ func TestHandleLayoutModified_InvalidatesCache(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html" />
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -556,7 +556,7 @@ target_suffix: html`,
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Fragment name="footer" src="footer.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md"  to="{FILENAME}.html"/>
 </Layout>`
 
 	err = os.WriteFile(
@@ -651,7 +651,7 @@ func TestHandleLayoutCreated_NewLayoutInSubdir(t *testing.T) {
 
 	newLayout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="blog-template.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	blogLayoutPath := filepath.Join(proj.Config.SchemePath, "blog", "layout.xml")
@@ -681,7 +681,7 @@ func TestHandleLayoutCreated_NewLayoutInSubdir(t *testing.T) {
 func TestHandleLayoutDeleted_RescansWithParent(t *testing.T) {
 	blogLayout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="blog-template.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -714,7 +714,7 @@ func TestHandleFragmentModified_MarksDependentContent(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 	proj, cleanup := project.NewTestProject(t).
 		WithSource("a.md", "# A").
@@ -782,7 +782,7 @@ func TestHandleFragmentModified_MultipleFragments(t *testing.T) {
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
 	<Fragment name="footer" src="footer.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -841,8 +841,8 @@ target_suffix: html`,
 func TestHandleSchemeAssetModified_BasicChange(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Asset name="styles" src="*.css" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Asset name="styles" src="*.css" pipe="copy" to="{FILENAME}.css"/>
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -894,8 +894,8 @@ target_suffix: css`,
 func TestHandleSchemeAssetCreated_NewAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Asset name="styles" src="*.css" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Asset name="styles" src="*.css" pipe="copy" to="{FILENAME}.css"/>
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -946,8 +946,8 @@ target_suffix: css`,
 func TestHandleSchemeAssetDeleted_RemoveAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Asset name="styles" src="*.css" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Asset name="styles" src="*.css" pipe="copy" to="{FILENAME}.css"/>
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -990,7 +990,7 @@ target_suffix: css`,
 func TestHandlePipelineModified_ReloadsAndMarksDirty(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout tpl="{{content}}">
-	<Content name="content" src="*.md" pipe="copy" />
+	<Content name="content" src="*.md" pipe="copy" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).
@@ -1072,8 +1072,8 @@ func TestHandlePipelineModified_MultiplePipelines(t *testing.T) {
 		WithSource("style.css", "body {}").
 		WithScheme("layout.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Asset name="styles" src="*.css" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Asset name="styles" src="*.css" pipe="copy" to="{FILENAME}.{EXT}"/>
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`).
 		WithScheme("layout.html", project.BasicLayoutHTML()).
 		WithPipeline("md", project.BasicMarkdownPipeline()).
@@ -1140,8 +1140,8 @@ func TestHandlers_CompleteWorkflow(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copyimg" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html">
+		<Asset name="images" src="*.png" pipe="copyimg" to="{FILENAME}.{EXT}"/>
 	</Content>
 </Layout>`
 

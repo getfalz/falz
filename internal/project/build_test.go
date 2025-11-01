@@ -154,9 +154,8 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
-			c.Build.Concurrency = 1
 			c.Build.UseCAS = true
-			c.Build.CASPath = "cas"
+			c.SetCasPath("./cas")
 		}).
 		Build()
 	defer cleanup()
@@ -184,12 +183,12 @@ func TestBuild_ContentAddressableStorage(t *testing.T) {
 func TestBuild_MultipleLayouts(t *testing.T) {
 	layout1 := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template1.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	layout2 := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template2.html">
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).

@@ -182,6 +182,9 @@ func (a Asset) Validate() error {
 	if a.Source == "" {
 		return errors.New("element <Asset>: missing required field: src")
 	}
+	if a.To == "" {
+		return errors.New("element <Asset>: missing required field: to")
+	}
 	return nil
 }
 
@@ -201,6 +204,9 @@ func (c *Content) Validate() error {
 	}
 	if c.Source == "" {
 		return errors.New("element <Content>: missing required field: src")
+	}
+	if c.To == "" {
+		return errors.New("element <Content>: missing required field: to")
 	}
 	return nil
 }

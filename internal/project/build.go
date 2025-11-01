@@ -210,6 +210,10 @@ func (p *Project) runBuild(
 		result.Errors = append(result.Errors, err)
 	}
 
+	if ctx.Err() != nil {
+		result.Errors = append(result.Errors, ctx.Err())
+	}
+
 	result.Built = metrics.written.Load()
 	result.CacheHits = metrics.cacheHits.Load()
 	result.CacheMisses = metrics.cacheMisses.Load()
@@ -231,15 +235,19 @@ func (p *Project) buildStage(
 	var wg sync.WaitGroup
 	sem := make(chan struct{}, p.Config.Build.Concurrency)
 
+	sendErr := func(err error) {
+		select {
+		case <-ctx.Done():
+			return
+		case errChan <- err:
+		}
+	}
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
 
 		for work := range in {
-			if ctx.Err() != nil {
-				return
-			}
-
 			select {
 			case <-ctx.Done():
 				return
@@ -251,58 +259,66 @@ func (p *Project) buildStage(
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				if ctx.Err() != nil {
-					return
-				}
-
-				if work.Error != nil {
-					log.Warn(fmt.Sprintf("skipping entry with planning error: %s: %v", work.ID, work.Error))
+				if w.Error != nil {
+					sendErr(fmt.Errorf("planning error for %s: %w", w.ID, w.Error))
+					// log.Warn(fmt.Sprintf("skipping entry with planning error: %s: %v", w.ID, w.Error))
 					metrics.processed.Add(1)
 					return
 				}
 
 				var result *ProcessResult
-				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(work.Hash)
+				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(w.Hash)
 
 				if inCache {
-					outputPath := filepath.Join(p.Config.OutputPath, work.OutputPath)
-					err := plan.CAS.Link(work.Hash, outputPath)
-					if err == nil {
-						result = &ProcessResult{
-							Entry:  work,
-							Cached: true,
-						}
-						metrics.cacheHits.Add(1)
-						metrics.processed.Add(1)
+					// outputPath, err := w.OutputPath()
+					// if err != nil {
+					// 	metrics.processed.Add(1)
+					// 	sendErr(fmt.Errorf("compute output path for %s: %w", w.ID, err))
+					// 	return
+					// }
+					//
+					// foutputPath := filepath.Join(p.Config.OutputPath, outputPath)
+					// if err = plan.CAS.Link(w.Hash, foutputPath); err == nil {
+					// 	// TODO check if other fields are required
+					// 	result = &ProcessResult{
+					// 		Entry:  w,
+					// 		Cached: true,
+					// 	}
+					// 	metrics.cacheHits.Add(1)
+					// 	metrics.processed.Add(1)
+					//
+					// 	select {
+					// 	case <-ctx.Done():
+					// 		return
+					// 	case out <- result:
+					// 	}
+					// 	return
+					// }
+					//
+					// log.Warn(fmt.Sprintf("CAS restore failed for %s: %v", w.ID, err))
 
-						out <- result
-						return
+					result = &ProcessResult{
+						Entry:  w,
+						Cached: true,
 					}
+					metrics.cacheHits.Add(1)
+					metrics.processed.Add(1)
 
-					log.Warn(fmt.Sprintf("CAS link failed for %s: %v (falling back to read)", work.ID, err))
-					data, err := plan.CAS.Restore(work.Hash)
-					if err == nil {
-						result = &ProcessResult{
-							Entry:  work,
-							Data:   data,
-							Cached: true,
-						}
-						metrics.cacheHits.Add(1)
-						metrics.processed.Add(1)
-						out <- result
+					select {
+					case <-ctx.Done():
 						return
+					case out <- result:
 					}
-
-					log.Warn(fmt.Sprintf("CAS restore failed for %s: %v", work.ID, err))
+					return
 				}
 
-				result = p.processEntry(ctx, work)
+				result = p.processEntry(ctx, w)
 
 				if result.Error == nil {
 					metrics.cacheMisses.Add(1)
 
 					if p.Config.Build.UseCAS && plan.CAS != nil && result.Data != nil {
-						if err := plan.CAS.Store(work.Hash, result.Data); err == nil {
+						if err := plan.CAS.Store(w.Hash, result.Data); err == nil {
 							metrics.bytesCached.Add(int64(len(result.Data)))
 						}
 					}
@@ -311,13 +327,10 @@ func (p *Project) buildStage(
 				metrics.processed.Add(1)
 
 				if result.Error != nil {
-					errChan <- result.Error
+					sendErr(result.Error)
 					return
 				}
 				if result.Data != nil {
-					if ctx.Err() != nil {
-						return
-					}
 					select {
 					case out <- result:
 					case <-ctx.Done():
@@ -351,20 +364,22 @@ func (p *Project) writeStage(
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
 
-			flush := func() {
+			sendErr := func(err error) {
+				select {
+				case <-ctx.Done():
+					return
+				case errChan <- err:
+				}
+			}
+
+			flush := func() error {
+				var errs []error
 				for _, results := range dirBatch {
 					for _, r := range results {
 						if err := p.writeResult(plan, r); err != nil {
-							log.Warn(fmt.Sprintf("write failed for %s: %v", r.Entry.OutputPath, err))
+							log.Warn(fmt.Sprintf("write failed for %s: %v", r.Entry.outputPath, err))
 
-							if ctx.Err() != nil {
-								return
-							}
-							select {
-							case <-ctx.Done():
-								return
-							case errChan <- err:
-							}
+							sendErr(err)
 							continue
 						}
 
@@ -375,30 +390,47 @@ func (p *Project) writeStage(
 					}
 				}
 				clear(dirBatch)
+
+				if len(errs) > 0 {
+					return errors.Join(errs...)
+				}
+				return nil
 			}
 
 			for {
 				select {
 				case <-ctx.Done():
-					flush()
+					if err := flush(); err != nil {
+						sendErr(err)
+					}
 					return
 
 				case result, ok := <-in:
 					if !ok {
-						flush()
+						if err := flush(); err != nil {
+							sendErr(err)
+						}
 						return
 					}
 
-					dir := filepath.Dir(result.Entry.OutputPath)
+					outputPath, err := result.Entry.OutputPath()
+					if err != nil {
+						sendErr(fmt.Errorf("compute output path for %s: %w", result.Entry.ID, err))
+					}
+					dir := filepath.Dir(outputPath)
 					dirBatch[dir] = append(dirBatch[dir], result)
 
 					if len(dirBatch[dir]) >= 10 {
-						flush()
+						if err := flush(); err != nil {
+							sendErr(err)
+						}
 					}
 
 				case <-ticker.C:
 					if len(dirBatch) > 0 {
-						flush()
+						if err := flush(); err != nil {
+							sendErr(err)
+						}
 					}
 				}
 			}
@@ -449,8 +481,13 @@ func (p *Project) processEntry(
 		return result
 	}
 
+	outputPath, err := entry.OutputPath()
+	if err != nil {
+		result.Error = fmt.Errorf("compute output path: %w", err)
+		return result
+	}
 	vars := pipeline.Vars{
-		"target": entry.OutputPath,
+		"target": outputPath,
 		"vars":   p.Config.Variables,
 	}
 
@@ -477,7 +514,7 @@ func (p *Project) processEntry(
 
 	log.DDebug(log.Build).
 		Str("source", entry.SourcePath).
-		Str("output", entry.OutputPath).
+		Str("output", outputPath).
 		Str("pipe", entry.Pipeline).
 		Int("bytes", len(result.Data)).
 		Dur("duration", time.Since(start)).
@@ -493,17 +530,25 @@ func (p *Project) writeResult(
 ) error {
 	entry := result.Entry
 
-	fullPath := filepath.Join(p.Config.OutputPath, entry.OutputPath)
+	outputPath, err := entry.OutputPath()
+	if err != nil {
+		return fmt.Errorf("compute output path: %w", err)
+	}
+	fullPath := filepath.Join(p.Config.OutputPath, outputPath)
 
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
-		return fmt.Errorf("create dir for %s: %w", entry.OutputPath, err)
+		return fmt.Errorf("create dir for %s: %w", outputPath, err)
 	}
 
-	if !result.Cached {
+	if result.Cached {
+		if err := plan.CAS.Link(entry.Hash, fullPath); err != nil {
+			return fmt.Errorf("restore from CAS %s: %w", outputPath, err)
+		}
+	} else {
 		tmpFile := fullPath + ".tmp"
 
 		if err := os.WriteFile(tmpFile, result.Data, 0644); err != nil {
-			return fmt.Errorf("write temp %s: %w", entry.OutputPath, err)
+			return fmt.Errorf("write temp %s: %w", outputPath, err)
 		}
 
 		if f, err := os.OpenFile(tmpFile, os.O_RDWR, 0644); err == nil {
@@ -513,13 +558,14 @@ func (p *Project) writeResult(
 
 		if err := os.Rename(tmpFile, fullPath); err != nil {
 			_ = os.Remove(tmpFile)
-			return fmt.Errorf("rename %s: %w", entry.OutputPath, err)
+			return fmt.Errorf("rename %s: %w", outputPath, err)
 		}
 	}
 
+	// NOTE: Size of cached entry is zero
 	plan.Manifest.Set(entry.ID, ManifestEntry{
 		Hash:       entry.Hash,
-		OutputPath: entry.OutputPath,
+		OutputPath: outputPath,
 		Built:      time.Now(),
 		Size:       int64(len(result.Data)),
 	})

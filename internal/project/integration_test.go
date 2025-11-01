@@ -12,8 +12,8 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" />
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="styles" src="*.css" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html">
+		<Asset name="styles" src="*.css" to="{FILENAME}.{EXT}"/>
 	</Content>
 	<Fragment name="footer" src="footer.html" />
 </Layout>`
@@ -65,7 +65,7 @@ func TestIntegration_CompleteWorkflow(t *testing.T) {
 func TestIntegration_BlogSite(t *testing.T) {
 	blogLayout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
-	<Content name="post" src="*.md" pipe="md" />
+	<Content name="post" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).
@@ -148,7 +148,7 @@ target_suffix: html`,
 		WithSource("index.md", "# Test").
 		WithScheme("layout.xml", `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="bad" />
+	<Content name="content" src="*.md" pipe="bad" to="{FILENAME}.html"/>
 </Layout>`).
 		WithScheme("layout.html", BasicLayoutHTML()).
 		WithPipeline("bad", badPipeline).
@@ -217,8 +217,7 @@ func TestIntegration_CASReuse(t *testing.T) {
 		WithPipeline("md", BasicMarkdownPipeline()).
 		WithConfig(func(c *CraeftConfig) {
 			c.Build.Concurrency = 1
-			c.Build.UseCAS = true
-			c.Build.CASPath = "./cas"
+			c.SetCasPath("./cas")
 		}).
 		Build()
 	defer cleanup()

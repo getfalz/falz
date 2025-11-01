@@ -105,6 +105,7 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 					BaseDir:    base,
 					Pipeline:   cc.Pipe,
 					TagName:    cc.Name,
+					ToTpl:      cc.To,
 					Layout:     lyt,
 					LayoutKey:  project.LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base},
 				}
@@ -213,6 +214,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						SourceRoot: project.SourceTypeSource,
 						Rel:        path,
 						BaseDir:    filepath.Base(path),
+						ToTpl:      a.To,
 						Pipeline:   a.Pipe,
 					}
 					// TODO handle ok
@@ -299,7 +301,7 @@ func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, pa
 		// 		Msg("partial scan failed")
 		// }
 
-		if _, err := s.project.Scan(ctx, plan, dir); err != nil {
+		if _, err := s.project.Scan(ctx, plan, dir, false); err != nil {
 			log.EError(log.Handler).
 				Err(err).
 				Str("dir", dir).
@@ -344,7 +346,7 @@ func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, pa
 		// 		Msg("partial scan failed")
 		// }
 
-		if _, err := s.project.Scan(ctx, plan, dir); err != nil {
+		if _, err := s.project.Scan(ctx, plan, dir, false); err != nil {
 			log.EError(log.Handler).
 				Err(err).
 				Str("dir", dir).
@@ -450,6 +452,7 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 					SourceRoot: project.SourceTypeScheme,
 					Rel:        path,
 					BaseDir:    filepath.Dir(path),
+					ToTpl:      a.To,
 					Pipeline:   a.Pipe,
 				}
 				// TODO handle ok

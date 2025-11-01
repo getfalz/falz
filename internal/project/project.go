@@ -211,11 +211,13 @@ func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 	}
 
 	out := make(map[string]*layout.Layout, len(matches))
+	var errs []error
 	for _, rel := range matches {
 		relSlash := filepath.ToSlash(rel)
 
 		lyt, err := p.loadLayout(relSlash)
 		if err != nil {
+			errs = append(errs, fmt.Errorf("load layout %s: %w", relSlash, err))
 			continue
 		}
 
@@ -223,7 +225,7 @@ func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 
 	}
 
-	return out, nil
+	return out, errors.Join(errs...)
 }
 
 func (p *Project) loadLayout(path string) (*layout.Layout, error) {
@@ -285,8 +287,7 @@ func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error
 
 		lyt, err := p.loadLayout(relSlash)
 		if err != nil {
-			log.WWarn(log.Layout).Err(err).Str("rel", relSlash).Msg("failed to load layout")
-			continue
+			return nil, err
 		}
 
 		out[relSlash] = lyt
@@ -304,7 +305,7 @@ func (p *Project) warmUpLayoutsByKeys(ctx context.Context, keys []LayoutKey) err
 
 	for _, k := range keys {
 		lyt, err := p.loadLayout(k.RelLayoutPath)
-		if err != nil {
+		if err != nil || lyt == nil {
 			errs = append(errs, fmt.Errorf("load layout %s: %w", k.RelLayoutPath, err))
 			continue
 		}
@@ -344,7 +345,7 @@ func (p *Project) InvalidateLayouts(ctx context.Context, plan *Plan, layoutKeys 
 			if _, ok := seenBase[key.BaseDir]; !ok {
 				seenBase[key.BaseDir] = struct{}{}
 
-				if _, err := p.Scan(ctx, plan, key.BaseDir); err != nil {
+				if _, err := p.Scan(ctx, plan, key.BaseDir, false); err != nil {
 					errs = append(errs, fmt.Errorf("scan after layout invalidation for base %q: %w", key.BaseDir, err))
 					continue
 				}

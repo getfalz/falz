@@ -4,15 +4,21 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
+
+	"github.com/valyala/fasttemplate"
 )
 
 type EntryType string
@@ -35,7 +41,11 @@ type BuildEntry struct {
 	Type       EntryType  // "content" or "asset"
 	SourceRoot SourceType // Source root: "source" or "scheme"
 	SourcePath string     // Source file path
-	OutputPath string     // Where to write the result
+
+	// OutputPath
+	outputPathOnce sync.Once
+	outputPath     string // Where to write the result
+	outputPathErr  error
 
 	// Hash components
 	Hash           string            // Combined hash of all inputs
@@ -50,11 +60,78 @@ type BuildEntry struct {
 	Pipeline  string         // Pipeline name
 	TagName   string         // Content slot name (empty for assets)
 	BaseDir   string         // Base directory
+	ToTpl     string         // Output path template
 
 	// State
 	Dirty     bool      // Needs rebuilding
 	Error     error     // Build error if any
 	BuildTime time.Time // Last successful build
+}
+
+var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
+
+func (e *BuildEntry) OutputPath() (string, error) {
+	e.outputPathOnce.Do(func() {
+		tpl := e.ToTpl
+
+		name := filepath.Base(e.SourcePath)
+		extWithDot := filepath.Ext(name)
+		filename := strings.TrimSuffix(name, extWithDot)
+		ext := strings.TrimPrefix(extWithDot, ".")
+
+		if tpl == "" {
+			e.outputPathErr = fmt.Errorf("missing required 'to' template for %s", e.ID)
+			return
+		}
+		// TODO better way to check for path separators?
+		if strings.ContainsAny(tpl, "/\\") {
+			e.outputPathErr = fmt.Errorf("'to' must be a file name only (no dirs): %q", tpl)
+			return
+		}
+
+		output := fasttemplate.New(tpl, "{", "}").ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
+			switch tag {
+			case "FILENAME":
+				return w.Write([]byte(filename))
+			case "EXT":
+				return w.Write([]byte(ext))
+			case "BASENAME":
+				return w.Write([]byte(name))
+			case "PIPE":
+				return w.Write([]byte(e.Pipeline))
+			case "HASH":
+				if e.Hash == "" {
+					return 0, fmt.Errorf("HASH not available yet")
+				}
+				return w.Write([]byte(e.Hash))
+			default:
+				// HASH:N ?
+				if m := hasHashTag.FindStringSubmatch(tag); len(m) == 2 {
+					if e.Hash == "" {
+						return 0, fmt.Errorf("HASH not available yet")
+					}
+
+					n, err := strconv.Atoi(m[1])
+					if err != nil || n <= 0 {
+						return 0, fmt.Errorf("invalid HASH length: %q", m[1])
+					}
+					if n > len(e.Hash) {
+						n = len(e.Hash)
+					}
+					return w.Write([]byte(e.Hash[:n]))
+				}
+
+				return 0, fmt.Errorf("unknown placeholder: %s", tag)
+			}
+		})
+
+		if output == "" || output == "." || output == ".." || strings.ContainsAny(output, "/\\") {
+			e.outputPathErr = fmt.Errorf("rendered 'to' invalid: %q", output)
+			return
+		}
+		e.outputPath = filepath.Join(e.BaseDir, output)
+	})
+	return e.outputPath, e.outputPathErr
 }
 
 // Plan represents a build plan with change detection
@@ -97,7 +174,7 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 
 	// total, err := p.scanFiles(plan)
 	// TODO give root folder
-	total, err := p.Scan(ctx, plan, ".")
+	total, err := p.Scan(ctx, plan, ".", true)
 	if err != nil {
 		return nil, fmt.Errorf("scan files: %w", err)
 	}
@@ -224,48 +301,48 @@ func (p *Plan) LayoutKeys() []LayoutKey {
 	return out
 }
 
-func (p *Project) createEntry(
-	entryType EntryType,
-	sourceType SourceType,
-	sourcePath string,
-	outputPath string,
-	base string,
-	pipeName string,
-	tagName string,
-	lyt *layout.Layout,
-) *BuildEntry {
-
-	id := sourcePath
-	if entryType == "asset" {
-		switch sourceType {
-		case "scheme":
-			id = fmt.Sprintf("asset:scheme:%s", id)
-		case "source":
-			id = fmt.Sprintf("asset:source:%s", id)
-		}
-	}
-
-	e := &BuildEntry{
-		ID:             id,
-		Type:           entryType,
-		SourcePath:     sourcePath,
-		SourceRoot:     sourceType,
-		OutputPath:     p.ComputeOutputPath(base, sourcePath, pipeName),
-		Pipeline:       pipeName,
-		TagName:        tagName,
-		BaseDir:        base,
-		FragmentHashes: make(map[string]string),
-	}
-
-	if entryType == "content" && lyt != nil {
-		key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
-
-		e.Layout = lyt
-		e.LayoutKey = key
-	}
-
-	return e
-}
+// func (p *Project) createEntry(
+// 	entryType EntryType,
+// 	sourceType SourceType,
+// 	sourcePath string,
+// 	outputPath string,
+// 	base string,
+// 	pipeName string,
+// 	tagName string,
+// 	lyt *layout.Layout,
+// ) *BuildEntry {
+//
+// 	id := sourcePath
+// 	if entryType == "asset" {
+// 		switch sourceType {
+// 		case "scheme":
+// 			id = fmt.Sprintf("asset:scheme:%s", id)
+// 		case "source":
+// 			id = fmt.Sprintf("asset:source:%s", id)
+// 		}
+// 	}
+//
+// 	e := &BuildEntry{
+// 		ID:             id,
+// 		Type:           entryType,
+// 		SourcePath:     sourcePath,
+// 		SourceRoot:     sourceType,
+// 		OutputPath:     p.ComputeOutputPath(base, sourcePath, pipeName),
+// 		Pipeline:       pipeName,
+// 		TagName:        tagName,
+// 		BaseDir:        base,
+// 		FragmentHashes: make(map[string]string),
+// 	}
+//
+// 	if entryType == "content" && lyt != nil {
+// 		key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
+//
+// 		e.Layout = lyt
+// 		e.LayoutKey = key
+// 	}
+//
+// 	return e
+// }
 
 // func (p *Project) CreateEntryWithHash(
 // 	ctx context.Context,
@@ -292,6 +369,7 @@ type EntrySpec struct {
 	Type       EntryType
 	SourceRoot SourceType
 	Rel        string
+	ToTpl      string
 	BaseDir    string
 	Pipeline   string
 	TagName    string
@@ -299,13 +377,8 @@ type EntrySpec struct {
 	LayoutKey  LayoutKey
 }
 
-func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string) (int, error) {
-	if baseDir == "" {
-		baseDir = "."
-	}
+func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full bool) (int, error) {
 	srcFS := p.SourceRoot.FS()
-	// TODO use a flag instead
-	full := baseDir == "."
 
 	touched := 0
 	startDir := filepath.ToSlash(baseDir)
@@ -326,28 +399,34 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string) (int, er
 
 		base := filepath.ToSlash(path)
 
-		// Choose the right layout lookup depending on full vs partial
 		var (
 			lmap map[string]*layout.Layout
 			err  error
 		)
 		if full {
+			// Load all layouts as usual, looking in parent folders if layout is missing
 			lmap, err = p.GetLayouts(base)
 			if err != nil {
-				// no effective layouts at this dir; keep walking
+				log.WWarn(log.Plan).Err(err).Str("rel", base).Msg("failed to load layout")
 				return nil
 			}
 		} else {
-			// partial scan: use only local layouts for the directory
+			// TODO revisit this logic
 			lmap, err = p.getLayoutsForDir(base)
-			// Stop descending into subdirs that introduce their own layout
-			if base != startDir && err == nil && len(lmap) > 0 {
-				return fs.SkipDir
+			if base != startDir {
+				if err == nil && len(lmap) > 0 {
+					return fs.SkipDir
+				}
 			}
-			if err != nil {
-				// no local layout here; continue walking
-				return nil
-			}
+
+			// if err != nil {
+			// 	log.WWarn(log.Plan).Err(err).Str("rel", base).Msg("failed to load layout")
+			// 	return err
+			// }
+			// // Stop descending into subdirs that introduce their own layout
+			// if base != startDir && err == nil && len(lmap) > 0 {
+			// 	return fs.SkipDir
+			// }
 		}
 
 		// For each layout at this directory, enumerate contents + assets
@@ -369,6 +448,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string) (int, er
 						BaseDir:    base,
 						Pipeline:   cc.Pipe,
 						TagName:    cc.Name,
+						ToTpl:      cc.To,
 						Layout:     lyt,
 						LayoutKey:  key,
 					}
@@ -390,6 +470,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string) (int, er
 							SourceRoot: SourceTypeSource,
 							Rel:        rel,
 							BaseDir:    filepath.Dir(rel),
+							ToTpl:      a.To,
 							Pipeline:   a.Pipe,
 						}
 						if _, changed := p.UpsertEntry(plan, spec); changed {
@@ -413,6 +494,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string) (int, er
 						Rel:        rel,
 						BaseDir:    filepath.Dir(rel),
 						Pipeline:   a.Pipe,
+						ToTpl:      a.To,
 					}
 					if _, changed := p.UpsertEntry(plan, spec); changed {
 						touched++
@@ -427,39 +509,39 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string) (int, er
 }
 
 func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
-	// Canonical ID
 	id := spec.Rel
 	if spec.Type == EntryTypeAsset {
 		id = fmt.Sprintf("%s:%s:%s", spec.Type, spec.SourceRoot, spec.Rel)
 	}
 
-	if existing, ok := plan.Entry(id); ok {
+	if entry, ok := plan.Entry(id); ok {
 		structChanged := false
 
-		if existing.Type != spec.Type ||
-			existing.SourceRoot != spec.SourceRoot ||
-			existing.SourcePath != spec.Rel ||
-			existing.BaseDir != spec.BaseDir ||
-			existing.Pipeline != spec.Pipeline ||
-			(existing.Type == EntryTypeContent && existing.LayoutKey != spec.LayoutKey) {
+		if entry.Type != spec.Type ||
+			entry.SourceRoot != spec.SourceRoot ||
+			entry.SourcePath != spec.Rel ||
+			entry.BaseDir != spec.BaseDir ||
+			entry.Pipeline != spec.Pipeline ||
+			entry.ToTpl != spec.ToTpl ||
+			(entry.Type == EntryTypeContent && entry.LayoutKey != spec.LayoutKey) {
 			structChanged = true
 		}
 
-		// Update structural fields
-		existing.Type = spec.Type
-		existing.SourceRoot = spec.SourceRoot
-		existing.SourcePath = spec.Rel
-		existing.BaseDir = spec.BaseDir
-		existing.Pipeline = spec.Pipeline
-		existing.TagName = spec.TagName
-		existing.Layout = spec.Layout
-		existing.LayoutKey = spec.LayoutKey
-		existing.OutputPath = p.ComputeOutputPath(spec.BaseDir, spec.Rel, spec.Pipeline)
+		entry.Type = spec.Type
+		entry.SourceRoot = spec.SourceRoot
+		entry.SourcePath = spec.Rel
+		entry.BaseDir = spec.BaseDir
+		entry.Pipeline = spec.Pipeline
+		entry.TagName = spec.TagName
+		entry.Layout = spec.Layout
+		entry.LayoutKey = spec.LayoutKey
+		entry.ToTpl = spec.ToTpl
+		// entry.OutputPath = p.ComputeOutputPath(spec.BaseDir, spec.Rel, spec.Pipeline)
 
 		if structChanged {
-			existing.Dirty = true
+			entry.Dirty = true
 		}
-		return existing, structChanged
+		return entry, structChanged
 	}
 
 	entry := &BuildEntry{
@@ -468,7 +550,8 @@ func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
 		SourcePath: spec.Rel,
 		SourceRoot: spec.SourceRoot,
 		// TODO compute output using To attribute
-		OutputPath:     p.ComputeOutputPath(spec.BaseDir, spec.Rel, spec.Pipeline),
+		// OutputPath:     p.ComputeOutputPath(spec.BaseDir, spec.Rel, spec.Pipeline),
+		ToTpl:          spec.ToTpl,
 		Pipeline:       spec.Pipeline,
 		TagName:        spec.TagName,
 		BaseDir:        spec.BaseDir,
@@ -534,7 +617,15 @@ func (p *Project) HashDirty(ctx context.Context, plan *Plan) (int, error) {
 				continue
 			}
 
-			e.Dirty = false
+			// fmt.Printf("Hashed dirty: %t, %s: %s\n", e.Dirty, e.ID, e.Hash)
+			// e.Dirty = true
+			// if m, ok := plan.Manifest.Get(e.ID); !ok ||
+			// 	m.Hash != e.Hash ||
+			// 	m.OutputPath != e.OutputPath {
+			// 	e.Dirty = true
+			// } else {
+			// 	e.Dirty = false
+			// }
 
 			atomic.AddInt64(&hashed, 1)
 		}
@@ -851,6 +942,7 @@ func (p *Plan) diff() int {
 
 	changed := 0
 	for id, entry := range p.entries {
+		entry.Dirty = false
 		if p.Manifest.IsDirty(id, entry.Hash) {
 			entry.Dirty = true
 			changed++
@@ -887,16 +979,16 @@ func (p *Plan) GetDirtyEntries() []*BuildEntry {
 }
 
 // ComputeOutputPath determines the output path for a file
-func (p *Project) ComputeOutputPath(base, rel, pipe string) string {
-	pl, err := p.Pipes.Get(pipe)
-	if err != nil {
-		return filepath.Join(base, filepath.Base(rel))
-	}
-
-	cfg := pl.Config()
-	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(rel), "."+cfg.TargetSuffix)
-	return filepath.Join(base, target)
-}
+// func (p *Project) ComputeOutputPath(base, rel, pipe string) string {
+// 	pl, err := p.Pipes.Get(pipe)
+// 	if err != nil {
+// 		return filepath.Join(base, filepath.Base(rel))
+// 	}
+//
+// 	cfg := pl.Config()
+// 	target := cfg.SourceSuffixRe.ReplaceAllString(filepath.Base(rel), "."+cfg.TargetSuffix)
+// 	return filepath.Join(base, target)
+// }
 
 // func (p *Project) updateOrCreateContentEntry(
 // 	ctx context.Context,

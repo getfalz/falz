@@ -45,8 +45,8 @@ func TestFileClassifier_ClassifySourceContent(t *testing.T) {
 func TestFileClassifier_ClassifySourceAsset(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="layout.html">
-	<Content name="content" src="*.md" pipe="md">
-		<Asset name="images" src="*.png" pipe="copy" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html">
+		<Asset name="images" src="*.png" pipe="copy"  to="{FILENAME}.{EXT}"/>
 	</Content>
 </Layout>`
 
@@ -97,7 +97,7 @@ func TestFileClassifier_ClassifyFragment(t *testing.T) {
 	layoutXML := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout src="template.html">
 	<Fragment name="header" src="header.html" pipe="copy" />
-	<Content name="content" src="*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := project.NewTestProject(t).

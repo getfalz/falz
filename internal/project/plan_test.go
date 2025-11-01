@@ -114,7 +114,7 @@ func TestPlan_MultipleFiles(t *testing.T) {
 func TestPlan_NestedDirectories(t *testing.T) {
 	layout := `<?xml version="1.0" encoding="UTF-8"?>
 <Layout tpl="layout.html">
-	<Content name="content" src="**/*.md" pipe="md" />
+	<Content name="content" src="*.md" pipe="md" to="{FILENAME}.html"/>
 </Layout>`
 
 	proj, cleanup := NewTestProject(t).

@@ -1,15 +1,17 @@
 package project
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 
 	"craeft/internal/log"
 
-	"github.com/adrg/xdg"
 	"github.com/creasty/defaults"
 	"gopkg.in/yaml.v3"
 )
@@ -112,8 +114,8 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 		config.Build.Concurrency = runtime.NumCPU()
 	}
 
-	if config.Build.CASPath == "" {
-		config.Build.CASPath = filepath.Join(xdg.CacheHome, xdgConfigFolder)
+	if config.Build.UseCAS {
+		config.SetCasPath(config.Build.CASPath)
 	}
 
 	return config, nil
@@ -155,4 +157,32 @@ func resolveEnvVars(vars any) any {
 		}
 	}
 	return vars
+}
+
+func (c *CraeftConfig) SetCasPath(path string) bool {
+
+	path = strings.TrimSpace(path)
+	if path == "" {
+		base, err := os.UserCacheDir()
+		if err != nil || base == "" {
+			return false
+		}
+		sum := sha1.Sum([]byte(filepath.Clean(c.SourcePath)))
+		projectID := hex.EncodeToString(sum[:8])
+		path = filepath.Join(base, xdgConfigFolder, projectID)
+	}
+
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(c.SourcePath, path)
+	}
+
+	if rel, err := filepath.Rel(c.SourcePath, path); err == nil {
+		if rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+(string(filepath.Separator))) {
+			subdir := filepath.ToSlash(strings.TrimPrefix(rel, c.SourcePath+string(filepath.Separator)))
+			c.Ignore = append(c.Ignore, subdir+"/**")
+		}
+	}
+	c.Build.CASPath = path
+
+	return true
 }
