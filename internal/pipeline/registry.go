@@ -78,7 +78,7 @@ func (r *Registry) Reload(name string) error {
 
 	jscfg := &js.JSConfig{
 		Name:    name,
-		Root:    r.config.SourceDirectory,
+		Root:    path,
 		Timeout: r.config.PipeTimeout,
 	}
 

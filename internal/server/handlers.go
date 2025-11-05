@@ -29,6 +29,7 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 
 		_ = plan.UpdateEntry(path, func(entry *project.BuildEntry) error {
 			if entry.ContentHash != newHash {
+				oldHash := entry.ContentHash
 				entry.ContentHash = newHash
 
 				entryHash := project.EntryHash{
@@ -43,7 +44,7 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 
 				log.DDebug(log.Handler).
 					Str("id", entry.ID).
-					Str("old_hash", entry.ContentHash[:8]).
+					Str("old_hash", oldHash[:8]).
 					Str("new_hash", newHash[:8]).
 					Msg("content changed, marked for rebuild")
 

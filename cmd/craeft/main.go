@@ -153,16 +153,16 @@ func main() {
 								Usage: "Entry point TS file (must end in .ts)",
 								Value: "index.ts",
 							},
-							&cli.StringFlag{
-								Name:     "source",
-								Usage:    "Source file suffix (e.g. md, yaml) — no leading dot",
-								Required: true,
-							},
-							&cli.StringFlag{
-								Name:     "target",
-								Usage:    "Target file suffix (e.g. html, txt) — no leading dot",
-								Required: true,
-							},
+							// &cli.StringFlag{
+							// 	Name:     "source",
+							// 	Usage:    "Source file suffix (e.g. md, yaml) — no leading dot",
+							// 	Required: false,
+							// },
+							// &cli.StringFlag{
+							// 	Name:     "target",
+							// 	Usage:    "Target file suffix (e.g. html, txt) — no leading dot",
+							// 	Required: true,
+							// },
 						},
 						Action: AddPipe,
 					},

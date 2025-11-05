@@ -58,6 +58,7 @@ func Compile(call goja.FunctionCall, ev *EventLoop) goja.Value {
 			})
 			return
 		}
+		fmt.Printf("tpl.compile vars: %+v\n", vars)
 		ctx := plush.NewContextWith(vars)
 		res, err := plush.Render(tpl, ctx)
 		if err != nil {

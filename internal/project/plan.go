@@ -89,6 +89,8 @@ func (e *BuildEntry) OutputPath() (string, error) {
 			return
 		}
 
+		// TODO don't panic on template parse
+		// e.g. panic: unexpected error: unknown placeholder: FILENAM
 		output := fasttemplate.New(tpl, "{", "}").ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
 			switch tag {
 			case "FILENAME":
@@ -121,7 +123,7 @@ func (e *BuildEntry) OutputPath() (string, error) {
 					return w.Write([]byte(e.Hash[:n]))
 				}
 
-				return 0, fmt.Errorf("unknown placeholder: %s", tag)
+				return fmt.Fprintf(w, "[unknown tag %q]", tag)
 			}
 		})
 

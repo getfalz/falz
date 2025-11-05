@@ -137,26 +137,26 @@ func buildPipeConfig(c *cli.Context) (*pipeline.PipelineConfig, error) {
 		return nil, fmt.Errorf("entry point must end with .ts")
 	}
 
-	source := c.String("source")
-	if source == "" {
-		return nil, fmt.Errorf("source suffix cannot be empty")
-	}
-	if strings.HasPrefix(source, ".") {
-		return nil, fmt.Errorf("source suffix must not start with a dot")
-	}
-
-	target := c.String("target")
-	if target == "" {
-		return nil, fmt.Errorf("target suffix cannot be empty")
-	}
-	if strings.HasPrefix(target, ".") {
-		return nil, fmt.Errorf("target suffix must not start with a dot")
-	}
+	// source := c.String("source")
+	// if source == "" {
+	// 	return nil, fmt.Errorf("source suffix cannot be empty")
+	// }
+	// if strings.HasPrefix(source, ".") {
+	// 	return nil, fmt.Errorf("source suffix must not start with a dot")
+	// }
+	//
+	// target := c.String("target")
+	// if target == "" {
+	// 	return nil, fmt.Errorf("target suffix cannot be empty")
+	// }
+	// if strings.HasPrefix(target, ".") {
+	// 	return nil, fmt.Errorf("target suffix must not start with a dot")
+	// }
 
 	return &pipeline.PipelineConfig{
 		PipelineName: name,
 		EntryPoint:   entry,
-		SourceSuffix: source,
-		TargetSuffix: target,
+		// SourceSuffix: source,
+		// TargetSuffix: target,
 	}, nil
 }
