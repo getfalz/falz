@@ -304,7 +304,15 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 
 	stats, err := s.project.BuildFromPlan(ctx, plan)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		return fmt.Errorf("incremental build: %w", err)
+		var be *project.BuildError
+		if errors.As(err, &be) {
+			log.EError(log.Server).
+				Err(err).
+				Str("stats", stats.String()).
+				Msg("incremental build completed with build errors")
+		} else {
+			return fmt.Errorf("incremental build: %w", err)
+		}
 	}
 
 	log.IInfo(log.Server).

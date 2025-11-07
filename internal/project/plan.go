@@ -923,14 +923,12 @@ func (p *Project) updateEntryHashes(ctx context.Context, entry *BuildEntry, plan
 		return err
 	}
 
-	if entry.Hash != oldHash {
+	if oldHash != "" && entry.Hash != oldHash {
 		entry.Dirty = true
-		l := log.DDebug(log.Plan).
-			Str("id", entry.ID)
-		if oldHash != "" {
-			l.Str("old_hash", oldHash[:8])
-		}
-		l.Str("new_hash", entry.Hash[:8]).
+		log.DDebug(log.Plan).
+			Str("id", entry.ID).
+			Str("old_hash", oldHash[:8]).
+			Str("new_hash", entry.Hash[:8]).
 			Msg("hash changed, marked for rebuild")
 	}
 
@@ -945,7 +943,7 @@ func (p *Plan) diff() int {
 	changed := 0
 	for id, entry := range p.entries {
 		entry.Dirty = false
-		if p.Manifest.IsDirty(id, entry.Hash) {
+		if p.Manifest.IsDirty(id, entry.outputPath, entry.Hash) {
 			entry.Dirty = true
 			changed++
 		}

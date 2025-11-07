@@ -35,44 +35,42 @@ func GetTplModule(ev *EventLoop) *goja.Object {
 func Compile(call goja.FunctionCall, ev *EventLoop) goja.Value {
 	promise, resolve, reject := ev.vm.NewPromise()
 
-	arg0 := call.Argument(0)
-	arg1 := call.Argument(1)
+	ev.RunOnLoop(func(vm *goja.Runtime) {
+		arg0 := call.Argument(0)
+		arg1 := call.Argument(1)
 
-	go func() {
 		tpl, err := argMustString(arg0)
 		if err != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(ev.vm.NewTypeError(
-					"First argument to tpl.render must be a string: %v", err,
-				))
-			})
+			reject(ev.vm.NewTypeError(
+				"First argument to tpl.compile must be a string: %v", err,
+			))
 			return
 		}
 		var vars map[string]any
 		err = ev.vm.ExportTo(arg1, &vars)
 		if err != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(ev.vm.NewTypeError(
-					"Second argument to tpl.render must be an object: %v", err,
-				))
-			})
+			reject(ev.vm.NewTypeError(
+				"Second argument to tpl.compile must be an object: %v", err,
+			))
 			return
 		}
-		fmt.Printf("tpl.compile vars: %+v\n", vars)
-		ctx := plush.NewContextWith(vars)
-		res, err := plush.Render(tpl, ctx)
-		if err != nil {
+
+		go func(tpl string, vars map[string]any) {
+			ctx := plush.NewContextWith(vars)
+			res, err := plush.Render(tpl, ctx)
+			if err != nil {
+				ev.RunOnLoop(func(vm *goja.Runtime) {
+					reject(ev.vm.NewGoError(fmt.Errorf(
+						"tpl.compile failed rendering tpl: %w", err,
+					)))
+				})
+				return
+			}
 			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(ev.vm.NewGoError(fmt.Errorf(
-					"tpl.render failed: %v", err,
-				)))
+				resolve(res)
 			})
-			return
-		}
-		ev.RunOnLoop(func(vm *goja.Runtime) {
-			resolve(res)
-		})
-	}()
+		}(tpl, vars)
+	})
 
 	return ev.vm.ToValue(promise)
 }

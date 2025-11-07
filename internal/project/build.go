@@ -2,7 +2,6 @@ package project
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,11 +117,15 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, e
 		Int64("built", stats.BuiltEntries).
 		Int64("cache_hits", stats.CacheHits).
 		Int64("cache_misses", stats.CacheMisses).
+		Int("errors", len(stats.Errors)).
 		Dur("build", stats.BuildDuration).
 		Dur("duration", stats.Duration).
 		Msg("build completed")
 
-	return stats, errors.Join(stats.Errors...)
+	if len(stats.Errors) > 0 {
+		return stats, &BuildError{Errors: stats.Errors}
+	}
+	return stats, nil
 }
 
 // cleanStaleEntries removes outputs for deleted source files
@@ -170,6 +173,7 @@ func (p *Project) runBuild(
 	plan *Plan,
 	entries []*BuildEntry,
 ) *BuildResult {
+
 	result := &BuildResult{
 		Errors: make([]error, 0),
 	}
@@ -207,6 +211,9 @@ func (p *Project) runBuild(
 
 	close(errChan)
 	for err := range errChan {
+
+		log.EError(log.Build).Err(err).Msg("entry build error")
+
 		result.Errors = append(result.Errors, err)
 	}
 
@@ -372,14 +379,11 @@ func (p *Project) writeStage(
 				}
 			}
 
-			flush := func() error {
-				var errs []error
+			flush := func() {
 				for _, results := range dirBatch {
 					for _, r := range results {
 						if err := p.writeResult(plan, r); err != nil {
-							log.Warn(fmt.Sprintf("write failed for %s: %v", r.Entry.outputPath, err))
-
-							sendErr(err)
+							sendErr(fmt.Errorf("write result %s: %w", r.Entry.ID, err))
 							continue
 						}
 
@@ -390,26 +394,17 @@ func (p *Project) writeStage(
 					}
 				}
 				clear(dirBatch)
-
-				if len(errs) > 0 {
-					return errors.Join(errs...)
-				}
-				return nil
 			}
 
 			for {
 				select {
 				case <-ctx.Done():
-					if err := flush(); err != nil {
-						sendErr(err)
-					}
+					flush()
 					return
 
 				case result, ok := <-in:
 					if !ok {
-						if err := flush(); err != nil {
-							sendErr(err)
-						}
+						flush()
 						return
 					}
 
@@ -421,16 +416,12 @@ func (p *Project) writeStage(
 					dirBatch[dir] = append(dirBatch[dir], result)
 
 					if len(dirBatch[dir]) >= 10 {
-						if err := flush(); err != nil {
-							sendErr(err)
-						}
+						flush()
 					}
 
 				case <-ticker.C:
 					if len(dirBatch) > 0 {
-						if err := flush(); err != nil {
-							sendErr(err)
-						}
+						flush()
 					}
 				}
 			}

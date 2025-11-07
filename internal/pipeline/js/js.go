@@ -185,11 +185,12 @@ func (env *JsEnv) callFunc(ctx context.Context, fn goja.Callable, name string, c
 }
 
 func (env *JsEnv) callAsyncFunc(ctx context.Context, fn goja.Callable, name string, ctxVal, vars goja.Value) (goja.Value, error) {
-	var (
-		result goja.Value
-		err    error
-		done   = make(chan struct{})
-	)
+
+	type asyncResult struct {
+		val goja.Value
+		err error
+	}
+	resCh := make(chan asyncResult, 1)
 
 	stop := bindContextCancel(env.loop, env.loop.vm, ctx)
 	defer stop()
@@ -202,76 +203,52 @@ func (env *JsEnv) callAsyncFunc(ctx context.Context, fn goja.Callable, name stri
 				stackStr := string(stack)
 				stackLines := strings.Split(stackStr, "\n")
 
-				err = fmt.Errorf("loop.run panic: %v\nStack Trace:\n%s", r, strings.Join(stackLines, "\n"))
-				close(done)
+				resCh <- asyncResult{err: fmt.Errorf("loop.run panic: %v\nStack Trace:\n%s", r, strings.Join(stackLines, "\n"))}
 			}
 		}()
 
 		promiseVal, err := fn(ctxVal, vars)
 		if err != nil {
-			err = fmt.Errorf("loop.run %s return error %s", name, err)
-			close(done)
+			resCh <- asyncResult{err: fmt.Errorf("js call %s: %w", name, err)}
 			return
 		}
 
-		if _, ok := promiseVal.Export().(*goja.Promise); !ok {
-			result = promiseVal
-			close(done)
-			return
-		}
+		obj := promiseVal.ToObject(vm)
+		thenFn := obj.Get("then")
+		if thenFn, ok := goja.AssertFunction(thenFn); ok {
+			var once sync.Once
 
-		var once sync.Once
-		resolve := func(call goja.FunctionCall) goja.Value {
-			once.Do(func() {
-				result = call.Argument(0)
-				close(done)
-			})
-			return goja.Undefined()
-		}
-		reject := func(call goja.FunctionCall) goja.Value {
-			once.Do(func() {
-				err = errors.New(call.Argument(0).String())
-				close(done)
-			})
-			return goja.Undefined()
-		}
-
-		pObj := promiseVal.ToObject(vm)
-		if thenVal := pObj.Get("then"); thenVal != nil {
-			if thenFn, ok := goja.AssertFunction(thenVal); ok {
-				// promise.then(resolve, reject)
-				_, _ = thenFn(pObj, vm.ToValue(resolve), vm.ToValue(reject))
-				return
+			resolve := func(call goja.FunctionCall) goja.Value {
+				once.Do(func() {
+					resCh <- asyncResult{val: call.Argument(0), err: nil}
+				})
+				return goja.Undefined()
 			}
+			reject := func(call goja.FunctionCall) goja.Value {
+				once.Do(func() {
+					resCh <- asyncResult{err: errors.New(call.Argument(0).String())}
+				})
+				return goja.Undefined()
+			}
+
+			// promise.then(resolve, reject)
+			_, _ = thenFn(obj, vm.ToValue(resolve), vm.ToValue(reject))
+			return
 		}
 
-		// fallback in case "then" is not a "real" promise
-		vm.Set("__p", promiseVal)
-		vm.Set("__goResolve", resolve)
-		vm.Set("__goReject", reject)
-		_, _ = vm.RunString(`__p && __p.then(__goResolve, __goReject)`)
+		resCh <- asyncResult{val: promiseVal, err: nil}
 	})
 
 	select {
-	case <-done:
-		if err != nil {
-			if ctx != nil && ctx.Err() != nil {
-				return nil, ctx.Err()
-			}
-			return nil, err
-		}
-		return result, nil
+	case res := <-resCh:
+		return res.val, res.err
 	case <-ctx.Done():
-		env.loop.RunOnLoop(func(vm *goja.Runtime) {
-			vm.Interrupt(ctx.Err())
-		})
-		env.loop.Terminate()
-		return nil, ctx.Err()
+		return goja.Undefined(), ctx.Err()
 	case <-time.After(env.config.Timeout):
 		env.loop.RunOnLoop(func(vm *goja.Runtime) {
 			vm.Interrupt(fmt.Errorf("%s timeout after %s", name, env.config.Timeout))
 		})
-		return nil, fmt.Errorf("transform timeout after %s", env.config.Timeout)
+		return goja.Undefined(), fmt.Errorf("transform timeout after %s", env.config.Timeout)
 	}
 }
 

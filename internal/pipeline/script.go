@@ -65,8 +65,6 @@ func (s *script) Transform(ctx context.Context, input []byte, vars Vars) (string
 	result, err := s.env.Call(ctx, "transform", vars.ToGojaObject(s.env.VM()), s.env.ToValue(string(input)))
 
 	if err != nil {
-		log.Error(fmt.Errorf("%s.transform error:\n%s", s.config.Name, err), log.Tag{Key: log.SrcTag, Value: "pipeline"})
-
 		return "", fmt.Errorf("%s:transform error: %w", s.config.Name, err)
 	}
 
@@ -74,7 +72,7 @@ func (s *script) Transform(ctx context.Context, input []byte, vars Vars) (string
 		return str, nil
 	}
 
-	return "", fmt.Errorf("transform expects a string, return type: %T", result.Export())
+	return "", fmt.Errorf("%s:transform expects a string, return type: %T", s.config.Name, result.Export())
 }
 
 func loadScript(scriptPath, entryFile string, debug bool) (string, error) {

@@ -266,11 +266,20 @@ func RunServer(c context.Context, p *project.Project) error {
 
 	stats, err := p.Build(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		log.EError(log.Build).
-			Err(err).
-			Str("stats", stats.String()).
-			Msg("initial build failed")
-		return err
+
+		var be *project.BuildError
+		if errors.As(err, &be) {
+			log.EError(log.Build).
+				Err(err).
+				Str("stats", stats.String()).
+				Msg("initial build completed with build errors (continuing)")
+		} else {
+			log.EError(log.Build).
+				Err(err).
+				Str("stats", stats.String()).
+				Msg("initial build failed")
+			return err
+		}
 	}
 
 	log.IInfo(log.Build).
