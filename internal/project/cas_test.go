@@ -14,7 +14,7 @@ func TestCAS_StoreAndRestore(t *testing.T) {
 	}
 
 	data := []byte("test data")
-	key := HashBytes(data)
+	key := hashBytes(data)
 
 	err = cas.Store(key, data)
 	if err != nil {
@@ -39,7 +39,7 @@ func TestCAS_Has(t *testing.T) {
 	}
 
 	data := []byte("test")
-	key := HashBytes(data)
+	key := hashBytes(data)
 
 	if cas.Has(key) {
 		t.Error("Expected key to not exist")
@@ -60,7 +60,7 @@ func TestCAS_Link(t *testing.T) {
 	}
 
 	data := []byte("test data")
-	key := HashBytes(data)
+	key := hashBytes(data)
 
 	err = cas.Store(key, data)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestCAS_Size(t *testing.T) {
 
 	for i := range 5 {
 		data := []byte("test data " + string(rune('0'+i)))
-		key := HashBytes(data)
+		key := hashBytes(data)
 		cas.Store(key, data)
 	}
 

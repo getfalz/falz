@@ -30,7 +30,8 @@ func NewHashCache() *HashCache {
 	}
 }
 
-// HashFile computes the hash of a file, using cache if unchanged
+// HashFile computes the hash of a file, returning cached hash if unchanged
+// BUG cache identifier is the path, but the method accepts different fs. meaning, if the same path exists in different fs with different contents, the cache may return incorrect results.
 func (h *HashCache) HashFile(fsys fs.FS, path string) (string, error) {
 	info, err := fs.Stat(fsys, path)
 	if err != nil {
@@ -50,14 +51,16 @@ func (h *HashCache) HashFile(fsys fs.FS, path string) (string, error) {
 		return "", err
 	}
 
-	info2, err := fs.Stat(fsys, path)
-	if err != nil {
-		return "", fmt.Errorf("re-stat %s: %w", path, err)
-	}
-
-	if !info.ModTime().Equal(info2.ModTime()) || info.Size() != info2.Size() {
-		return h.HashFile(fsys, path)
-	}
+	// TODO deprecate this double-checking logic
+	// check if file changed during hashing
+	// info2, err := fs.Stat(fsys, path)
+	// if err != nil {
+	// 	return "", fmt.Errorf("re-stat %s: %w", path, err)
+	// }
+	//
+	// if !info.ModTime().Equal(info2.ModTime()) || info.Size() != info2.Size() {
+	// 	return h.HashFile(fsys, path)
+	// }
 
 	h.mu.Lock()
 	h.cache[path] = hashEntry{
@@ -85,8 +88,8 @@ func (h *HashCache) computeFileHash(fsys fs.FS, path string) (string, error) {
 	return hex.EncodeToString(hasher.Sum(nil)), nil
 }
 
-// HashBytes computes the hash of byte data
-func HashBytes(data []byte) string {
+// hashBytes computes the hash of byte data
+func hashBytes(data []byte) string {
 	hasher := blake3.New(32, nil)
 	hasher.Write(data)
 	return hex.EncodeToString(hasher.Sum(nil))
@@ -94,7 +97,7 @@ func HashBytes(data []byte) string {
 
 // HashString computes the hash of a string
 func HashString(s string) string {
-	return HashBytes([]byte(s))
+	return hashBytes([]byte(s))
 }
 
 // CombineHashes combines multiple hashes into a single hash
@@ -108,27 +111,4 @@ func CombineHashes(hashes ...string) string {
 		hasher.Write([]byte(h))
 	}
 	return hex.EncodeToString(hasher.Sum(nil))
-}
-
-// EntryHash represents all the components that make up an entry's hash
-type EntryHash struct {
-	ContentHash    string
-	LayoutHash     string
-	PipelineHash   string
-	FragmentHashes map[string]string // fragment path -> hash
-}
-
-// Compute returns the combined hash for the entry
-func (e *EntryHash) Compute() string {
-	var fragmentHashes []string
-	for _, h := range e.FragmentHashes {
-		fragmentHashes = append(fragmentHashes, h)
-	}
-
-	return CombineHashes(
-		e.ContentHash,
-		e.LayoutHash,
-		e.PipelineHash,
-		CombineHashes(fragmentHashes...),
-	)
 }

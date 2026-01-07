@@ -32,14 +32,12 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 				oldHash := entry.ContentHash
 				entry.ContentHash = newHash
 
-				entryHash := project.EntryHash{
-					ContentHash:    entry.ContentHash,
-					LayoutHash:     entry.LayoutHash,
-					PipelineHash:   entry.PipelineHash,
-					FragmentHashes: entry.FragmentHashes,
-				}
-
-				entry.Hash = entryHash.Compute()
+				entry.Hash = project.CombineHashes(
+					entry.ContentHash,
+					entry.LayoutHash,
+					entry.PipelineHash,
+					project.CombineHashes(entry.FragmentHashes...),
+				)
 				entry.Dirty = true
 
 				log.DDebug(log.Handler).
@@ -158,13 +156,12 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
-				entryHash := project.EntryHash{
-					ContentHash:    entry.ContentHash,
-					LayoutHash:     entry.LayoutHash,
-					PipelineHash:   entry.PipelineHash,
-					FragmentHashes: entry.FragmentHashes,
-				}
-				entry.Hash = entryHash.Compute()
+				entry.Hash = project.CombineHashes(
+					entry.ContentHash,
+					entry.LayoutHash,
+					entry.PipelineHash,
+					project.CombineHashes(entry.FragmentHashes...),
+				)
 
 				entry.Dirty = true
 
@@ -401,13 +398,12 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
-				entryHash := project.EntryHash{
-					ContentHash:    entry.ContentHash,
-					LayoutHash:     entry.LayoutHash,
-					PipelineHash:   entry.PipelineHash,
-					FragmentHashes: entry.FragmentHashes,
-				}
-				entry.Hash = entryHash.Compute()
+				entry.Hash = project.CombineHashes(
+					entry.ContentHash,
+					entry.LayoutHash,
+					entry.PipelineHash,
+					project.CombineHashes(entry.FragmentHashes...),
+				)
 
 				entry.Dirty = true
 
@@ -525,13 +521,12 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 
 				entry.PipelineHash = newPipelineHash
 
-				entryHash := project.EntryHash{
-					ContentHash:    entry.ContentHash,
-					LayoutHash:     entry.LayoutHash,
-					PipelineHash:   entry.PipelineHash,
-					FragmentHashes: entry.FragmentHashes,
-				}
-				entry.Hash = entryHash.Compute()
+				entry.Hash = project.CombineHashes(
+					entry.ContentHash,
+					entry.LayoutHash,
+					entry.PipelineHash,
+					project.CombineHashes(entry.FragmentHashes...),
+				)
 
 				entry.Dirty = true
 

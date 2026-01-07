@@ -49,10 +49,11 @@ type BuildEntry struct {
 
 	// Hash components
 	Hash           string            // Combined hash of all inputs
+	// TODO replace all this 
 	ContentHash    string            // Hash of source file
 	LayoutHash     string            // Hash of layout (empty for assets)
 	PipelineHash   string            // Hash of pipeline config
-	FragmentHashes map[string]string // Fragment dependencies (empty for assets)
+	FragmentHashes []string // Fragment dependencies (empty for assets)
 
 	// Build information
 	Layout    *layout.Layout // nil for assets
@@ -557,7 +558,6 @@ func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
 		Pipeline:       spec.Pipeline,
 		TagName:        spec.TagName,
 		BaseDir:        spec.BaseDir,
-		FragmentHashes: make(map[string]string),
 	}
 
 	if spec.Type == "content" && spec.Layout != nil {
@@ -894,7 +894,7 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 				e.Error = fmt.Errorf("hash fragment %s: %w", frag, err)
 				return e.Error
 			}
-			e.FragmentHashes[frag] = fragHash
+			e.FragmentHashes = append(e.FragmentHashes, fragHash)
 		}
 	}
 
@@ -904,13 +904,12 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 	}
 
-	entryHash := EntryHash{
-		ContentHash:    e.ContentHash,
-		LayoutHash:     e.LayoutHash,
-		PipelineHash:   e.PipelineHash,
-		FragmentHashes: e.FragmentHashes,
-	}
-	e.Hash = entryHash.Compute()
+	e.Hash = CombineHashes(
+		e.ContentHash,
+		e.LayoutHash,
+		e.PipelineHash,
+		CombineHashes(e.FragmentHashes...),
+	)
 
 	return nil
 }

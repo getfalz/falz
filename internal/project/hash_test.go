@@ -67,20 +67,6 @@ func TestHash_Cache_InvalidatesOnChange(t *testing.T) {
 	}
 }
 
-func TestHash_Bytes(t *testing.T) {
-	data := []byte("test data")
-	hash1 := HashBytes(data)
-	hash2 := HashBytes(data)
-
-	if hash1 != hash2 {
-		t.Error("Expected consistent hashing")
-	}
-
-	if len(hash1) != 64 { // blake3 produces 32 bytes = 64 hex chars
-		t.Errorf("Expected 64 character hash, got %d", len(hash1))
-	}
-}
-
 func TestHash_String(t *testing.T) {
 	str := "test string"
 	hash1 := HashString(str)
@@ -112,46 +98,5 @@ func TestHash_CombineHashes(t *testing.T) {
 	combined3 := CombineHashes(hash3, hash1, hash2)
 	if combined1 != combined3 {
 		t.Error("Expected same combined hash regardless of order")
-	}
-}
-
-func TestHash_EntryHash_Compute(t *testing.T) {
-	entryHash := EntryHash{
-		ContentHash:  HashString("content"),
-		LayoutHash:   HashString("layout"),
-		PipelineHash: HashString("pipeline"),
-		FragmentHashes: map[string]string{
-			"frag1": HashString("fragment1"),
-			"frag2": HashString("fragment2"),
-		},
-	}
-
-	hash1 := entryHash.Compute()
-	hash2 := entryHash.Compute()
-
-	if hash1 != hash2 {
-		t.Error("Expected consistent entry hash computation")
-	}
-
-	// Change content
-	entryHash.ContentHash = HashString("different")
-	hash3 := entryHash.Compute()
-
-	if hash1 == hash3 {
-		t.Error("Expected different hash after content change")
-	}
-}
-
-func TestHash_EntryHash_EmptyFragments(t *testing.T) {
-	entryHash := EntryHash{
-		ContentHash:    HashString("content"),
-		LayoutHash:     "",
-		PipelineHash:   HashString("pipeline"),
-		FragmentHashes: map[string]string{},
-	}
-
-	hash := entryHash.Compute()
-	if hash == "" {
-		t.Error("Expected non-empty hash even with empty fragments")
 	}
 }

@@ -31,6 +31,7 @@ var (
 type Project struct {
 	Config *CraeftConfig
 
+	// TODO envelop os.Root into new struct: root{*os.Root, plan.HashCache}
 	SourceRoot *os.Root
 	SchemeRoot *os.Root
 	outRoot    *os.Root
