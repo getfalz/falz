@@ -19,11 +19,8 @@ type Manifest struct {
 
 // ManifestEntry represents a single file in the manifest
 type ManifestEntry struct {
-	Hash       string    `json:"hash"`
-	OutputPath string    `json:"output"`
-	Built      time.Time `json:"built"`
-	Size       int64     `json:"size,omitempty"`
-	Type       string    `json:"type,omitempty"` // "content" or "asset"
+	Hash       string `json:"hash"`
+	OutputPath string `json:"output"`
 }
 
 // NewManifest creates a new empty manifest

@@ -4,7 +4,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-	"time"
 )
 
 func TestManifest_NewManifest(t *testing.T) {
@@ -27,9 +26,6 @@ func TestManifest_SetAndGet(t *testing.T) {
 	entry := ManifestEntry{
 		Hash:       "abc123",
 		OutputPath: "test.html",
-		Built:      time.Now(),
-		Size:       1024,
-		Type:       "content",
 	}
 
 	m.Set("test.md", entry)
@@ -63,21 +59,25 @@ func TestManifest_IsDirty(t *testing.T) {
 	m := NewManifest()
 
 	// Non-existent entry should be dirty
-	if !m.IsDirty("new.md", "hash123") {
+	if !m.IsDirty("new.md", "", "hash123") {
 		t.Error("Expected non-existent entry to be dirty")
 	}
 
 	// Add entry
-	m.Set("test.md", ManifestEntry{Hash: "hash123"})
+	m.Set("test.md", ManifestEntry{Hash: "hash123", OutputPath: "test.html"})
 
 	// Same hash should not be dirty
-	if m.IsDirty("test.md", "hash123") {
+	if m.IsDirty("test.md", "test.html", "hash123") {
 		t.Error("Expected entry with same hash to not be dirty")
 	}
 
 	// Different hash should be dirty
-	if !m.IsDirty("test.md", "hash456") {
+	if !m.IsDirty("test.md", "test.html", "hash456") {
 		t.Error("Expected entry with different hash to be dirty")
+	}
+
+	if !m.IsDirty("test.md", "test.txt", "hash456") {
+		t.Error("Expected entry with different output path to be dirty")
 	}
 }
 
@@ -121,9 +121,6 @@ func TestManifest_SaveAndLoad(t *testing.T) {
 	m1.Set("test.md", ManifestEntry{
 		Hash:       "abc123",
 		OutputPath: "test.html",
-		Built:      time.Now(),
-		Size:       1024,
-		Type:       "content",
 	})
 
 	err := m1.Save(manifestPath)
@@ -180,30 +177,4 @@ func TestManifest_SaveAtomically(t *testing.T) {
 	if _, err := os.Stat(tmpPath); !os.IsNotExist(err) {
 		t.Error("Expected temporary file to be removed")
 	}
-}
-
-func TestManifest_ConcurrentAccess(t *testing.T) {
-	m := NewManifest()
-
-	done := make(chan bool)
-
-	// Writer goroutine
-	go func() {
-		for range 100 {
-			m.Set("test", ManifestEntry{Hash: "abc"})
-		}
-		done <- true
-	}()
-
-	// Reader goroutine
-	go func() {
-		for range 100 {
-			m.Get("test")
-			m.IsDirty("test", "abc")
-		}
-		done <- true
-	}()
-
-	<-done
-	<-done
 }

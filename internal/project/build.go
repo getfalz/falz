@@ -553,12 +553,9 @@ func (p *Project) writeResult(
 		}
 	}
 
-	// NOTE: Size of cached entry is zero
 	plan.Manifest.Set(entry.ID, ManifestEntry{
 		Hash:       entry.Hash,
 		OutputPath: outputPath,
-		Built:      time.Now(),
-		Size:       int64(len(result.Data)),
 	})
 
 	plan.UpdateEntry(result.Entry.ID, func(e *BuildEntry) error {
