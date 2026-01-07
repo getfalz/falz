@@ -21,13 +21,14 @@ import (
 type FileType string
 
 const (
-	FileTypeContent      FileType = "content"
-	FileTypeContentAsset FileType = "content-asset"
-	FileTypeLayout       FileType = "layout"
-	FileTypeFragment     FileType = "fragment"
-	FileTypeSchemeAsset  FileType = "scheme-asset"
-	FileTypePipeline     FileType = "pipeline"
-	FileTypeUnknown      FileType = "unknown"
+	FileTypeContent        FileType = "content"
+	FileTypeContentAsset   FileType = "content-asset"
+	FileTypeLayout         FileType = "layout"
+	FileTypeFragment       FileType = "fragment"
+	FileTypeSchemeAsset    FileType = "scheme-asset"
+	FileTypePipeline       FileType = "pipeline"
+	FileTypeUnknown        FileType = "unknown"
+	FileTypeLayoutTemplate FileType = "layout-template"
 )
 
 // ModType represents the modification type
@@ -167,26 +168,35 @@ func (fc *FileClassifier) classifySchemeFile(path string) FileType {
 		return FileTypeLayout
 	}
 
-	dir := filepath.Dir(path)
+	if fc.project.Layouts.HasDep(path) {
+		// fmt.Printf("===Matched Layout.HasDep fragment: %s\n", path)
+		return FileTypeFragment
+	}
 
+	dir := filepath.Dir(path)
 	lmap, err := fc.project.GetLayouts(dir)
 	if err != nil {
 		return FileTypeUnknown
 	}
 
 	for _, lyt := range lmap {
+
 		for _, f := range lyt.Fragments() {
 			// TODO: DEBUG
-			fmt.Printf("===Fragments: %s = %s:%s", path, dir, f.Source)
-			if path == filepath.ToSlash(filepath.Join(dir, f.Source)) {
+			// fmt.Printf("===Fragments: %s = %s\n", path, f.Source)
+			if path == f.Source {
+				// fmt.Printf("===Matched Fragment: %s\n", path)
 				return FileTypeFragment
 			}
 		}
 
 		for _, a := range lyt.Assets() {
-			glob := filepath.ToSlash(filepath.Join(dir, a.Source))
+			glob := filepath.ToSlash(filepath.Join(filepath.Dir(lyt.Path()), a.Source))
+			// TODO: DEBUG
+			// fmt.Printf("===Asset: glob %q, path %q\n", glob, path)
 			matched, err := filepath.Match(glob, path)
 			if err == nil && matched {
+				// fmt.Printf("===Matched Asset: %s\n", path)
 				return FileTypeSchemeAsset
 			}
 		}
@@ -311,10 +321,10 @@ func (s *Server) ServeFiles(ctx context.Context) error {
 	fs := http.FileServer(http.Dir(s.config.OutputPath))
 
 	s.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		log.TTrace(log.Server).
-			Str("method", r.Method).
-			Str("path", r.URL.Path).
-			Msg("http request")
+		// log.TTrace(log.Server).
+		// 	Str("method", r.Method).
+		// 	Str("path", r.URL.Path).
+		// 	Msg("http request")
 
 		fs.ServeHTTP(w, r)
 	})

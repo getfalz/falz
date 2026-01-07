@@ -132,6 +132,15 @@ func (lc *LayoutCache) GetDeps(k LayoutKey) ([]string, bool) {
 	return deps, true
 }
 
+// (e.g., fragment) in the cache. It does not mutate state.
+func (lc *LayoutCache) HasDep(path string) bool {
+	p := filepath.ToSlash(path)
+	lc.mu.RLock()
+	_, ok := lc.reverse[p]
+	lc.mu.RUnlock()
+	return ok
+}
+
 func (lc *LayoutCache) InvalidateAndGetAffected(paths ...string) []LayoutKey {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
