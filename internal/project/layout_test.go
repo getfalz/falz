@@ -67,7 +67,7 @@ target_suffix: html`,
 		t.Fatal("Expected to find layout")
 	}
 
-	rendered, deps, err := layout.Render(ctx, ".", proj.SchemeRoot)
+	rendered, deps, err := layout.Render(ctx, ".", proj.SchemeFS)
 	if err != nil {
 		t.Fatalf("Failed to render layout: %v", err)
 	}
@@ -189,13 +189,13 @@ func TestLayout_Cache(t *testing.T) {
 	layout := layouts["layout.xml"]
 
 	// First call should build
-	tpl1, err := cache.GetOrBuild(ctx, proj.SchemeRoot, key, layout)
+	tpl1, err := cache.GetOrBuild(ctx, proj.SchemeFS, key, layout)
 	if err != nil {
 		t.Fatalf("Failed to build template: %v", err)
 	}
 
 	// Second call should use cache
-	tpl2, err := cache.GetOrBuild(ctx, proj.SchemeRoot, key, layout)
+	tpl2, err := cache.GetOrBuild(ctx, proj.SchemeFS, key, layout)
 	if err != nil {
 		t.Fatalf("Failed to get cached template: %v", err)
 	}
@@ -243,7 +243,7 @@ target_suffix: html`,
 	layout := layouts["layout.xml"]
 
 	// Build template
-	_, err = cache.GetOrBuild(ctx, proj.SchemeRoot, key, layout)
+	_, err = cache.GetOrBuild(ctx, proj.SchemeFS, key, layout)
 	if err != nil {
 		t.Fatalf("Failed to build template: %v", err)
 	}
@@ -308,7 +308,7 @@ target_suffix: html`,
 	layout := layouts["layout.xml"]
 
 	// Build template
-	_, err = cache.GetOrBuild(ctx, proj.SchemeRoot, key, layout)
+	_, err = cache.GetOrBuild(ctx, proj.SchemeFS, key, layout)
 	if err != nil {
 		t.Fatalf("Failed to build template: %v", err)
 	}
@@ -348,7 +348,7 @@ func TestLayout_HotReload(t *testing.T) {
 	}
 
 	layout := layouts["layout.xml"]
-	rendered, _, err := layout.Render(ctx, ".", proj.SchemeRoot)
+	rendered, _, err := layout.Render(ctx, ".", proj.SchemeFS)
 	if err != nil {
 		t.Fatalf("Failed to render: %v", err)
 	}

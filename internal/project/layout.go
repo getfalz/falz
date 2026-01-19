@@ -2,12 +2,13 @@ package project
 
 import (
 	"context"
-	"craeft/internal/layout"
-	"craeft/internal/log"
-	"os"
 	"path/filepath"
 	"sync"
 	"time"
+
+	"craeft/internal/layout"
+	"craeft/internal/log"
+	"craeft/internal/utils"
 
 	"github.com/valyala/fasttemplate"
 	"golang.org/x/sync/singleflight"
@@ -48,7 +49,7 @@ func NewLayoutCache() *LayoutCache {
 
 func (lc *LayoutCache) GetOrBuild(
 	ctx context.Context,
-	schemeRoot *os.Root,
+	schemeRoot *utils.RootFS,
 	key LayoutKey,
 	lyt *layout.Layout,
 ) (*fasttemplate.Template, error) {

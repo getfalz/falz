@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"fmt"
-	"io/fs"
 	"path/filepath"
 	"strings"
 
 	"craeft/internal/log"
 	"craeft/internal/project"
+	"craeft/internal/utils"
 )
 
 func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, paths []string) error {
@@ -21,7 +21,7 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 			continue
 		}
 
-		newHash, err := plan.HashCache.HashFile(s.project.SourceRoot.FS(), path)
+		newHash, err := s.project.SourceFS.HashFile(path)
 		if err != nil {
 			log.Warn(fmt.Sprintf("hash content %s: %v", path, err))
 			return nil
@@ -32,11 +32,11 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 				oldHash := entry.ContentHash
 				entry.ContentHash = newHash
 
-				entry.Hash = project.CombineHashes(
+				entry.Hash = utils.CombineHashes(
 					entry.ContentHash,
 					entry.LayoutHash,
 					entry.PipelineHash,
-					project.CombineHashes(entry.FragmentHashes...),
+					utils.CombineHashes(entry.FragmentHashes...),
 				)
 				entry.Dirty = true
 
@@ -78,12 +78,12 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 
 			for _, cc := range lyt.Contents() {
 				glob := filepath.ToSlash(filepath.Join(base, cc.Source))
-				matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
+				matches, err := s.project.SourceFS.Glob(glob)
 				if err != nil || len(matches) == 0 {
 					continue
 				}
 
-				_, err = s.project.Layouts.GetOrBuild(ctx, s.project.SchemeRoot, key, lyt)
+				_, err = s.project.Layouts.GetOrBuild(ctx, s.project.SchemeFS, key, lyt)
 				if err != nil {
 					log.Warn(fmt.Sprintf("warm up layout for new content %s: %v", path, err))
 					continue
@@ -146,7 +146,7 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 			continue
 		}
 
-		newHash, err := plan.HashCache.HashFile(s.project.SourceRoot.FS(), path)
+		newHash, err := s.project.SourceFS.HashFile(path)
 		if err != nil {
 			log.Warn(fmt.Sprintf("hash asset %s: %v", path, err))
 			continue
@@ -156,11 +156,11 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
-				entry.Hash = project.CombineHashes(
+				entry.Hash = utils.CombineHashes(
 					entry.ContentHash,
 					entry.LayoutHash,
 					entry.PipelineHash,
-					project.CombineHashes(entry.FragmentHashes...),
+					utils.CombineHashes(entry.FragmentHashes...),
 				)
 
 				entry.Dirty = true
@@ -194,7 +194,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 			for _, cc := range lyt.Contents() {
 				for _, a := range cc.Assets() {
 					glob := filepath.ToSlash(filepath.Join(dir, a.Source))
-					matches, err := fs.Glob(s.project.SourceRoot.FS(), glob)
+					matches, err := s.project.SourceFS.Glob(glob)
 					if err != nil || len(matches) == 0 {
 						continue
 					}
@@ -388,7 +388,7 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 			continue
 		}
 
-		newHash, err := plan.HashCache.HashFile(s.project.SchemeRoot.FS(), path)
+		newHash, err := s.project.SchemeFS.HashFile(path)
 		if err != nil {
 			log.Warn(fmt.Sprintf("hash scheme asset %s: %v", path, err))
 			continue
@@ -398,11 +398,11 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
-				entry.Hash = project.CombineHashes(
+				entry.Hash = utils.CombineHashes(
 					entry.ContentHash,
 					entry.LayoutHash,
 					entry.PipelineHash,
-					project.CombineHashes(entry.FragmentHashes...),
+					utils.CombineHashes(entry.FragmentHashes...),
 				)
 
 				entry.Dirty = true
@@ -431,7 +431,7 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 			for _, a := range lyt.Assets() {
 				glob := filepath.ToSlash(filepath.Join(dir, a.Source))
 
-				matches, err := fs.Glob(s.project.SchemeRoot.FS(), glob)
+				matches, err := s.project.SchemeFS.Glob(glob)
 				if err != nil || len(matches) == 0 {
 					continue
 				}
@@ -508,7 +508,7 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 		}
 
 		cfg := pl.Config()
-		newPipelineHash := project.HashString(fmt.Sprintf("%s-%s-%s",
+		newPipelineHash := utils.HashString(fmt.Sprintf("%s-%s-%s",
 			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 
 		keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
@@ -521,11 +521,11 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 
 				entry.PipelineHash = newPipelineHash
 
-				entry.Hash = project.CombineHashes(
+				entry.Hash = utils.CombineHashes(
 					entry.ContentHash,
 					entry.LayoutHash,
 					entry.PipelineHash,
-					project.CombineHashes(entry.FragmentHashes...),
+					utils.CombineHashes(entry.FragmentHashes...),
 				)
 
 				entry.Dirty = true

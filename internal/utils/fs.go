@@ -2,10 +2,7 @@ package utils
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,123 +10,6 @@ import (
 
 	"craeft/internal/log"
 )
-
-// FindFile searches for files matching the given glob pattern by walking up the directory
-// tree, starting from the combined basePath and targetPath, and stopping at basePath.
-// It returns a slice of relative file paths (relative to basePath) for each unique match found.
-//
-// For example, if pattern is "*.config" and targetPath is "src/app", the function will look for
-// matching files in:
-//
-//	basePath/src/app
-//	basePath/src
-//	basePath
-//
-// The search stops once basePath is reached. If no matches are found, an error is returned.
-func FindFile(root fs.FS, targetPath, pattern string) ([]string, error) {
-	cur := filepath.ToSlash(strings.TrimPrefix(targetPath, "/"))
-	if cur == "" {
-		cur = "."
-	}
-
-	var results []string
-	seen := make(map[string]struct{})
-	for {
-		glob := pattern
-		if cur != "." {
-			glob = path.Join(cur, pattern)
-		}
-
-		matches, err := fs.Glob(root, glob)
-		if err != nil {
-			// fs.Glob only errors on malformed patterns
-			return nil, fmt.Errorf("glob %q: %w", glob, err)
-		}
-
-		for _, fileName := range matches {
-			if _, ok := seen[fileName]; !ok {
-				results = append(results, fileName)
-				seen[fileName] = struct{}{}
-			}
-		}
-
-		if cur == "." {
-			break
-		}
-
-		next := path.Dir(cur)
-		if next == cur {
-			break
-		}
-		cur = next
-	}
-
-	if len(results) == 0 {
-		return nil, fmt.Errorf("no files matching %q found while walking up from %q", pattern, targetPath)
-	}
-
-	return results, nil
-}
-
-// TODO: write file atomically:
-// wait for go1.25: https://github.com/golang/go/issues/73041
-func WriteFile(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
-	dst = filepath.Clean(filepath.ToSlash(dst))
-
-	log.TTrace(log.IO).Str("dst", dst).Int("bytes", len(data)).Msg("writeFile begin")
-
-	if err := MkdirAllFS(root, filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("mkdir %q: %w", filepath.Dir(dst), err)
-	}
-
-	f, err := root.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
-	if err != nil {
-		return fmt.Errorf("open %q: %w", dst, err)
-	}
-	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return fmt.Errorf("write %q: %w", dst, err)
-	}
-	if err := f.Chmod(perm); err != nil {
-		f.Close()
-		return fmt.Errorf("chmod %q: %w", dst, err)
-	}
-	if err := f.Sync(); err != nil {
-		f.Close()
-		return fmt.Errorf("fsync %q: %w", dst, err)
-	}
-
-	log.TTrace(log.IO).Str("dst", dst).Uint32("perm", uint32(perm)).Msg("writeFile done")
-	return f.Close()
-}
-
-type mkdirer interface {
-	Mkdir(name string, perm os.FileMode) error
-}
-
-func MkdirAllFS(fs mkdirer, p string, perm os.FileMode) error {
-	p = filepath.Clean(p)
-	if p == "." {
-		return nil
-	}
-
-	cur := filepath.VolumeName(p)
-	if filepath.IsAbs(p) {
-		cur += string(filepath.Separator)
-		p = strings.TrimPrefix(p, cur)
-	}
-
-	for part := range strings.SplitSeq(p, string(filepath.Separator)) {
-		if part == "" || part == "." {
-			continue
-		}
-		cur = filepath.Join(cur, part)
-		if err := fs.Mkdir(cur, perm); err != nil && !errors.Is(err, os.ErrExist) {
-			return err
-		}
-	}
-	return nil
-}
 
 func NormRel(p string) string {
 	// Your matches from fs.Glob are slash-separated already, but normalize anyway.

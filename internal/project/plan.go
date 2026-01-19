@@ -17,6 +17,7 @@ import (
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
+	"craeft/internal/utils"
 
 	"github.com/valyala/fasttemplate"
 )
@@ -48,11 +49,11 @@ type BuildEntry struct {
 	outputPathErr  error
 
 	// Hash components
-	Hash           string            // Combined hash of all inputs
-	// TODO replace all this 
-	ContentHash    string            // Hash of source file
-	LayoutHash     string            // Hash of layout (empty for assets)
-	PipelineHash   string            // Hash of pipeline config
+	Hash string // Combined hash of all inputs
+	// TODO replace all this
+	ContentHash    string   // Hash of source file
+	LayoutHash     string   // Hash of layout (empty for assets)
+	PipelineHash   string   // Hash of pipeline config
 	FragmentHashes []string // Fragment dependencies (empty for assets)
 
 	// Build information
@@ -139,10 +140,10 @@ func (e *BuildEntry) OutputPath() (string, error) {
 
 // Plan represents a build plan with change detection
 type Plan struct {
-	entries   map[string]*BuildEntry // All entries (content and assets)
-	HashCache *HashCache
-	Manifest  *Manifest
-	CAS       *CAS
+	entries  map[string]*BuildEntry // All entries (content and assets)
+	project  *Project
+	Manifest *Manifest
+	CAS      *CAS
 
 	mu sync.RWMutex
 }
@@ -169,10 +170,10 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	}
 
 	plan := &Plan{
-		entries:   make(map[string]*BuildEntry),
-		HashCache: NewHashCache(),
-		Manifest:  manifest,
-		CAS:       cas,
+		entries:  make(map[string]*BuildEntry),
+		project:  p,
+		Manifest: manifest,
+		CAS:      cas,
 	}
 
 	// total, err := p.scanFiles(plan)
@@ -381,12 +382,10 @@ type EntrySpec struct {
 }
 
 func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full bool) (int, error) {
-	srcFS := p.SourceRoot.FS()
-
 	touched := 0
 	startDir := filepath.ToSlash(baseDir)
 
-	err := fs.WalkDir(srcFS, baseDir, func(path string, d fs.DirEntry, walkErr error) error {
+	err := fs.WalkDir(p.SourceFS.FS(), baseDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -439,7 +438,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 			// Contents
 			for _, cc := range lyt.Contents() {
 				glob := filepath.ToSlash(filepath.Join(base, cc.Source))
-				matches, err := fs.Glob(p.SourceRoot.FS(), glob)
+				matches, err := p.SourceFS.Glob(glob)
 				if err != nil {
 					continue
 				}
@@ -463,7 +462,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 				// Per-content assets (source)
 				for _, a := range cc.Assets() {
 					ag := filepath.ToSlash(filepath.Join(base, a.Source))
-					am, err := fs.Glob(p.SourceRoot.FS(), ag)
+					am, err := p.SourceFS.Glob(ag)
 					if err != nil {
 						continue
 					}
@@ -486,7 +485,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 			// Layout-level assets (scheme)
 			for _, a := range lyt.Assets() {
 				sg := filepath.ToSlash(filepath.Join(base, a.Source))
-				sm, err := fs.Glob(p.SchemeRoot.FS(), sg)
+				sm, err := p.SchemeFS.Glob(sg)
 				if err != nil {
 					continue
 				}
@@ -554,10 +553,10 @@ func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
 		SourceRoot: spec.SourceRoot,
 		// TODO compute output using To attribute
 		// OutputPath:     p.ComputeOutputPath(spec.BaseDir, spec.Rel, spec.Pipeline),
-		ToTpl:          spec.ToTpl,
-		Pipeline:       spec.Pipeline,
-		TagName:        spec.TagName,
-		BaseDir:        spec.BaseDir,
+		ToTpl:    spec.ToTpl,
+		Pipeline: spec.Pipeline,
+		TagName:  spec.TagName,
+		BaseDir:  spec.BaseDir,
 	}
 
 	if spec.Type == "content" && spec.Layout != nil {
@@ -604,7 +603,7 @@ func (p *Project) HashDirty(ctx context.Context, plan *Plan) (int, error) {
 			e := j.e
 
 			if e.Type == EntryTypeContent && e.Layout != nil {
-				if _, err := p.Layouts.GetOrBuild(ctx, p.SchemeRoot, e.LayoutKey, e.Layout); err != nil {
+				if _, err := p.Layouts.GetOrBuild(ctx, p.SchemeFS, e.LayoutKey, e.Layout); err != nil {
 					mu.Lock()
 					errs = append(errs, fmt.Errorf("layout warmup %s: %w", e.ID, err))
 					mu.Unlock()
@@ -854,18 +853,18 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 		return ctx.Err()
 	}
 
-	var fsys fs.FS
+	var contentHash string
+	var err error
 	switch e.SourceRoot {
 	case "source":
-		fsys = p.SourceRoot.FS()
+		contentHash, err = plan.project.SourceFS.HashFile(e.SourcePath)
 	case "scheme":
-		fsys = p.SchemeRoot.FS()
+		contentHash, err = plan.project.SchemeFS.HashFile(e.SourcePath)
 	default:
 		e.Error = fmt.Errorf("unknown source root: %s", e.SourceRoot)
 		return nil
 	}
 
-	contentHash, err := plan.HashCache.HashFile(fsys, e.SourcePath)
 	if err != nil {
 		e.Error = fmt.Errorf("hash source: %w", err)
 		return e.Error
@@ -875,7 +874,7 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 	// For content entries, get layout and fragment hashes from cache
 	if e.Type == "content" && e.Layout != nil {
 		layoutPath := e.Layout.Path()
-		layoutHash, err := plan.HashCache.HashFile(p.SchemeRoot.FS(), layoutPath)
+		layoutHash, err := plan.project.SchemeFS.HashFile(layoutPath)
 		if err != nil {
 			e.Error = fmt.Errorf("hash layout %s: %w", layoutPath, err)
 			return e.Error
@@ -889,7 +888,7 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 		}
 
 		for _, frag := range deps {
-			fragHash, err := plan.HashCache.HashFile(p.SchemeRoot.FS(), frag)
+			fragHash, err := plan.project.SchemeFS.HashFile(frag)
 			if err != nil {
 				e.Error = fmt.Errorf("hash fragment %s: %w", frag, err)
 				return e.Error
@@ -900,15 +899,15 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 
 	if pl, err := p.Pipes.Get(e.Pipeline); err == nil {
 		cfg := pl.Config()
-		e.PipelineHash = HashString(fmt.Sprintf("%s-%s-%s",
+		e.PipelineHash = utils.HashString(fmt.Sprintf("%s-%s-%s",
 			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 	}
 
-	e.Hash = CombineHashes(
+	e.Hash = utils.CombineHashes(
 		e.ContentHash,
 		e.LayoutHash,
 		e.PipelineHash,
-		CombineHashes(e.FragmentHashes...),
+		utils.CombineHashes(e.FragmentHashes...),
 	)
 
 	return nil

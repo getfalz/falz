@@ -1,17 +1,18 @@
 package layout
 
 import (
-	"craeft/internal/log"
-	"craeft/internal/pipeline"
 	"encoding/xml"
 	"io"
-	"os"
+
+	"craeft/internal/log"
+	"craeft/internal/pipeline"
+	"craeft/internal/utils"
 )
 
 type Layout struct {
 	path         string
 	pipelines    *pipeline.Registry
-	root         *os.Root
+	root         *utils.RootFS
 	useHotReload bool
 
 	// Children
@@ -27,7 +28,7 @@ type Layout struct {
 
 type Fragment struct {
 	pipeline pipeline.PipelineScript
-	root     *os.Root
+	root     *utils.RootFS
 
 	// XML
 	XMLName xml.Name `xml:"Fragment"`

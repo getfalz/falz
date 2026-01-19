@@ -141,7 +141,7 @@ func (p *Project) cleanStaleEntries(plan *Plan) []string {
 	for _, entry := range removed {
 		removedIds = append(removedIds, entry.OutputPath)
 
-		if err := p.outRoot.Remove(entry.OutputPath); err != nil && !os.IsNotExist(err) {
+		if err := p.outputFS.Remove(entry.OutputPath); err != nil && !os.IsNotExist(err) {
 			log.Warn(fmt.Sprintf("failed to remove stale output %s: %v", entry.OutputPath, err))
 		}
 	}
@@ -453,9 +453,9 @@ func (p *Project) processEntry(
 	var err error
 	switch entry.SourceRoot {
 	case "source":
-		data, err = p.readSource(entry.SourcePath)
+		data, err = p.SourceFS.ReadFile(filepath.ToSlash(entry.SourcePath))
 	case "scheme":
-		data, err = p.readScheme(entry.SourcePath)
+		data, err = p.SchemeFS.ReadFile(filepath.ToSlash(entry.SourcePath))
 	default:
 		result.Error = fmt.Errorf("unknown source root: %s", entry.SourceRoot)
 		return result

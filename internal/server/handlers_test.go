@@ -592,7 +592,7 @@ target_suffix: html`,
 
 		lmap, _ := proj.GetLayouts(".")
 		lyt := lmap["layout.xml"]
-		_, err = proj.Layouts.GetOrBuild(ctx, proj.SchemeRoot, layoutKey, lyt)
+		_, err = proj.Layouts.GetOrBuild(ctx, proj.SchemeFS, layoutKey, lyt)
 		if err != nil {
 			t.Fatalf("Failed to rebuild layout: %v", err)
 		}

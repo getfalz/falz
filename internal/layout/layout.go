@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -38,7 +37,7 @@ const wsClient string = `
 `
 
 func (f *Fragment) Render(ctx context.Context, renderPath string) (string, string, error) {
-	files, err := utils.FindFile(f.root.FS(), renderPath, f.Source)
+	files, err := f.root.FindFile(renderPath, f.Source)
 	if err != nil {
 		return "", "", err
 	}
@@ -76,7 +75,7 @@ func (c Content) Render(ctx context.Context) string {
 }
 
 // Render layout. The fragments will be searched first in the given base path
-func (l *Layout) Render(ctx context.Context, base string, schemeRoot *os.Root) (rendered string, deps []string, err error) {
+func (l *Layout) Render(ctx context.Context, base string, schemeRoot *utils.RootFS) (rendered string, deps []string, err error) {
 
 	log.TTrace(log.Layout).
 		Str("layout_rel", l.path).
@@ -98,7 +97,7 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *os.Root) (
 			Int("inline_len", len(tmpl)).
 			Msg("using inline layout template")
 	} else {
-		tplPaths, err := utils.FindFile(l.root.FS(), base, l.tplPath)
+		tplPaths, err := l.root.FindFile(base, l.tplPath)
 		if err != nil {
 			return "", nil, fmt.Errorf("layout %q: find template with base=%q tplPath=%q: %w", l.path, base, l.tplPath, err)
 		}
@@ -268,7 +267,7 @@ func normalizeRelFile(p string) string {
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
-func Parse(base *os.Root, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
+func Parse(base *utils.RootFS, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
 
 	relPath := normalizeRelFile(path)
 

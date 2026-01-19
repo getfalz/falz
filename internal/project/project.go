@@ -4,8 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
@@ -31,10 +29,9 @@ var (
 type Project struct {
 	Config *CraeftConfig
 
-	// TODO envelop os.Root into new struct: root{*os.Root, plan.HashCache}
-	SourceRoot *os.Root
-	SchemeRoot *os.Root
-	outRoot    *os.Root
+	SourceFS *utils.RootFS
+	SchemeFS *utils.RootFS
+	outputFS *utils.RootFS
 
 	Layouts *LayoutCache
 
@@ -57,43 +54,31 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
-	srcAbs, err := filepath.Abs(config.SourcePath)
+	sourceRoot, err := utils.NewRootFs(config.SourcePath)
 	if err != nil {
-		return nil, fmt.Errorf("source abs: %w", err)
+		return nil, fmt.Errorf("source root fs: %w", err)
 	}
-	schemeAbs, err := filepath.Abs(config.SchemePath)
+
+	schemeRoot, err := utils.NewRootFs(config.SchemePath)
 	if err != nil {
-		return nil, fmt.Errorf("scheme abs: %w", err)
+		_ = sourceRoot.Close()
+		return nil, fmt.Errorf("scheme root fs: %w", err)
 	}
-	outAbs, err := filepath.Abs(config.OutputPath)
+	outputRoot, err := utils.NewRootFs(config.OutputPath)
 	if err != nil {
-		return nil, fmt.Errorf("output abs: %w", err)
+		_ = sourceRoot.Close()
+		_ = schemeRoot.Close()
+		return nil, fmt.Errorf("output root fs: %w", err)
 	}
-	if err := os.MkdirAll(outAbs, 0o755); err != nil {
-		return nil, fmt.Errorf("ensure output: %w", err)
-	}
+
+	outAbs, _ := filepath.Abs(config.OutputPath)
+	srcAbs, _ := filepath.Abs(config.SourcePath)
 
 	outputBase := filepath.Base(outAbs)
 	config.Ignore = append(config.Ignore,
 		filepath.ToSlash(filepath.Join(outputBase, "**")),
 	)
 	config.Ignore = append(config.Ignore, blackList...)
-
-	sourceRoot, err := os.OpenRoot(srcAbs)
-	if err != nil {
-		return nil, fmt.Errorf("open root (source): %w", err)
-	}
-	schemeRoot, err := os.OpenRoot(schemeAbs)
-	if err != nil {
-		_ = sourceRoot.Close()
-		return nil, fmt.Errorf("open root (scheme): %w", err)
-	}
-	outRoot, err := os.OpenRoot(outAbs)
-	if err != nil {
-		_ = sourceRoot.Close()
-		_ = schemeRoot.Close()
-		return nil, fmt.Errorf("open root (output): %w", err)
-	}
 
 	reg := pipeline.NewRegistry(&pipeline.RegistryConfig{
 		Pipelines:       config.Pipes,
@@ -105,28 +90,20 @@ func New(config *CraeftConfig) (*Project, error) {
 	if err := reg.LoadAll(); err != nil {
 		_ = sourceRoot.Close()
 		_ = schemeRoot.Close()
-		_ = outRoot.Close()
+		_ = outputRoot.Close()
 		return nil, err
 	}
 
 	log.IInfo(log.Pipeline).Str("pipelines", strings.Join(reg.Loaded(), ", ")).Msg("pipelines loaded")
 
 	return &Project{
-		Config:     config,
-		Pipes:      reg,
-		Layouts:    NewLayoutCache(),
-		SourceRoot: sourceRoot,
-		SchemeRoot: schemeRoot,
-		outRoot:    outRoot,
+		Config:   config,
+		Pipes:    reg,
+		Layouts:  NewLayoutCache(),
+		SourceFS: sourceRoot,
+		SchemeFS: schemeRoot,
+		outputFS: outputRoot,
 	}, nil
-}
-
-func (p *Project) readSource(rel string) ([]byte, error) {
-	return fs.ReadFile(p.SourceRoot.FS(), filepath.ToSlash(rel))
-}
-
-func (p *Project) readScheme(rel string) ([]byte, error) {
-	return fs.ReadFile(p.SchemeRoot.FS(), filepath.ToSlash(rel))
 }
 
 func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fasttemplate.Template, error) {
@@ -146,7 +123,7 @@ func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fastte
 		Str("key_base", key.BaseDir).
 		Str("key_rel", key.RelLayoutPath).
 		Msg("template for layout")
-	return p.Layouts.GetOrBuild(ctx, p.SchemeRoot, key, lyt)
+	return p.Layouts.GetOrBuild(ctx, p.SchemeFS, key, lyt)
 }
 
 func (p *Project) IgnoreFile(name string) bool {
@@ -206,7 +183,7 @@ func (p *Project) ensureParsedCache() {
 func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 	p.ensureParsedCache()
 
-	matches, err := utils.FindFile(p.SchemeRoot.FS(), base, p.Config.Layout)
+	matches, err := p.SchemeFS.FindFile(base, p.Config.Layout)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find layout for path %q: %w", base, err)
 	}
@@ -231,7 +208,7 @@ func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
 
 func (p *Project) loadLayout(path string) (*layout.Layout, error) {
 
-	fi, err := p.SchemeRoot.Stat(path)
+	fi, err := p.SchemeFS.Stat(path)
 	if err != nil {
 		return nil, fmt.Errorf("stat layout file %q: %w", path, err)
 	}
@@ -245,12 +222,12 @@ func (p *Project) loadLayout(path string) (*layout.Layout, error) {
 		return e.lyt, nil
 	}
 
-	b, err := fs.ReadFile(p.SchemeRoot.FS(), path)
+	b, err := p.SchemeFS.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read layout file %q: %w", path, err)
 	}
 
-	lyt, err := layout.Parse(p.SchemeRoot, path, b, p.Pipes, p.Config.FsWatcher.HotReload)
+	lyt, err := layout.Parse(p.SchemeFS, path, b, p.Pipes, p.Config.FsWatcher.HotReload)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse layout file %q: %w", path, err)
 	}
@@ -274,7 +251,7 @@ func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error
 
 	glob := filepath.Join(dir, p.Config.Layout)
 	glob = filepath.ToSlash(glob)
-	matches, err := fs.Glob(p.SchemeRoot.FS(), glob)
+	matches, err := p.SchemeFS.Glob(glob)
 
 	if err != nil {
 		return nil, fmt.Errorf("glob %q: %w", glob, err)
@@ -311,7 +288,7 @@ func (p *Project) warmUpLayoutsByKeys(ctx context.Context, keys []LayoutKey) err
 			continue
 		}
 
-		if _, err := p.Layouts.GetOrBuild(ctx, p.SchemeRoot, k, lyt); err != nil {
+		if _, err := p.Layouts.GetOrBuild(ctx, p.SchemeFS, k, lyt); err != nil {
 			errs = append(errs, fmt.Errorf("build layout %s: %w", k.RelLayoutPath, err))
 			continue
 		}
@@ -374,20 +351,14 @@ func (p *Project) CurrentPlan() (*Plan, error) {
 func (p *Project) Close() error {
 	var err error
 	log.IInfo(log.Project).Msg("closing roots")
-	if p.SourceRoot != nil {
-		if e := p.SourceRoot.Close(); e != nil {
-			err = errors.Join(err, e)
-		}
+	if e := p.SourceFS.Close(); e != nil {
+		err = errors.Join(err, e)
 	}
-	if p.SchemeRoot != nil {
-		if e := p.SchemeRoot.Close(); e != nil {
-			err = errors.Join(err, e)
-		}
+	if e := p.SchemeFS.Close(); e != nil {
+		err = errors.Join(err, e)
 	}
-	if p.outRoot != nil {
-		if e := p.outRoot.Close(); e != nil {
-			err = errors.Join(err, e)
-		}
+	if e := p.outputFS.Close(); e != nil {
+		err = errors.Join(err, e)
 	}
 	return err
 }
