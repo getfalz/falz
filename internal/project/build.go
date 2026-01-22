@@ -62,7 +62,7 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (BuildStats, er
 
 	stats.BuildSummary = p.runBuild(ctx, plan, dirtyEntries)
 
-	if err := plan.Manifest.Save(filepath.Join(p.Config.OutputPath, manifestoFile)); err != nil {
+	if err := p.Manifest.Save(filepath.Join(p.Config.OutputPath, manifestoFile)); err != nil {
 		log.Warn(fmt.Sprintf("failed to save manifest: %v", err))
 	}
 
@@ -88,7 +88,7 @@ func (p *Project) cleanStaleEntries(plan *Plan) []string {
 		currentIDs[id] = struct{}{}
 	}
 
-	removed := plan.Manifest.CleanStale(currentIDs)
+	removed := p.Manifest.CleanStale(currentIDs)
 
 	var removedIds []string
 	for _, entry := range removed {
@@ -110,7 +110,6 @@ type buildArtifact struct {
 	Cached bool
 }
 
-
 func (p *Project) runBuild(
 	ctx context.Context,
 	plan *Plan,
@@ -123,7 +122,7 @@ func (p *Project) runBuild(
 	writeChan := make(chan *buildArtifact, p.Config.Build.Concurrency*4)
 	errChan := make(chan error, len(entries))
 
-	buildWg := p.buildStage(ctx, buildChan, writeChan, plan, metrics, errChan)
+	buildWg := p.buildStage(ctx, buildChan, writeChan, metrics, errChan)
 	writeWg := p.writeStage(ctx, writeChan, plan, metrics, errChan)
 
 	func() {
@@ -168,12 +167,10 @@ func (p *Project) runBuild(
 }
 
 // buildStage builds all Entries it gets in the in channel, and write the output artifacts into the out channel. Any error is written to the errChan channel. It will update the given metrics
-// TODO can we remove the plan dependency?
 func (p *Project) buildStage(
 	ctx context.Context,
 	in <-chan *Entry,
 	out chan<- *buildArtifact,
-	plan *Plan,
 	metrics *buildMetrics,
 	errChan chan<- error,
 ) *sync.WaitGroup {
@@ -213,7 +210,7 @@ func (p *Project) buildStage(
 				}
 
 				var result *buildArtifact
-				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(entry.Hash)
+				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && p.CAS != nil && p.CAS.Has(entry.Hash)
 
 				if inCache {
 					result = &buildArtifact{
@@ -236,8 +233,8 @@ func (p *Project) buildStage(
 				if result.Error == nil {
 					metrics.cacheMisses.Add(1)
 
-					if p.Config.Build.UseCAS && plan.CAS != nil && result.Data != nil {
-						if err := plan.CAS.Store(entry.Hash, result.Data); err == nil {
+					if p.Config.Build.UseCAS && p.CAS != nil && result.Data != nil {
+						if err := p.CAS.Store(entry.Hash, result.Data); err == nil {
 							metrics.bytesCached.Add(int64(len(result.Data)))
 						}
 					}
@@ -293,16 +290,27 @@ func (p *Project) writeStage(
 			}
 
 			flush := func() {
-				for _, results := range dirBatch {
-					for _, r := range results {
-						if err := p.writeArtifacts(plan, r); err != nil {
-							sendErr(fmt.Errorf("write result %s: %w", r.Entry.ID, err))
+				for _, artifacts := range dirBatch {
+					for _, artifact := range artifacts {
+						if err := p.writeArtifacts(artifact); err != nil {
+							sendErr(fmt.Errorf("write result %s: %w", artifact.Entry.ID, err))
 							continue
 						}
 
+						// outputPath is already computed in writeArtifacts
+						p.Manifest.Set(artifact.Entry.ID, ManifestEntry{
+							Hash:       artifact.Entry.Hash,
+							OutputPath: artifact.Entry.outputPath,
+						})
+
+						plan.UpdateEntry(artifact.Entry.ID, func(e *Entry) error {
+							e.Dirty = false
+							return nil
+						})
+
 						metrics.written.Add(1)
-						if r.Data != nil {
-							metrics.bytesWritten.Add(int64(len(r.Data)))
+						if artifact.Data != nil {
+							metrics.bytesWritten.Add(int64(len(artifact.Data)))
 						}
 					}
 				}
@@ -421,7 +429,6 @@ func (p *Project) buildEntry(
 
 // writeArtifacts writes the processed artifact to the file system
 func (p *Project) writeArtifacts(
-	plan *Plan,
 	artifact *buildArtifact,
 ) error {
 	entry := artifact.Entry
@@ -437,7 +444,7 @@ func (p *Project) writeArtifacts(
 	}
 
 	if artifact.Cached {
-		if err := plan.CAS.Link(entry.Hash, fullPath); err != nil {
+		if err := p.CAS.Link(entry.Hash, fullPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", outputPath, err)
 		}
 	} else {
@@ -457,16 +464,6 @@ func (p *Project) writeArtifacts(
 			return fmt.Errorf("rename %s: %w", outputPath, err)
 		}
 	}
-
-	plan.Manifest.Set(entry.ID, ManifestEntry{
-		Hash:       entry.Hash,
-		OutputPath: outputPath,
-	})
-
-	plan.UpdateEntry(artifact.Entry.ID, func(e *Entry) error {
-		e.Dirty = false
-		return nil
-	})
 
 	return nil
 }

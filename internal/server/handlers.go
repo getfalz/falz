@@ -125,7 +125,7 @@ func (s *Server) handleContentDeleted(ctx context.Context, plan *project.Plan, p
 	for _, path := range paths {
 		if plan.HasEntry(path) {
 			plan.DeleteEntry(path)
-			plan.Manifest.Delete(path)
+			s.project.Manifest.Delete(path)
 
 			log.IInfo(log.Handler).
 				Str("id", path).
@@ -234,7 +234,7 @@ func (s *Server) handleContentAssetDeleted(ctx context.Context, plan *project.Pl
 		id := fmt.Sprintf("asset:source:%s", path)
 		if plan.HasEntry(id) {
 			plan.DeleteEntry(id)
-			plan.Manifest.Delete(id)
+			s.project.Manifest.Delete(id)
 
 			log.IInfo(log.Handler).
 				Str("id", id).
@@ -471,7 +471,7 @@ func (s *Server) handleSchemeAssetDeleted(ctx context.Context, plan *project.Pla
 
 		if plan.HasEntry(id) {
 			plan.DeleteEntry(id)
-			plan.Manifest.Delete(id)
+			s.project.Manifest.Delete(id)
 
 			log.DDebug(log.Handler).
 				Str("id", id).

@@ -42,6 +42,9 @@ type Project struct {
 
 	currentPlanMu sync.Mutex
 	currentPlan   *Plan
+
+	Manifest *Manifest
+	CAS      *CAS
 }
 
 func New(config *CraeftConfig) (*Project, error) {
@@ -80,6 +83,20 @@ func New(config *CraeftConfig) (*Project, error) {
 	)
 	config.Ignore = append(config.Ignore, blackList...)
 
+	manifest, err := LoadManifest(filepath.Join(config.OutputPath, manifestoFile))
+	if err != nil {
+		log.Warn(fmt.Sprintf("failed to load manifest: %v. Creating a new one", err))
+		manifest = NewManifest()
+	}
+
+	var cas *CAS
+	if config.Build.UseCAS {
+		cas, err = NewCAS(config.Build.CASPath)
+		if err != nil {
+			return nil, fmt.Errorf("create CAS: %w", err)
+		}
+	}
+
 	reg := pipeline.NewRegistry(&pipeline.RegistryConfig{
 		Pipelines:       config.Pipes,
 		PipelinesPath:   config.PipesPath,
@@ -94,8 +111,6 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
-	log.IInfo(log.Pipeline).Str("pipelines", strings.Join(reg.Loaded(), ", ")).Msg("pipelines loaded")
-
 	return &Project{
 		Config:   config,
 		Pipes:    reg,
@@ -103,6 +118,9 @@ func New(config *CraeftConfig) (*Project, error) {
 		SourceFS: sourceRoot,
 		SchemeFS: schemeRoot,
 		outputFS: outputRoot,
+
+		CAS: cas,
+		Manifest: manifest,
 	}, nil
 }
 

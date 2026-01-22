@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
+
+	"craeft/internal/log"
 )
 
 // Manifest tracks the state of built files
@@ -51,6 +53,7 @@ func LoadManifest(path string) (*Manifest, error) {
 		m.Entries = make(map[string]ManifestEntry)
 	}
 
+	log.TTrace(log.Build).Int("entries", len(m.Entries)).Msg("Manifest loaded")
 	return &m, nil
 }
 

@@ -5,7 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
+	"strings"
 	"sync"
 	"time"
 
@@ -42,28 +43,19 @@ func NewRegistry(cfg *RegistryConfig) *Registry {
 
 func (r *Registry) LoadAll() error {
 	errs := []error{}
+	var names []string
 	for _, name := range r.config.Pipelines {
 		if err := r.Reload(name); err != nil {
 			log.Warn(fmt.Sprintf("load %s: %v", name, err))
 			errs = append(errs, err)
 		}
+		names = append(names, name)
 	}
+
+	slices.Sort(names)
+	log.IInfo(log.Pipeline).Str("pipelines", strings.Join(names, ", ")).Msg("pipelines loaded")
+
 	return errors.Join(errs...)
-}
-
-func (r *Registry) Loaded() []string {
-	var names []string
-	r.active.Range(func(k, _ any) bool {
-		names = append(names, k.(string))
-		return true
-	})
-	sort.Strings(names)
-	return names
-}
-
-func (r *Registry) HasPipeline(name string) bool {
-	_, ok := r.active.Load(name)
-	return ok
 }
 
 func (r *Registry) Reload(name string) error {

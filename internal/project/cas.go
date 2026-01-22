@@ -1,6 +1,7 @@
 package project
 
 import (
+	"craeft/internal/log"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,10 @@ func NewCAS(path string) (*CAS, error) {
 	if err := os.MkdirAll(path, 0o700); err != nil {
 		return nil, fmt.Errorf("create CAS root: %w", err)
 	}
+
+	log.TTrace(log.CAS).
+		Str("path", path).
+		Msg("CAS enabled")
 
 	return &CAS{
 		root: path,

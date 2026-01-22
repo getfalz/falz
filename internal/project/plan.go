@@ -140,10 +140,8 @@ func (e *Entry) OutputPath() (string, error) {
 
 // Plan represents a build plan with change detection
 type Plan struct {
-	entries  map[string]*Entry // All entries (content and assets)
-	project  *Project
-	Manifest *Manifest
-	CAS      *CAS
+	entries map[string]*Entry // All entries (content and assets)
+	project *Project
 
 	mu sync.RWMutex
 }
@@ -152,28 +150,9 @@ type Plan struct {
 func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	start := time.Now()
 
-	manifest, err := LoadManifest(filepath.Join(p.Config.OutputPath, manifestoFile))
-	if err != nil {
-		log.Warn(fmt.Sprintf("Failed to load manifest: %v", err))
-		manifest = NewManifest()
-	}
-
-	var cas *CAS
-	if p.Config.Build.UseCAS {
-		cas, err = NewCAS(p.Config.Build.CASPath)
-		if err != nil {
-			return nil, fmt.Errorf("create CAS: %w", err)
-		}
-		log.TTrace(log.Plan).
-			Str("path", p.Config.Build.CASPath).
-			Msg("CAS enabled")
-	}
-
 	plan := &Plan{
-		entries:  make(map[string]*Entry),
-		project:  p,
-		Manifest: manifest,
-		CAS:      cas,
+		entries: make(map[string]*Entry),
+		project: p,
 	}
 
 	// total, err := p.scanFiles(plan)
@@ -256,7 +235,7 @@ func (p *Plan) RemoveIf(predicate func(*Entry) bool, updateManifest bool) []stri
 		if predicate(entry) {
 			delete(p.entries, id)
 			if updateManifest {
-				p.Manifest.Delete(id)
+				p.project.Manifest.Delete(id)
 			}
 			removed = append(removed, id)
 		}
@@ -941,7 +920,7 @@ func (p *Plan) diff() int {
 	changed := 0
 	for id, entry := range p.entries {
 		entry.Dirty = false
-		if p.Manifest.IsDirty(id, entry.outputPath, entry.Hash) {
+		if p.project.Manifest.IsDirty(id, entry.outputPath, entry.Hash) {
 			entry.Dirty = true
 			changed++
 		}

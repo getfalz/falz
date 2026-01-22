@@ -63,8 +63,9 @@ const (
 	Layout
 	IO
 	Plan
-	Handler
 	Server
+	Handler
+	CAS
 )
 
 var tagLabels = map[TagKey]string{
@@ -81,6 +82,7 @@ var tagLabels = map[TagKey]string{
 	Plan:     "plan",
 	Server:   "server",
 	Handler:  "Handler",
+	CAS:  "CAS",
 }
 
 func (tk TagKey) String() string {
