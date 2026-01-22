@@ -110,10 +110,10 @@ target_suffix: css`,
 		t.Fatalf("Failed to create plan: %v", err)
 	}
 
-	contentKeys := plan.EntryKeys(func(e *BuildEntry) bool {
+	contentKeys := plan.EntryKeys(func(e *Entry) bool {
 		return e.Type == "content"
 	})
-	assetKeys := plan.EntryKeys(func(e *BuildEntry) bool {
+	assetKeys := plan.EntryKeys(func(e *Entry) bool {
 		return e.Type == "asset"
 	})
 

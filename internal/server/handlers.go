@@ -27,7 +27,7 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 			return nil
 		}
 
-		_ = plan.UpdateEntry(path, func(entry *project.BuildEntry) error {
+		_ = plan.UpdateEntry(path, func(entry *project.Entry) error {
 			if entry.ContentHash != newHash {
 				oldHash := entry.ContentHash
 				entry.ContentHash = newHash
@@ -152,7 +152,7 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 			continue
 		}
 
-		_ = plan.UpdateEntry(id, func(entry *project.BuildEntry) error {
+		_ = plan.UpdateEntry(id, func(entry *project.Entry) error {
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
@@ -257,7 +257,7 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 			Str("dir", dir).
 			Msg("layout modified, rescanning directory")
 
-		affectedKeys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+		affectedKeys := plan.EntryKeys(func(e *project.Entry) bool {
 			return e.Type == "content" &&
 				filepath.ToSlash(e.LayoutKey.RelLayoutPath) == filepath.ToSlash(path)
 		})
@@ -288,7 +288,7 @@ func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, pa
 			Msg("new layout created, rescanning directory")
 
 		// Remove entries that were using parent layout
-		plan.RemoveIf(func(entry *project.BuildEntry) bool {
+		plan.RemoveIf(func(entry *project.Entry) bool {
 			return entry.Type == "content" && strings.HasPrefix(entry.BaseDir, dir)
 		}, false)
 
@@ -329,7 +329,7 @@ func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, pa
 			affectedKeysMap[key] = struct{}{}
 		}
 
-		plan.RemoveIf(func(entry *project.BuildEntry) bool {
+		plan.RemoveIf(func(entry *project.Entry) bool {
 			if entry.Type != "content" {
 				return false
 			}
@@ -394,7 +394,7 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 			continue
 		}
 
-		plan.UpdateEntry(id, func(entry *project.BuildEntry) error {
+		plan.UpdateEntry(id, func(entry *project.Entry) error {
 			if entry.ContentHash != newHash {
 				entry.ContentHash = newHash
 
@@ -511,13 +511,13 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 		newPipelineHash := utils.HashString(fmt.Sprintf("%s-%s-%s",
 			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 
-		keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+		keys := plan.EntryKeys(func(e *project.Entry) bool {
 			// TODO rework pipe hash?
 			// reload on any file change in pipe. ignore hash
 			return e.Pipeline == pipeName // && e.PipelineHash != newPipelineHash
 		})
 		for _, k := range keys {
-			plan.UpdateEntry(k, func(entry *project.BuildEntry) error {
+			plan.UpdateEntry(k, func(entry *project.Entry) error {
 
 				entry.PipelineHash = newPipelineHash
 

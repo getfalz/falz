@@ -36,8 +36,8 @@ const (
 	SourceTypeScheme SourceType = "scheme"
 )
 
-// BuildEntry represents any file to be built (content or asset)
-type BuildEntry struct {
+// Entry represents any file to be built (content or asset)
+type Entry struct {
 	ID         string     // Unique identifier: "content/about.md" or "assets/style.css"
 	Type       EntryType  // "content" or "asset"
 	SourceRoot SourceType // Source root: "source" or "scheme"
@@ -72,7 +72,7 @@ type BuildEntry struct {
 
 var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
 
-func (e *BuildEntry) OutputPath() (string, error) {
+func (e *Entry) OutputPath() (string, error) {
 	e.outputPathOnce.Do(func() {
 		tpl := e.ToTpl
 
@@ -140,7 +140,7 @@ func (e *BuildEntry) OutputPath() (string, error) {
 
 // Plan represents a build plan with change detection
 type Plan struct {
-	entries  map[string]*BuildEntry // All entries (content and assets)
+	entries  map[string]*Entry // All entries (content and assets)
 	project  *Project
 	Manifest *Manifest
 	CAS      *CAS
@@ -170,7 +170,7 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	}
 
 	plan := &Plan{
-		entries:  make(map[string]*BuildEntry),
+		entries:  make(map[string]*Entry),
 		project:  p,
 		Manifest: manifest,
 		CAS:      cas,
@@ -221,7 +221,7 @@ func (p *Plan) HasEntry(key string) bool {
 }
 
 // TODO could replace HasEntry
-func (p *Plan) Entry(key string) (*BuildEntry, bool) {
+func (p *Plan) Entry(key string) (*Entry, bool) {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 	e, ok := p.entries[key]
@@ -233,7 +233,7 @@ func (p *Plan) LenEntries() int {
 	defer p.mu.RUnlock()
 	return len(p.entries)
 }
-func (p *Plan) AddEntry(key string, entry *BuildEntry) {
+func (p *Plan) AddEntry(key string, entry *Entry) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.entries[key] = entry
@@ -247,7 +247,7 @@ func (p *Plan) DeleteEntry(key string) {
 
 // RemoveIf removes entries matching the predicate and optionally updates the manifest
 // Returns the IDs of removed entries
-func (p *Plan) RemoveIf(predicate func(*BuildEntry) bool, updateManifest bool) []string {
+func (p *Plan) RemoveIf(predicate func(*Entry) bool, updateManifest bool) []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -265,7 +265,7 @@ func (p *Plan) RemoveIf(predicate func(*BuildEntry) bool, updateManifest bool) [
 	return removed
 }
 
-func (p *Plan) UpdateEntry(key string, fn func(entry *BuildEntry) error) error {
+func (p *Plan) UpdateEntry(key string, fn func(entry *Entry) error) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -276,7 +276,7 @@ func (p *Plan) UpdateEntry(key string, fn func(entry *BuildEntry) error) error {
 	return fn(entry)
 }
 
-func (p *Plan) EntryKeys(predicate func(*BuildEntry) bool) []string {
+func (p *Plan) EntryKeys(predicate func(*Entry) bool) []string {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
@@ -510,7 +510,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 	return touched, err
 }
 
-func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
+func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*Entry, bool) {
 	id := spec.Rel
 	if spec.Type == EntryTypeAsset {
 		id = fmt.Sprintf("%s:%s:%s", spec.Type, spec.SourceRoot, spec.Rel)
@@ -546,7 +546,7 @@ func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
 		return entry, structChanged
 	}
 
-	entry := &BuildEntry{
+	entry := &Entry{
 		ID:         id,
 		Type:       spec.Type,
 		SourcePath: spec.Rel,
@@ -574,7 +574,7 @@ func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*BuildEntry, bool) {
 func (p *Project) HashDirty(ctx context.Context, plan *Plan) (int, error) {
 	entries := plan.GetAllEntries()
 
-	type job struct{ e *BuildEntry }
+	type job struct{ e *Entry }
 	jobs := make(chan job, len(entries))
 
 	// TODO use config
@@ -848,7 +848,7 @@ func (p *Project) HashDirty(ctx context.Context, plan *Plan) (int, error) {
 // 	return errors.Join(errs...)
 // }
 
-func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Plan) error {
+func (p *Project) computeEntryHash(ctx context.Context, e *Entry, plan *Plan) error {
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -914,7 +914,7 @@ func (p *Project) computeEntryHash(ctx context.Context, e *BuildEntry, plan *Pla
 }
 
 // updateEntryHashes recomputes all hashes for an entry
-func (p *Project) updateEntryHashes(ctx context.Context, entry *BuildEntry, plan *Plan) error {
+func (p *Project) updateEntryHashes(ctx context.Context, entry *Entry, plan *Plan) error {
 	oldHash := entry.Hash
 
 	if err := p.computeEntryHash(ctx, entry, plan); err != nil {
@@ -950,11 +950,11 @@ func (p *Plan) diff() int {
 	return changed
 }
 
-func (p *Plan) GetAllEntries() []*BuildEntry {
+func (p *Plan) GetAllEntries() []*Entry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	var all []*BuildEntry
+	var all []*Entry
 	for _, entry := range p.entries {
 		all = append(all, entry)
 	}
@@ -963,11 +963,11 @@ func (p *Plan) GetAllEntries() []*BuildEntry {
 
 // GetDirtyEntries returns all entries that need rebuilding
 // TODO could be removed
-func (p *Plan) GetDirtyEntries() []*BuildEntry {
+func (p *Plan) GetDirtyEntries() []*Entry {
 	p.mu.RLock()
 	defer p.mu.RUnlock()
 
-	var dirty []*BuildEntry
+	var dirty []*Entry
 	for _, entry := range p.entries {
 		if entry.Dirty {
 			dirty = append(dirty, entry)

@@ -283,7 +283,7 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 		}
 	}
 
-	keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+	keys := plan.EntryKeys(func(e *project.Entry) bool {
 		return e.Dirty
 	})
 	dirtyCount := len(keys)
@@ -316,13 +316,13 @@ func (s *Server) handleChangeBatch(ctx context.Context, changes []FileChange) er
 	}
 
 	log.IInfo(log.Server).
-		Int64("built", stats.BuiltEntries).
+		Int64("built", stats.Built).
 		Int64("cache_hits", stats.CacheHits).
 		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
 		Msg("rebuild completed")
 
-	if s.config.FsWatcher.HotReload && stats.BuiltEntries > 0 {
+	if s.config.FsWatcher.HotReload && stats.Built > 0 {
 		s.reloadPage()
 	}
 

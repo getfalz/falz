@@ -1,6 +1,7 @@
 package project
 
 import (
+	"craeft/internal/utils"
 	"os"
 	"path/filepath"
 	"testing"
@@ -14,7 +15,7 @@ func TestCAS_StoreAndRestore(t *testing.T) {
 	}
 
 	data := []byte("test data")
-	key := hashBytes(data)
+	key := utils.HashString(string(data))
 
 	err = cas.Store(key, data)
 	if err != nil {
@@ -39,7 +40,7 @@ func TestCAS_Has(t *testing.T) {
 	}
 
 	data := []byte("test")
-	key := hashBytes(data)
+	key := utils.HashString(string(data))
 
 	if cas.Has(key) {
 		t.Error("Expected key to not exist")
@@ -60,7 +61,7 @@ func TestCAS_Link(t *testing.T) {
 	}
 
 	data := []byte("test data")
-	key := hashBytes(data)
+	key := utils.HashString(string(data))
 
 	err = cas.Store(key, data)
 	if err != nil {
@@ -92,7 +93,7 @@ func TestCAS_Size(t *testing.T) {
 
 	for i := range 5 {
 		data := []byte("test data " + string(rune('0'+i)))
-		key := hashBytes(data)
+		key := utils.HashString(string(data))
 		cas.Store(key, data)
 	}
 

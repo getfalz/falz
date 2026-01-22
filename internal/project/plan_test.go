@@ -25,7 +25,7 @@ func TestPlan_BasicPlan(t *testing.T) {
 		t.Error("Expected at least one entry in plan")
 	}
 
-	keys := plan.EntryKeys(func(e *BuildEntry) bool {
+	keys := plan.EntryKeys(func(e *Entry) bool {
 		return e.ID == "index.md"
 	})
 	if len(keys) != 1 {
@@ -71,13 +71,13 @@ func TestPlan_HashComputation(t *testing.T) {
 		t.Fatalf("Failed to create plan: %v", err)
 	}
 
-	hashKeys := plan.EntryKeys(func(e *BuildEntry) bool {
+	hashKeys := plan.EntryKeys(func(e *Entry) bool {
 		return e.Hash == ""
 	})
 	if len(hashKeys) != 0 {
 		t.Error("Some entries have empty hash")
 	}
-	contentKeys := plan.EntryKeys(func(e *BuildEntry) bool {
+	contentKeys := plan.EntryKeys(func(e *Entry) bool {
 		return e.ContentHash == ""
 	})
 	if len(contentKeys) != 0 {
@@ -157,7 +157,7 @@ func TestPlan_IgnorePatterns(t *testing.T) {
 		t.Fatalf("Failed to create plan: %v", err)
 	}
 
-	keys := plan.EntryKeys(func(e *BuildEntry) bool {
+	keys := plan.EntryKeys(func(e *Entry) bool {
 		return strings.Contains(e.ID, "node_modules")
 
 	})

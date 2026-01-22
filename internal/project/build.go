@@ -6,66 +6,34 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
 )
 
-// BuildStats tracks build statistics
-type BuildStats struct {
-	TotalEntries  int
-	DirtyEntries  int
-	BuiltEntries  int64
-	CacheHits     int64
-	CacheMisses   int64
-	BytesWritten  int64
-	BytesCached   int64
-	Duration      time.Duration
-	PlanDuration  time.Duration
-	BuildDuration time.Duration
-	Errors        []error
-}
-
-func (b *BuildStats) String() string {
-	return fmt.Sprintf(
-		"Total: %d, Dirty: %d, Built: %d, Cache Hits: %d, Cache Misses: %d, Bytes Written: %d, Bytes Cached: %d, Duration: %s (Plan: %s, Build: %s)",
-		b.TotalEntries, b.DirtyEntries, b.BuiltEntries, b.CacheHits, b.CacheMisses, b.BytesWritten, b.BytesCached, b.Duration, b.PlanDuration, b.BuildDuration,
-	)
-}
-
-// ProcessResult holds the result of processing an entry
-type ProcessResult struct {
-	Entry  *BuildEntry
-	Data   []byte
-	Error  error
-	Cached bool
-}
-
 // Build performs an incremental build
-func (p *Project) Build(ctx context.Context) (*BuildStats, error) {
-	start := time.Now()
+func (p *Project) Build(ctx context.Context) (RunStats, error) {
+	stats := RunStats{}
 
 	planStart := time.Now()
 	plan, err := p.Plan(ctx)
 	if err != nil {
-		return &BuildStats{}, fmt.Errorf("generate plan: %w", err)
+		return stats, fmt.Errorf("generate plan: %w", err)
 	}
 
-	planDuration := time.Since(planStart)
+	stats.PlanDuration = time.Since(planStart)
 
-	stats, err := p.BuildFromPlan(ctx, plan)
-	stats.PlanDuration = planDuration
-	stats.Duration = time.Since(start)
+	buildStart := time.Now()
+	stats.BuildStats, err = p.BuildFromPlan(ctx, plan)
+	stats.BuildDuration = time.Since(buildStart)
 
 	return stats, err
 }
 
 // BuildFromPlan builds only dirty entries from an existing plan
-func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, error) {
-	start := time.Now()
-	stats := &BuildStats{
+func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (BuildStats, error) {
+	stats := BuildStats{
 		TotalEntries: len(plan.entries),
 	}
 
@@ -77,15 +45,13 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, e
 	}
 
 	dirtyEntries := plan.GetDirtyEntries()
-	stats.DirtyEntries = len(dirtyEntries)
-
 	if p.Config.Build.ForceRebuild {
 		dirtyEntries = plan.GetAllEntries()
 	}
+	stats.DirtyEntries = len(dirtyEntries)
 
 	if len(dirtyEntries) == 0 {
 		log.IInfo(log.Build).Msg("no changes detected, everything up to date")
-		stats.Duration = time.Since(start)
 		return stats, nil
 	}
 
@@ -94,32 +60,19 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (*BuildStats, e
 		Int("dirty", stats.DirtyEntries).
 		Msg("starting incremental build")
 
-	buildStart := time.Now()
-	buildStats := p.runBuild(ctx, plan, dirtyEntries)
-	stats.BuildDuration = time.Since(buildStart)
-
-	stats.BuiltEntries = buildStats.Built
-	stats.CacheHits = buildStats.CacheHits
-	stats.CacheMisses = buildStats.CacheMisses
-	stats.BytesWritten = buildStats.BytesWritten
-	stats.BytesCached = buildStats.BytesCached
-	stats.Errors = buildStats.Errors
+	stats.BuildSummary = p.runBuild(ctx, plan, dirtyEntries)
 
 	if err := plan.Manifest.Save(filepath.Join(p.Config.OutputPath, manifestoFile)); err != nil {
 		log.Warn(fmt.Sprintf("failed to save manifest: %v", err))
 	}
 
-	stats.Duration = time.Since(start)
-
 	log.IInfo(log.Build).
 		Int("total", stats.TotalEntries).
 		Int("dirty", stats.DirtyEntries).
-		Int64("built", stats.BuiltEntries).
+		Int64("built", stats.Built).
 		Int64("cache_hits", stats.CacheHits).
 		Int64("cache_misses", stats.CacheMisses).
 		Int("errors", len(stats.Errors)).
-		Dur("build", stats.BuildDuration).
-		Dur("duration", stats.Duration).
 		Msg("build completed")
 
 	if len(stats.Errors) > 0 {
@@ -149,39 +102,25 @@ func (p *Project) cleanStaleEntries(plan *Plan) []string {
 	return removedIds
 }
 
-type BuildResult struct {
-	Built        int64
-	CacheHits    int64
-	CacheMisses  int64
-	BytesWritten int64
-	BytesCached  int64
-	Errors       []error
+// buildArtifact holds the result of processing an entry
+type buildArtifact struct {
+	Entry  *Entry
+	Data   []byte
+	Error  error
+	Cached bool
 }
 
-type buildMetrics struct {
-	processed    atomic.Int64
-	cached       atomic.Int64
-	written      atomic.Int64
-	cacheHits    atomic.Int64
-	cacheMisses  atomic.Int64
-	bytesWritten atomic.Int64
-	bytesCached  atomic.Int64
-}
 
 func (p *Project) runBuild(
 	ctx context.Context,
 	plan *Plan,
-	entries []*BuildEntry,
-) *BuildResult {
-
-	result := &BuildResult{
-		Errors: make([]error, 0),
-	}
+	entries []*Entry,
+) BuildSummary {
 
 	metrics := &buildMetrics{}
 
-	buildChan := make(chan *BuildEntry, p.Config.Build.Concurrency*2)
-	writeChan := make(chan *ProcessResult, p.Config.Build.Concurrency*4)
+	buildChan := make(chan *Entry, p.Config.Build.Concurrency*2)
+	writeChan := make(chan *buildArtifact, p.Config.Build.Concurrency*4)
 	errChan := make(chan error, len(entries))
 
 	buildWg := p.buildStage(ctx, buildChan, writeChan, plan, metrics, errChan)
@@ -210,30 +149,30 @@ func (p *Project) runBuild(
 	writeWg.Wait()
 
 	close(errChan)
+	var errors []error
 	for err := range errChan {
 
 		log.EError(log.Build).Err(err).Msg("entry build error")
 
-		result.Errors = append(result.Errors, err)
+		errors = append(errors, err)
 	}
 
 	if ctx.Err() != nil {
-		result.Errors = append(result.Errors, ctx.Err())
+		errors = append(errors, ctx.Err())
 	}
 
-	result.Built = metrics.written.Load()
-	result.CacheHits = metrics.cacheHits.Load()
-	result.CacheMisses = metrics.cacheMisses.Load()
-	result.BytesWritten = metrics.bytesWritten.Load()
-	result.BytesCached = metrics.bytesCached.Load()
+	result := metrics.Snapshot()
+	result.Errors = errors
 
 	return result
 }
 
+// buildStage builds all Entries it gets in the in channel, and write the output artifacts into the out channel. Any error is written to the errChan channel. It will update the given metrics
+// TODO can we remove the plan dependency?
 func (p *Project) buildStage(
 	ctx context.Context,
-	in <-chan *BuildEntry,
-	out chan<- *ProcessResult,
+	in <-chan *Entry,
+	out chan<- *buildArtifact,
 	plan *Plan,
 	metrics *buildMetrics,
 	errChan chan<- error,
@@ -262,50 +201,23 @@ func (p *Project) buildStage(
 			}
 
 			wg.Add(1)
-			go func(w *BuildEntry) {
+			go func(entry *Entry) {
 				defer wg.Done()
 				defer func() { <-sem }()
 
-				if w.Error != nil {
-					sendErr(fmt.Errorf("planning error for %s: %w", w.ID, w.Error))
+				if entry.Error != nil {
+					sendErr(fmt.Errorf("planning error for %s: %w", entry.ID, entry.Error))
 					// log.Warn(fmt.Sprintf("skipping entry with planning error: %s: %v", w.ID, w.Error))
 					metrics.processed.Add(1)
 					return
 				}
 
-				var result *ProcessResult
-				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(w.Hash)
+				var result *buildArtifact
+				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && plan.CAS != nil && plan.CAS.Has(entry.Hash)
 
 				if inCache {
-					// outputPath, err := w.OutputPath()
-					// if err != nil {
-					// 	metrics.processed.Add(1)
-					// 	sendErr(fmt.Errorf("compute output path for %s: %w", w.ID, err))
-					// 	return
-					// }
-					//
-					// foutputPath := filepath.Join(p.Config.OutputPath, outputPath)
-					// if err = plan.CAS.Link(w.Hash, foutputPath); err == nil {
-					// 	// TODO check if other fields are required
-					// 	result = &ProcessResult{
-					// 		Entry:  w,
-					// 		Cached: true,
-					// 	}
-					// 	metrics.cacheHits.Add(1)
-					// 	metrics.processed.Add(1)
-					//
-					// 	select {
-					// 	case <-ctx.Done():
-					// 		return
-					// 	case out <- result:
-					// 	}
-					// 	return
-					// }
-					//
-					// log.Warn(fmt.Sprintf("CAS restore failed for %s: %v", w.ID, err))
-
-					result = &ProcessResult{
-						Entry:  w,
+					result = &buildArtifact{
+						Entry:  entry,
 						Cached: true,
 					}
 					metrics.cacheHits.Add(1)
@@ -319,13 +231,13 @@ func (p *Project) buildStage(
 					return
 				}
 
-				result = p.processEntry(ctx, w)
+				result = p.buildEntry(ctx, entry)
 
 				if result.Error == nil {
 					metrics.cacheMisses.Add(1)
 
 					if p.Config.Build.UseCAS && plan.CAS != nil && result.Data != nil {
-						if err := plan.CAS.Store(w.Hash, result.Data); err == nil {
+						if err := plan.CAS.Store(entry.Hash, result.Data); err == nil {
 							metrics.bytesCached.Add(int64(len(result.Data)))
 						}
 					}
@@ -351,9 +263,10 @@ func (p *Project) buildStage(
 	return &wg
 }
 
+// writeStage batches the artifacts gotten in the channel in. Whenever the batch reach a size of 10, or 100 ms are passed, artifacts are flushed to the file system
 func (p *Project) writeStage(
 	ctx context.Context,
-	in <-chan *ProcessResult,
+	in <-chan *buildArtifact,
 	plan *Plan,
 	metrics *buildMetrics,
 	errChan chan<- error,
@@ -367,7 +280,7 @@ func (p *Project) writeStage(
 		go func() {
 			defer wg.Done()
 
-			dirBatch := make(map[string][]*ProcessResult)
+			dirBatch := make(map[string][]*buildArtifact)
 			ticker := time.NewTicker(100 * time.Millisecond)
 			defer ticker.Stop()
 
@@ -382,7 +295,7 @@ func (p *Project) writeStage(
 			flush := func() {
 				for _, results := range dirBatch {
 					for _, r := range results {
-						if err := p.writeResult(plan, r); err != nil {
+						if err := p.writeArtifacts(plan, r); err != nil {
 							sendErr(fmt.Errorf("write result %s: %w", r.Entry.ID, err))
 							continue
 						}
@@ -434,20 +347,12 @@ func (p *Project) writeStage(
 // @ts type global.tCtx
 // @doc Context passed into the `transform` function.
 // @field vars: Record<string, unknown> - Variables set in the config.yaml file. Custom key/value mappings loaded from `config.yaml`. Values may include environment‑variable references (e.g. `$HOME/docs`), which will be expanded at runtime.
-func (p *Project) processEntry(
+func (p *Project) buildEntry(
 	ctx context.Context,
-	entry *BuildEntry,
-) *ProcessResult {
-	// lb := log.TTrace(log.Build).
-	// 	Str("source", entry.SourcePath).
-	// 	Str("pipe", entry.Pipeline)
-	// if entry.Type == "content" && entry.Layout != nil {
-	// 	lb.Str("layout", entry.Layout.Path())
-	// }
-	// lb.Msg("build start")
-
+	entry *Entry,
+) *buildArtifact {
 	start := time.Now()
-	result := &ProcessResult{Entry: entry}
+	result := &buildArtifact{Entry: entry}
 
 	var data []byte
 	var err error
@@ -514,12 +419,12 @@ func (p *Project) processEntry(
 	return result
 }
 
-// writeResult writes the processed result to output
-func (p *Project) writeResult(
+// writeArtifacts writes the processed artifact to the file system
+func (p *Project) writeArtifacts(
 	plan *Plan,
-	result *ProcessResult,
+	artifact *buildArtifact,
 ) error {
-	entry := result.Entry
+	entry := artifact.Entry
 
 	outputPath, err := entry.OutputPath()
 	if err != nil {
@@ -531,14 +436,14 @@ func (p *Project) writeResult(
 		return fmt.Errorf("create dir for %s: %w", outputPath, err)
 	}
 
-	if result.Cached {
+	if artifact.Cached {
 		if err := plan.CAS.Link(entry.Hash, fullPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", outputPath, err)
 		}
 	} else {
 		tmpFile := fullPath + ".tmp"
 
-		if err := os.WriteFile(tmpFile, result.Data, 0644); err != nil {
+		if err := os.WriteFile(tmpFile, artifact.Data, 0644); err != nil {
 			return fmt.Errorf("write temp %s: %w", outputPath, err)
 		}
 
@@ -558,7 +463,7 @@ func (p *Project) writeResult(
 		OutputPath: outputPath,
 	})
 
-	plan.UpdateEntry(result.Entry.ID, func(e *BuildEntry) error {
+	plan.UpdateEntry(artifact.Entry.ID, func(e *Entry) error {
 		e.Dirty = false
 		return nil
 	})

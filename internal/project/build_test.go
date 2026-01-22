@@ -255,16 +255,13 @@ func TestBuild_BuildStats(t *testing.T) {
 	stats, err := proj.Build(ctx)
 	AssertNoError(t, err)
 
-	if stats.Duration == 0 {
-		t.Error("Expected non-zero duration")
-	}
 	if stats.PlanDuration == 0 {
 		t.Error("Expected non-zero plan duration")
 	}
 	if stats.BuildDuration == 0 {
 		t.Error("Expected non-zero build duration")
 	}
-	if stats.BytesWritten == 0 {
+	if stats.Summary.BytesWritten == 0 {
 		t.Error("Expected bytes written")
 	}
 }

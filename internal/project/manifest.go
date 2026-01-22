@@ -55,6 +55,7 @@ func LoadManifest(path string) (*Manifest, error) {
 }
 
 // Save saves the manifest to disk atomically
+// TODO refactor: abstract save file atomically
 func (m *Manifest) Save(path string) error {
 	m.entriesMu.Lock()
 	m.Updated = time.Now()

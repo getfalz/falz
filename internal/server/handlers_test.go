@@ -16,13 +16,13 @@ import (
 func assertEntryDirty(t *testing.T, plan *project.Plan, id string, shouldBeDirty bool) {
 	t.Helper()
 
-	keys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+	keys := plan.EntryKeys(func(e *project.Entry) bool {
 		return e.ID == id && e.Dirty == shouldBeDirty
 	})
 
 	if len(keys) == 0 {
 		// Entry doesn't match - find out why
-		allKeys := plan.EntryKeys(func(e *project.BuildEntry) bool {
+		allKeys := plan.EntryKeys(func(e *project.Entry) bool {
 			return e.ID == id
 		})
 
@@ -1121,7 +1121,7 @@ target_suffix: css`,
 	}
 
 	// Both content and asset entries should be marked dirty
-	contentDirty := plan.EntryKeys(func(e *project.BuildEntry) bool {
+	contentDirty := plan.EntryKeys(func(e *project.Entry) bool {
 		return e.Type == "content" && e.Dirty && e.Pipeline == "md"
 	})
 
