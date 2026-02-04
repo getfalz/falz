@@ -12,40 +12,34 @@ import (
 	"craeft/internal/pipeline"
 )
 
-// Build performs an incremental build
-func (p *Project) Build(ctx context.Context) (RunStats, error) {
-	stats := RunStats{}
-
-	planStart := time.Now()
-	plan, err := p.Plan(ctx)
-	if err != nil {
-		return stats, fmt.Errorf("generate plan: %w", err)
-	}
-
-	stats.PlanDuration = time.Since(planStart)
-
-	buildStart := time.Now()
-	stats.BuildStats, err = p.BuildFromPlan(ctx, plan)
-	stats.BuildDuration = time.Since(buildStart)
-
-	return stats, err
+type Builder interface {
+	Build(ctx context.Context, plan *Plan) (BuildStats, error)
 }
 
-// BuildFromPlan builds only dirty entries from an existing plan
-func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (BuildStats, error) {
+type builder struct {
+	config *BuildConfig
+	prj *Project
+}
+
+func NewBuilder(prj *Project, config *BuildConfig) Builder {
+	return &builder{prj: prj, config: config}
+}
+
+// Build performs an incremental build
+func (b *builder) Build(ctx context.Context, plan *Plan) (BuildStats, error) {
 	stats := BuildStats{
 		TotalEntries: len(plan.entries),
 	}
 
-	if p.Config.Build.CleanStale {
-		removed := p.cleanStaleEntries(plan)
+	if b.prj.Config.Build.CleanStale {
+		removed := b.cleanStaleEntries(plan)
 		if len(removed) > 0 {
 			log.IInfo(log.Build).Int("removed", len(removed)).Msg("cleaned stale entries")
 		}
 	}
 
 	dirtyEntries := plan.GetDirtyEntries()
-	if p.Config.Build.ForceRebuild {
+	if b.prj.Config.Build.ForceRebuild {
 		dirtyEntries = plan.GetAllEntries()
 	}
 	stats.DirtyEntries = len(dirtyEntries)
@@ -60,9 +54,9 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (BuildStats, er
 		Int("dirty", stats.DirtyEntries).
 		Msg("starting incremental build")
 
-	stats.BuildSummary = p.runBuild(ctx, plan, dirtyEntries)
+	stats.BuildSummary = b.runBuild(ctx, plan, dirtyEntries)
 
-	if err := p.Manifest.Save(filepath.Join(p.Config.OutputPath, manifestoFile)); err != nil {
+	if err := b.prj.Manifest.Save(filepath.Join(b.prj.Config.OutputPath, manifestoFile)); err != nil {
 		log.Warn(fmt.Sprintf("failed to save manifest: %v", err))
 	}
 
@@ -79,22 +73,23 @@ func (p *Project) BuildFromPlan(ctx context.Context, plan *Plan) (BuildStats, er
 		return stats, &BuildError{Errors: stats.Errors}
 	}
 	return stats, nil
+
 }
 
 // cleanStaleEntries removes outputs for deleted source files
-func (p *Project) cleanStaleEntries(plan *Plan) []string {
+func (b *builder) cleanStaleEntries(plan *Plan) []string {
 	currentIDs := make(map[string]struct{})
 	for id := range plan.entries {
 		currentIDs[id] = struct{}{}
 	}
 
-	removed := p.Manifest.CleanStale(currentIDs)
+	removed := b.prj.Manifest.CleanStale(currentIDs)
 
 	var removedIds []string
 	for _, entry := range removed {
 		removedIds = append(removedIds, entry.OutputPath)
 
-		if err := p.outputFS.Remove(entry.OutputPath); err != nil && !os.IsNotExist(err) {
+		if err := b.prj.outputFS.Remove(entry.OutputPath); err != nil && !os.IsNotExist(err) {
 			log.Warn(fmt.Sprintf("failed to remove stale output %s: %v", entry.OutputPath, err))
 		}
 	}
@@ -110,7 +105,7 @@ type buildArtifact struct {
 	Cached bool
 }
 
-func (p *Project) runBuild(
+func (b *builder) runBuild(
 	ctx context.Context,
 	plan *Plan,
 	entries []*Entry,
@@ -118,12 +113,12 @@ func (p *Project) runBuild(
 
 	metrics := &buildMetrics{}
 
-	buildChan := make(chan *Entry, p.Config.Build.Concurrency*2)
-	writeChan := make(chan *buildArtifact, p.Config.Build.Concurrency*4)
+	buildChan := make(chan *Entry, b.config.Concurrency*2)
+	writeChan := make(chan *buildArtifact, b.config.Concurrency*4)
 	errChan := make(chan error, len(entries))
 
-	buildWg := p.buildStage(ctx, buildChan, writeChan, metrics, errChan)
-	writeWg := p.writeStage(ctx, writeChan, plan, metrics, errChan)
+	buildWg := b.buildStage(ctx, buildChan, writeChan, metrics, errChan)
+	writeWg := b.writeStage(ctx, writeChan, plan, metrics, errChan)
 
 	func() {
 		defer close(buildChan)
@@ -167,7 +162,7 @@ func (p *Project) runBuild(
 }
 
 // buildStage builds all Entries it gets in the in channel, and write the output artifacts into the out channel. Any error is written to the errChan channel. It will update the given metrics
-func (p *Project) buildStage(
+func (b *builder) buildStage(
 	ctx context.Context,
 	in <-chan *Entry,
 	out chan<- *buildArtifact,
@@ -176,7 +171,7 @@ func (p *Project) buildStage(
 ) *sync.WaitGroup {
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, p.Config.Build.Concurrency)
+	sem := make(chan struct{}, b.config.Concurrency)
 
 	sendErr := func(err error) {
 		select {
@@ -210,7 +205,7 @@ func (p *Project) buildStage(
 				}
 
 				var result *buildArtifact
-				inCache := p.Config.Build.UseCAS && !p.Config.Build.ForceRebuild && p.CAS != nil && p.CAS.Has(entry.Hash)
+				inCache := b.config.UseCAS && !b.config.ForceRebuild && b.prj.CAS != nil && b.prj.CAS.Has(entry.Hash)
 
 				if inCache {
 					result = &buildArtifact{
@@ -228,13 +223,13 @@ func (p *Project) buildStage(
 					return
 				}
 
-				result = p.buildEntry(ctx, entry)
+				result = b.buildEntry(ctx, entry)
 
 				if result.Error == nil {
 					metrics.cacheMisses.Add(1)
 
-					if p.Config.Build.UseCAS && p.CAS != nil && result.Data != nil {
-						if err := p.CAS.Store(entry.Hash, result.Data); err == nil {
+					if b.config.UseCAS && b.prj.CAS != nil && result.Data != nil {
+						if err := b.prj.CAS.Store(entry.Hash, result.Data); err == nil {
 							metrics.bytesCached.Add(int64(len(result.Data)))
 						}
 					}
@@ -261,7 +256,7 @@ func (p *Project) buildStage(
 }
 
 // writeStage batches the artifacts gotten in the channel in. Whenever the batch reach a size of 10, or 100 ms are passed, artifacts are flushed to the file system
-func (p *Project) writeStage(
+func (b *builder) writeStage(
 	ctx context.Context,
 	in <-chan *buildArtifact,
 	plan *Plan,
@@ -269,7 +264,7 @@ func (p *Project) writeStage(
 	errChan chan<- error,
 ) *sync.WaitGroup {
 
-	numWorkers := min(4, max(2, p.Config.Build.Concurrency/4))
+	numWorkers := min(4, max(2, b.config.Concurrency/4))
 	var wg sync.WaitGroup
 
 	for range numWorkers {
@@ -292,13 +287,13 @@ func (p *Project) writeStage(
 			flush := func() {
 				for _, artifacts := range dirBatch {
 					for _, artifact := range artifacts {
-						if err := p.writeArtifacts(artifact); err != nil {
+						if err := b.writeArtifacts(artifact); err != nil {
 							sendErr(fmt.Errorf("write result %s: %w", artifact.Entry.ID, err))
 							continue
 						}
 
 						// outputPath is already computed in writeArtifacts
-						p.Manifest.Set(artifact.Entry.ID, ManifestEntry{
+						b.prj.Manifest.Set(artifact.Entry.ID, ManifestEntry{
 							Hash:       artifact.Entry.Hash,
 							OutputPath: artifact.Entry.outputPath,
 						})
@@ -355,7 +350,7 @@ func (p *Project) writeStage(
 // @ts type global.tCtx
 // @doc Context passed into the `transform` function.
 // @field vars: Record<string, unknown> - Variables set in the config.yaml file. Custom key/value mappings loaded from `config.yaml`. Values may include environment‑variable references (e.g. `$HOME/docs`), which will be expanded at runtime.
-func (p *Project) buildEntry(
+func (b *builder) buildEntry(
 	ctx context.Context,
 	entry *Entry,
 ) *buildArtifact {
@@ -366,9 +361,9 @@ func (p *Project) buildEntry(
 	var err error
 	switch entry.SourceRoot {
 	case "source":
-		data, err = p.SourceFS.ReadFile(filepath.ToSlash(entry.SourcePath))
+		data, err = b.prj.SourceFS.ReadFile(filepath.ToSlash(entry.SourcePath))
 	case "scheme":
-		data, err = p.SchemeFS.ReadFile(filepath.ToSlash(entry.SourcePath))
+		data, err = b.prj.SchemeFS.ReadFile(filepath.ToSlash(entry.SourcePath))
 	default:
 		result.Error = fmt.Errorf("unknown source root: %s", entry.SourceRoot)
 		return result
@@ -379,7 +374,7 @@ func (p *Project) buildEntry(
 		return result
 	}
 
-	pl, err := p.Pipes.Get(entry.Pipeline)
+	pl, err := b.prj.Pipes.Get(entry.Pipeline)
 	if err != nil {
 		result.Error = fmt.Errorf("get pipeline %s: %w", entry.Pipeline, err)
 		return result
@@ -392,7 +387,7 @@ func (p *Project) buildEntry(
 	}
 	vars := pipeline.Vars{
 		"target": outputPath,
-		"vars":   p.Config.Variables,
+		"vars":   b.prj.Config.Variables,
 	}
 
 	transformed, err := pl.Transform(ctx, data, vars)
@@ -403,7 +398,7 @@ func (p *Project) buildEntry(
 
 	// For content entries, apply layout template
 	if entry.Type == "content" && entry.Layout != nil {
-		tpl, err := p.templateForLayout(ctx, entry.LayoutKey)
+		tpl, err := b.prj.templateForLayout(ctx, entry.LayoutKey)
 		if err != nil {
 			result.Error = fmt.Errorf("get template: %w", err)
 			return result
@@ -428,7 +423,7 @@ func (p *Project) buildEntry(
 }
 
 // writeArtifacts writes the processed artifact to the file system
-func (p *Project) writeArtifacts(
+func (b *builder) writeArtifacts(
 	artifact *buildArtifact,
 ) error {
 	entry := artifact.Entry
@@ -437,14 +432,14 @@ func (p *Project) writeArtifacts(
 	if err != nil {
 		return fmt.Errorf("compute output path: %w", err)
 	}
-	fullPath := filepath.Join(p.Config.OutputPath, outputPath)
+	fullPath := filepath.Join(b.prj.Config.OutputPath, outputPath)
 
 	if err := os.MkdirAll(filepath.Dir(fullPath), 0755); err != nil {
 		return fmt.Errorf("create dir for %s: %w", outputPath, err)
 	}
 
 	if artifact.Cached {
-		if err := p.CAS.Link(entry.Hash, fullPath); err != nil {
+		if err := b.prj.CAS.Link(entry.Hash, fullPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", outputPath, err)
 		}
 	} else {

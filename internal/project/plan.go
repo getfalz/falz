@@ -163,6 +163,11 @@ type Plan struct {
 	mu sync.RWMutex
 }
 
+type Planner interface {
+	// BuildPlan(changedNodes []Node) (*Plan, error)
+	BuildAllPlan() (*Plan, error)
+}
+
 // Plan creates a new incremental build plan
 func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	start := time.Now()
