@@ -109,7 +109,7 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 					LayoutKey:  project.LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base},
 				}
 				// TODO handle ok
-				entry, _ := s.project.UpsertEntry(plan, spec)
+				entry, _ := plan.UpsertEntry(spec)
 
 				log.IInfo(log.Handler).
 					Str("id", entry.ID).
@@ -216,7 +216,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 						Pipeline:   a.Pipe,
 					}
 					// TODO handle ok
-					entry, _ := s.project.UpsertEntry(plan, spec)
+					entry, _ := plan.UpsertEntry(spec)
 
 					log.IInfo(log.Handler).
 						Str("id", entry.ID).
@@ -453,7 +453,7 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 					Pipeline:   a.Pipe,
 				}
 				// TODO handle ok
-				entry, _ := s.project.UpsertEntry(plan, spec)
+				entry, _ := plan.UpsertEntry(spec)
 
 				log.IInfo(log.Handler).
 					Str("id", entry.ID).

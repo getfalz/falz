@@ -36,6 +36,23 @@ const (
 	SourceTypeScheme SourceType = "scheme"
 )
 
+// EntrySpec is used to create or update an Entry
+type EntrySpec struct {
+	Type       EntryType
+
+	SourceRoot SourceType
+	Rel        string
+	ToTpl      string
+	BaseDir    string
+
+	Pipeline   string
+	TagName    string
+
+	Layout     *layout.Layout
+	LayoutKey  LayoutKey
+}
+
+
 // Entry represents any file to be built (content or asset)
 type Entry struct {
 	ID         string     // Unique identifier: "content/about.md" or "assets/style.css"
@@ -348,18 +365,6 @@ func (p *Plan) LayoutKeys() []LayoutKey {
 // 	return entry, nil
 // }
 
-type EntrySpec struct {
-	Type       EntryType
-	SourceRoot SourceType
-	Rel        string
-	ToTpl      string
-	BaseDir    string
-	Pipeline   string
-	TagName    string
-	Layout     *layout.Layout
-	LayoutKey  LayoutKey
-}
-
 func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full bool) (int, error) {
 	touched := 0
 	startDir := filepath.ToSlash(baseDir)
@@ -433,7 +438,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 						Layout:     lyt,
 						LayoutKey:  key,
 					}
-					if _, changed := p.UpsertEntry(plan, spec); changed {
+					if _, changed := plan.UpsertEntry(spec); changed {
 						touched++
 					}
 				}
@@ -454,7 +459,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 							ToTpl:      a.To,
 							Pipeline:   a.Pipe,
 						}
-						if _, changed := p.UpsertEntry(plan, spec); changed {
+						if _, changed := plan.UpsertEntry(spec); changed {
 							touched++
 						}
 					}
@@ -477,7 +482,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 						Pipeline:   a.Pipe,
 						ToTpl:      a.To,
 					}
-					if _, changed := p.UpsertEntry(plan, spec); changed {
+					if _, changed := plan.UpsertEntry(spec); changed {
 						touched++
 					}
 				}
@@ -489,13 +494,13 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 	return touched, err
 }
 
-func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*Entry, bool) {
+func (p *Plan) UpsertEntry(spec EntrySpec) (*Entry, bool) {
 	id := spec.Rel
 	if spec.Type == EntryTypeAsset {
 		id = fmt.Sprintf("%s:%s:%s", spec.Type, spec.SourceRoot, spec.Rel)
 	}
 
-	if entry, ok := plan.Entry(id); ok {
+	if entry, ok := p.Entry(id); ok {
 		structChanged := false
 
 		if entry.Type != spec.Type ||
@@ -546,7 +551,7 @@ func (p *Project) UpsertEntry(plan *Plan, spec EntrySpec) (*Entry, bool) {
 	}
 
 	entry.Dirty = true
-	plan.AddEntry(entry.ID, entry)
+	p.AddEntry(entry.ID, entry)
 	return entry, true
 }
 
