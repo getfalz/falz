@@ -1,7 +1,6 @@
 package project
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"path"
@@ -10,12 +9,9 @@ import (
 	"sync"
 	"time"
 
-	"craeft/internal/layout"
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
 	"craeft/internal/utils"
-
-	"github.com/valyala/fasttemplate"
 )
 
 var (
@@ -33,12 +29,9 @@ type Project struct {
 	SchemeFS *utils.RootFS
 	outputFS *utils.RootFS
 
-	Layouts *LayoutCache
+	Layouts LayoutRegistry
 
-	parsedOnce sync.Once
-	parsedMu   sync.RWMutex
-	parsed     map[string]parsedLayoutEntry
-	Pipes      *pipeline.Registry
+	Pipes *pipeline.Registry
 
 	currentPlanMu sync.Mutex
 	currentPlan   *Plan
@@ -111,37 +104,19 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
+	layoutCache := NewLayoutCache(schemeRoot, reg, config.Layout)
+
 	return &Project{
 		Config:   config,
 		Pipes:    reg,
-		Layouts:  NewLayoutCache(),
+		Layouts:  layoutCache,
 		SourceFS: sourceRoot,
 		SchemeFS: schemeRoot,
 		outputFS: outputRoot,
 
-		CAS: cas,
+		CAS:      cas,
 		Manifest: manifest,
 	}, nil
-}
-
-func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fasttemplate.Template, error) {
-	lmap, err := p.GetLayouts(key.BaseDir)
-	if err != nil {
-		return nil, err
-	}
-	keyPath := filepath.ToSlash(key.RelLayoutPath)
-	lyt, ok := lmap[keyPath]
-
-	if !ok || lyt == nil {
-		return nil, fmt.Errorf("layout not found for %+v", key)
-	}
-
-	log.DDebug(log.Layout).
-		Str("layout", lyt.Path()).
-		Str("key_base", key.BaseDir).
-		Str("key_rel", key.RelLayoutPath).
-		Msg("template for layout")
-	return p.Layouts.GetOrBuild(ctx, p.SchemeFS, key, lyt)
 }
 
 func (p *Project) IgnoreFile(name string) bool {
@@ -179,181 +154,6 @@ func (p *Project) IgnoreFile(name string) bool {
 		}
 	}
 	return false
-}
-
-type parsedLayoutEntry struct {
-	lyt   *layout.Layout
-	size  int64
-	mtime time.Time
-}
-
-func (p *Project) ensureParsedCache() {
-	p.parsedMu.Lock()
-	defer p.parsedMu.Unlock()
-	p.parsedOnce.Do(func() {
-		if p.parsed == nil {
-			p.parsed = make(map[string]parsedLayoutEntry)
-		}
-	})
-}
-
-// GetLayouts returns all layouts for a given path
-func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
-	p.ensureParsedCache()
-
-	matches, err := p.SchemeFS.FindFile(base, p.Config.Layout)
-	if err != nil {
-		return nil, fmt.Errorf("cannot find layout for path %q: %w", base, err)
-	}
-
-	out := make(map[string]*layout.Layout, len(matches))
-	var errs []error
-	for _, rel := range matches {
-		relSlash := filepath.ToSlash(rel)
-
-		lyt, err := p.loadLayout(relSlash)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("load layout %s: %w", relSlash, err))
-			continue
-		}
-
-		out[relSlash] = lyt
-
-	}
-
-	return out, errors.Join(errs...)
-}
-
-func (p *Project) loadLayout(path string) (*layout.Layout, error) {
-
-	fi, err := p.SchemeFS.Stat(path)
-	if err != nil {
-		return nil, fmt.Errorf("stat layout file %q: %w", path, err)
-	}
-	size, mtime := fi.Size(), fi.ModTime()
-
-	p.parsedMu.RLock()
-	e, ok := p.parsed[path]
-	p.parsedMu.RUnlock()
-
-	if ok && e.size == size && e.mtime.Equal(mtime) {
-		return e.lyt, nil
-	}
-
-	b, err := p.SchemeFS.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read layout file %q: %w", path, err)
-	}
-
-	lyt, err := layout.Parse(p.SchemeFS, path, b, p.Pipes, p.Config.FsWatcher.HotReload)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse layout file %q: %w", path, err)
-	}
-
-	p.parsedMu.Lock()
-	p.parsed[lyt.Path()] = parsedLayoutEntry{lyt: lyt, size: size, mtime: mtime}
-	p.parsedMu.Unlock()
-
-	log.DDebug(log.Layout).
-		Str("path", path).
-		Int("contents", len(lyt.Contents())).
-		Int("fragments", len(lyt.Fragments())).
-		Msg("layout loaded")
-
-	return lyt, nil
-}
-
-// getLayoutsForDir checks if a specific directory has its own layout
-func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error) {
-	p.ensureParsedCache()
-
-	glob := filepath.Join(dir, p.Config.Layout)
-	glob = filepath.ToSlash(glob)
-	matches, err := p.SchemeFS.Glob(glob)
-
-	if err != nil {
-		return nil, fmt.Errorf("glob %q: %w", glob, err)
-	} else if len(matches) == 0 {
-		return nil, fmt.Errorf("layout no found in dir %s", dir)
-	}
-
-	out := make(map[string]*layout.Layout, len(matches))
-	for _, rel := range matches {
-		relSlash := filepath.ToSlash(rel)
-
-		lyt, err := p.loadLayout(relSlash)
-		if err != nil {
-			return nil, err
-		}
-
-		out[relSlash] = lyt
-
-	}
-
-	return out, nil
-}
-
-func (p *Project) warmUpLayoutsByKeys(ctx context.Context, keys []LayoutKey) error {
-	if len(keys) == 0 {
-		return nil
-	}
-	var errs []error
-
-	for _, k := range keys {
-		lyt, err := p.loadLayout(k.RelLayoutPath)
-		if err != nil || lyt == nil {
-			errs = append(errs, fmt.Errorf("load layout %s: %w", k.RelLayoutPath, err))
-			continue
-		}
-
-		if _, err := p.Layouts.GetOrBuild(ctx, p.SchemeFS, k, lyt); err != nil {
-			errs = append(errs, fmt.Errorf("build layout %s: %w", k.RelLayoutPath, err))
-			continue
-		}
-	}
-	return errors.Join(errs...)
-}
-func (p *Project) InvalidateLayouts(ctx context.Context, plan *Plan, layoutKeys []LayoutKey, rescan bool) error {
-	if len(layoutKeys) == 0 {
-		return nil
-	}
-
-	var errs []error
-	seenKey := make(map[LayoutKey]struct{}, len(layoutKeys))
-	keys := make([]LayoutKey, 0, len(layoutKeys))
-
-	for _, k := range layoutKeys {
-		if _, ok := seenKey[k]; !ok {
-			seenKey[k] = struct{}{}
-
-			keys = append(keys, k)
-			p.Layouts.InvalidateByKey(k)
-		}
-	}
-
-	// if err := p.warmUpLayoutsByKeys(ctx, keys); err != nil {
-	// 	return fmt.Errorf("warmup layouts: %w", err)
-	// }
-
-	if rescan {
-		seenBase := make(map[string]struct{})
-		for _, key := range keys {
-			if _, ok := seenBase[key.BaseDir]; !ok {
-				seenBase[key.BaseDir] = struct{}{}
-
-				if _, err := p.Scan(ctx, plan, key.BaseDir, false); err != nil {
-					errs = append(errs, fmt.Errorf("scan after layout invalidation for base %q: %w", key.BaseDir, err))
-					continue
-				}
-			}
-		}
-		if _, err := p.HashDirty(ctx, plan); err != nil {
-			return fmt.Errorf("hash dirty after layout invalidation: %w", err)
-		}
-	} else {
-		plan.MarkDirtyByLayoutKeys(keys)
-	}
-	return errors.Join(errs...)
 }
 
 func (p *Project) CurrentPlan() (*Plan, error) {

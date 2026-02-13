@@ -66,6 +66,7 @@ const (
 	Server
 	Handler
 	CAS
+	DEPRECATE
 )
 
 var tagLabels = map[TagKey]string{
@@ -83,6 +84,7 @@ var tagLabels = map[TagKey]string{
 	Server:   "server",
 	Handler:  "Handler",
 	CAS:  "CAS",
+	DEPRECATE: "DEPRECATE",
 }
 
 func (tk TagKey) String() string {

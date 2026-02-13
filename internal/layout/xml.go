@@ -3,16 +3,10 @@ package layout
 import (
 	"encoding/xml"
 	"io"
-
-	"craeft/internal/log"
-	"craeft/internal/pipeline"
-	"craeft/internal/utils"
 )
 
 type Layout struct {
 	path         string
-	pipelines    *pipeline.Registry
-	root         *utils.RootFS
 	useHotReload bool
 
 	// Children
@@ -27,14 +21,12 @@ type Layout struct {
 }
 
 type Fragment struct {
-	pipeline pipeline.PipelineScript
-	root     *utils.RootFS
-
 	// XML
 	XMLName xml.Name `xml:"Fragment"`
 	Name    string   `xml:"name,attr"`
 	Source  string   `xml:"src,attr"`
 	Pipe    string   `xml:"pipe,attr"`
+	base    string
 }
 
 type Content struct {
@@ -48,8 +40,6 @@ type Content struct {
 }
 
 type Asset struct {
-	pipeline pipeline.PipelineScript
-
 	// XML
 	XMLName xml.Name `xml:"Asset"`
 	Name    string   `xml:"name,attr"`
@@ -89,15 +79,6 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := a.Validate(); err != nil {
 					return err
 				}
-				a.pipeline, err = l.pipelines.Get(a.Pipe)
-				if err != nil {
-					log.FFatal(log.Layout).
-						Str("where", "layout.asset").
-						Str("type", a.Pipe).
-						Str("name", a.Name).
-						Err(err).Msg("pipeline not found for asset")
-
-				}
 				l.assets = append(l.assets, a)
 			case "Fragment":
 				var f Fragment
@@ -107,17 +88,8 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				if err := f.Validate(); err != nil {
 					return err
 				}
-				p, err := l.pipelines.Get(f.Pipe)
-				if err != nil {
-					log.FFatal(log.Layout).
-						Str("where", "layout.fragment").
-						Str("pipe", f.Pipe).
-						Str("name", f.Name).
-						Err(err).Msg("pipeline not found for fragment")
-				}
 
-				f.pipeline = p
-				f.root = l.root
+				f.base = l.path
 				l.fragments = append(l.fragments, f)
 			case "Content":
 				var c Content
@@ -126,18 +98,6 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				if err := c.Validate(); err != nil {
 					return err
-				}
-				// initialize assets pipelines
-				for i, a := range c.assetElms {
-					p, err := l.pipelines.Get(a.Pipe)
-					if err != nil {
-						log.FFatal(log.Layout).
-							Str("where", "layout.content.asset").
-							Str("type", a.Pipe).
-							Str("name", a.Name).
-							Err(err).Msg("pipeline not found for content asset")
-					}
-					c.assetElms[i].pipeline = p
 				}
 				l.contents = append(l.contents, c)
 			}

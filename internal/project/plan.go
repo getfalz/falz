@@ -185,9 +185,6 @@ func (p *Project) Plan(ctx context.Context) (*Plan, error) {
 	}
 
 	keys := plan.LayoutKeys()
-	if err := p.warmUpLayoutsByKeys(ctx, keys); err != nil {
-		return nil, fmt.Errorf("warmup layouts: %w", err)
-	}
 
 	// if err := plan.computeHashes(ctx, p); err != nil {
 	// 	return nil, fmt.Errorf("compute hashes: %w", err)

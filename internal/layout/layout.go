@@ -36,38 +36,47 @@ const wsClient string = `
 
 `
 
-func (f *Fragment) Render(ctx context.Context, renderPath string) (string, string, error) {
-	files, err := f.root.FindFile(renderPath, f.Source)
+type RenderCtx struct {
+	Pipelines *pipeline.Registry
+	FS        *utils.RootFS
+}
+
+func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) (string, string, error) {
+	files, err := rctx.FS.FindFile(f.base, f.Source)
 	if err != nil {
 		return "", "", err
 	}
 
-	fragment := filepath.ToSlash(files[0])
+	fragmentPath := filepath.ToSlash(files[0])
 	log.TTrace(log.Layout).
 		Str("fragment", f.Name).
 		Str("src", f.Source).
-		Str("file", fragment).Msg("fragment: resolved")
+		Str("file", fragmentPath).Msg("fragment: resolved")
 
-	content, err := fs.ReadFile(f.root.FS(), fragment)
+	content, err := fs.ReadFile(rctx.FS.FS(), fragmentPath)
 	if err != nil {
-		return "", "", fmt.Errorf("can't read fragment %s: %w", fragment, err)
+		return "", "", fmt.Errorf("fragment %q: can't read file %q: %w", f.Name, fragmentPath, err)
 	}
 
 	vars := pipeline.Vars{}
+	pipe, err := rctx.Pipelines.Get(f.Pipe)
+	if err != nil {
+		return "", "", fmt.Errorf("fragment %q: pipe %q not found: %w", f.Name, pipe.Config().PipelineName, err)
+	}
 	// TODO set vars
 	// vars.Set("vars", t.P.Config.Variables)
 	// vars.Set("assets", f.)
-	result, err := f.pipeline.Transform(ctx, content, vars)
+	result, err := pipe.Transform(ctx, content, vars)
 	if err != nil {
-		return "", "", fmt.Errorf("pipeline %s: %w", f.pipeline.Config().PipelineName, err)
+		return "", "", fmt.Errorf("fragment %q: pipe %q couldn't transform: %w", f.Name, pipe.Config().PipelineName, err)
 	}
 
 	log.DDebug(log.Layout).
 		Str("fragment", f.Name).
-		Str("src", fragment).
+		Str("src", fragmentPath).
 		Msg("fragment rendered")
 
-	return result, fragment, nil
+	return result, fragmentPath, nil
 }
 
 func (c Content) Render(ctx context.Context) string {
@@ -75,7 +84,7 @@ func (c Content) Render(ctx context.Context) string {
 }
 
 // Render layout. The fragments will be searched first in the given base path
-func (l *Layout) Render(ctx context.Context, base string, schemeRoot *utils.RootFS) (rendered string, deps []string, err error) {
+func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rendered string, deps []string, err error) {
 
 	log.TTrace(log.Layout).
 		Str("layout_rel", l.path).
@@ -97,22 +106,22 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *utils.Root
 			Int("inline_len", len(tmpl)).
 			Msg("using inline layout template")
 	} else {
-		tplPaths, err := l.root.FindFile(base, l.tplPath)
+		tplPaths, err := rctx.FS.FindFile(base, l.tplPath)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: find template with base=%q tplPath=%q: %w", l.path, base, l.tplPath, err)
+			return "", nil, fmt.Errorf("layout %q: find template with base %q and path %q: %w", l.path, base, l.tplPath, err)
 		}
 
-		p := filepath.ToSlash(tplPaths[0])
-		tplFile, err := fs.ReadFile(schemeRoot.FS(), p)
+		tplPath := filepath.ToSlash(tplPaths[0])
+		tplFile, err := fs.ReadFile(rctx.FS.FS(), tplPath)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: read template file %q: %w", l.path, p, err)
+			return "", nil, fmt.Errorf("layout %q: read template file %q: %w", l.path, tplPath, err)
 		}
 		tmpl = tplFile
-		deps = append(deps, p)
+		deps = append(deps, tplPath)
 
 		log.DDebug(log.Layout).
 			Str("layout_rel", l.path).
-			Str("tpl_file", p).
+			Str("tpl_file", tplPath).
 			Int("bytes", len(tmpl)).
 			Msg("loaded layout template file")
 	}
@@ -124,9 +133,9 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *utils.Root
 	}
 
 	for _, f := range l.fragments {
-		output, fragmentPath, err := f.Render(ctx, l.path)
+		output, fragmentPath, err := f.Render(ctx, rctx)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: render fragment name=%q src=%q: %w", l.path, f.Name, f.Source, err)
+			return "", nil, fmt.Errorf("layout %q: render fragment %q with src %q: %w", l.path, f.Name, f.Source, err)
 		}
 		tplVariables[f.Name] = output
 		deps = append(deps, fragmentPath)
@@ -154,7 +163,7 @@ func (l *Layout) Render(ctx context.Context, base string, schemeRoot *utils.Root
 	// builds layout and repace placeholders for fragments
 	t, err := fasttemplate.NewTemplate(string(tmpl), "{{", "}}")
 	if err != nil {
-		return "", nil, fmt.Errorf("layout %q: parse template text (len=%d): %w", l.path, len(tmpl), err)
+		return "", nil, fmt.Errorf("layout %q: parse template: %w", l.path, err)
 	}
 	result := t.ExecuteString(tplVariables)
 
@@ -267,14 +276,12 @@ func normalizeRelFile(p string) string {
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
-func Parse(base *utils.RootFS, path string, data []byte, pipeReg *pipeline.Registry, useHotReload bool) (*Layout, error) {
+func Parse(path string, data []byte, useHotReload bool) (*Layout, error) {
 
 	relPath := normalizeRelFile(path)
 
 	l := &Layout{
-		root:         base,
 		path:         relPath,
-		pipelines:    pipeReg,
 		useHotReload: useHotReload,
 	}
 	err := xml.Unmarshal(data, l)

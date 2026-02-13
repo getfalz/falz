@@ -2,12 +2,15 @@ package project
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"sync"
 	"time"
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
+	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
 	"github.com/valyala/fasttemplate"
@@ -19,87 +22,76 @@ type LayoutKey struct {
 	BaseDir       string
 }
 
-type assetKey struct {
-	From string
-	Pipe string
-	Rel  string
-}
-
 type LayoutCacheEntry struct {
-	tpl  *fasttemplate.Template
-	deps []string
+	compiled CompiledLayout
+	mtime    time.Time
+	size     int64
+	deps     []string
 }
 
-type depIndex map[LayoutKey]struct{}
+type LayoutRegistry interface {
+	Get(ctx context.Context, key LayoutKey) (CompiledLayout, error)
+	Invalidate(key LayoutKey)
+	LayoutsForDir(ctx context.Context, path string, search bool) (map[string]CompiledLayout, error)
+}
+
+type CompiledLayout interface {
+	ExecuteString(m map[string]interface{}) string
+}
 
 type LayoutCache struct {
-	mu      sync.RWMutex
-	data    map[LayoutKey]LayoutCacheEntry
-	reverse map[string]depIndex
-	sf      singleflight.Group
+	mu        sync.RWMutex
+	data      map[LayoutKey]LayoutCacheEntry
+	fs        *utils.RootFS
+	sf        singleflight.Group
+	pipelines *pipeline.Registry
+
+	namePattern string
 }
 
-func NewLayoutCache() *LayoutCache {
+func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern string) LayoutRegistry {
 	log.DDebug(log.Layout).Msg("layout cache initialized")
 	return &LayoutCache{
-		data:    make(map[LayoutKey]LayoutCacheEntry),
-		reverse: make(map[string]depIndex),
+		data:        make(map[LayoutKey]LayoutCacheEntry),
+		fs:          fs,
+		pipelines:   pipes,
+		namePattern: namePattern,
 	}
 }
 
-func (lc *LayoutCache) GetOrBuild(
-	ctx context.Context,
-	schemeRoot *utils.RootFS,
-	key LayoutKey,
-	lyt *layout.Layout,
-) (*fasttemplate.Template, error) {
+func (p *Project) templateForLayout(ctx context.Context, key LayoutKey) (*fasttemplate.Template, error) {
+	log.WWarn(log.DEPRECATE).Msg("templateForLayout -> GetLayout")
 
-	if tpl := lc.get(key); tpl != nil {
+	return nil, nil
+}
+
+func (lc *LayoutCache) Get(
+	ctx context.Context,
+	key LayoutKey,
+) (CompiledLayout, error) {
+
+	if tpl := lc.getCached(key); tpl != nil {
 		return tpl, nil
 	}
 
-	start := time.Now()
 	log.DDebug(log.Layout).
 		Str("rel_layout", key.RelLayoutPath).
 		Str("base_dir", key.BaseDir).
-		Int("fragments", len(lyt.Fragments())).
 		Msg("cache miss; building template")
 
+	start := time.Now()
 	v, err, _ := lc.sf.Do(key.RelLayoutPath+"|"+key.BaseDir, func() (any, error) {
-		if tpl := lc.get(key); tpl != nil {
+		if tpl := lc.getCached(key); tpl != nil {
 			return tpl, nil
 		}
 
-		str, deps, err := lyt.Render(ctx, key.BaseDir, schemeRoot)
+		tpl, err := lc.compile(ctx, key)
 		if err != nil {
 			return nil, err
 		}
-
-		tpl, err := fasttemplate.NewTemplate(str, "{{", "}}")
-		if err != nil {
-			return nil, err
-		}
-
-		lc.mu.Lock()
-		lc.data[key] = LayoutCacheEntry{
-			tpl:  tpl,
-			deps: deps,
-		}
-
-		for _, d := range deps {
-			d = filepath.ToSlash(d)
-			m := lc.reverse[d]
-			if m == nil {
-				m = depIndex{}
-				lc.reverse[d] = m
-			}
-			m[key] = struct{}{}
-		}
-		lc.mu.Unlock()
 
 		log.DDebug(log.Layout).
 			Str("rel_layout", key.RelLayoutPath).
-			Int("deps", len(deps)).
 			Dur("duration", time.Since(start)).
 			Msg("template built and cached")
 
@@ -111,120 +103,131 @@ func (lc *LayoutCache) GetOrBuild(
 	return v.(*fasttemplate.Template), nil
 }
 
-func (lc *LayoutCache) get(k LayoutKey) *fasttemplate.Template {
-	lc.mu.RLock()
-	e, ok := lc.data[k]
-	lc.mu.RUnlock()
-	if ok {
-		return e.tpl
+func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (CompiledLayout, error) {
+
+	// TODO check: previously was key.RelLayoutPath used
+	layoutPath := filepath.Join(key.BaseDir, key.RelLayoutPath)
+	b, err := lc.fs.ReadFile(layoutPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read layout file %q: %w", layoutPath, err)
 	}
-	return nil
-}
 
-func (lc *LayoutCache) GetDeps(k LayoutKey) ([]string, bool) {
-	lc.mu.RLock()
-	e, ok := lc.data[k]
-	lc.mu.RUnlock()
-	if !ok {
-		return nil, false
+	// TODO set correct value
+	lyt, err := layout.Parse(key.RelLayoutPath, b /*p.Config.FsWatcher.HotReload*/, true)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse layout file %q: %w", layoutPath, err)
 	}
-	deps := make([]string, len(e.deps))
-	copy(deps, e.deps)
-	return deps, true
-}
 
-// (e.g., fragment) in the cache. It does not mutate state.
-func (lc *LayoutCache) HasDep(path string) bool {
-	p := filepath.ToSlash(path)
-	lc.mu.RLock()
-	_, ok := lc.reverse[p]
-	lc.mu.RUnlock()
-	return ok
-}
+	rctx := layout.RenderCtx{
+		Pipelines: lc.pipelines,
+		FS:        lc.fs,
+	}
+	str, deps, err := lyt.Render(ctx, rctx, key.BaseDir)
+	if err != nil {
+		return nil, err
+	}
 
-func (lc *LayoutCache) InvalidateAndGetAffected(paths ...string) []LayoutKey {
+	tpl, err := fasttemplate.NewTemplate(str, "{{", "}}")
+	if err != nil {
+		return nil, err
+	}
+
+	fi, err := lc.fs.Stat(layoutPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to stat layout file %q: %w", layoutPath, err)
+	}
+
 	lc.mu.Lock()
-	defer lc.mu.Unlock()
-
-	start := time.Now()
-
-	keysToInvalidate := make(map[LayoutKey]struct{})
-	var keysRemoved, reverseBucketsCleared int
-
-	for _, p := range paths {
-		p = filepath.ToSlash(p)
-		for k := range lc.reverse[p] {
-			keysToInvalidate[k] = struct{}{}
-		}
+	lc.data[key] = LayoutCacheEntry{
+		compiled: tpl,
+		deps:     deps,
+		mtime:    fi.ModTime(),
+		size:     fi.Size(),
 	}
-
-	depsToClean := make(map[string]struct{})
-	for k := range keysToInvalidate {
-		if entry, ok := lc.data[k]; ok {
-			for _, dep := range entry.deps {
-				depsToClean[dep] = struct{}{}
-			}
-			delete(lc.data, k)
-			keysRemoved++
-		}
-	}
-
-	for dep := range depsToClean {
-		idx := lc.reverse[dep]
-		for k := range keysToInvalidate {
-			delete(idx, k)
-		}
-		if len(idx) == 0 {
-			delete(lc.reverse, dep)
-			reverseBucketsCleared++
-		}
-	}
-
-	for _, p := range paths {
-		delete(lc.reverse, filepath.ToSlash(p))
-	}
-
-	out := make([]LayoutKey, 0, len(keysToInvalidate))
-	for k := range keysToInvalidate {
-		out = append(out, k)
-	}
+	lc.mu.Unlock()
 
 	log.DDebug(log.Layout).
-		Int("paths", len(paths)).
-		Int("affected_keys", len(out)).
-		Int("keys_removed", keysRemoved).
-		Int("reverse_buckets_cleared", reverseBucketsCleared).
-		Dur("duration", time.Since(start)).
-		Msg("cache invalidated")
+		Str("path", layoutPath).
+		Int("contents", len(lyt.Contents())).
+		Int("fragments", len(lyt.Fragments())).
+		Msg("layout compiled")
 
-	return out
+	return tpl, nil
 }
 
-func (lc *LayoutCache) InvalidateByKey(key LayoutKey) {
+// GetLayouts returns all layouts for a given path
+func (p *Project) GetLayouts(base string) (map[string]*layout.Layout, error) {
+	log.WWarn(log.DEPRECATE).Msg("GetLayouts -> LayoutsForDir(true)")
+
+	return nil, nil
+}
+
+// getLayoutsForDir checks if a specific directory has its own layout
+func (p *Project) getLayoutsForDir(dir string) (map[string]*layout.Layout, error) {
+	log.WWarn(log.DEPRECATE).Msg("getLayoutsForDir -> LayoutsForDir(false)")
+	return nil, nil
+}
+
+func (lc *LayoutCache) LayoutsForDir(ctx context.Context, path string, search bool) (map[string]CompiledLayout, error) {
+	matches, err := lc.fs.FindFile(path, lc.namePattern)
+	if err != nil {
+		return nil, fmt.Errorf("cannot find layout for path %q: %w", path, err)
+	}
+
+	out := make(map[string]CompiledLayout, len(matches))
+	var errs []error
+	for _, rel := range matches {
+		relSlash := filepath.ToSlash(rel)
+
+		lyt, err := lc.Get(ctx, LayoutKey{
+			RelLayoutPath: relSlash,
+			BaseDir:       path,
+		})
+		if err != nil {
+			if search {
+				errs = append(errs, fmt.Errorf("load layout %s: %w", relSlash, err))
+				continue
+			} else {
+				return nil, fmt.Errorf("load layout %s: %w", relSlash, err)
+			}
+		}
+
+		out[relSlash] = lyt
+
+	}
+
+	return out, errors.Join(errs...)
+}
+
+func (lc *LayoutCache) getCached(key LayoutKey) CompiledLayout {
+	lc.mu.RLock()
+	entry, exists := lc.data[key]
+	lc.mu.RUnlock()
+
+	if !exists {
+		return nil
+	}
+
+	fi, err := lc.fs.Stat(filepath.Join(key.BaseDir, key.RelLayoutPath))
+	if err != nil {
+		return nil
+	}
+
+	if entry.size != fi.Size() && !entry.mtime.Equal(fi.ModTime()) {
+		return nil
+	}
+
+	return entry.compiled
+}
+
+func (lc *LayoutCache) Invalidate(key LayoutKey) {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
 
-	entry, ok := lc.data[key]
-	if !ok {
-		return
-	}
-
-	// Remove from data
 	delete(lc.data, key)
-
-	// Clean up reverse index
-	for _, dep := range entry.deps {
-		if idx, ok := lc.reverse[dep]; ok {
-			delete(idx, key)
-			if len(idx) == 0 {
-				delete(lc.reverse, dep)
-			}
-		}
-	}
 
 	log.DDebug(log.Layout).
 		Str("rel_layout", key.RelLayoutPath).
 		Str("base_dir", key.BaseDir).
-		Int("deps", len(entry.deps)).
 		Msg("layout key invalidated")
 }
