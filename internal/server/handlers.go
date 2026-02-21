@@ -72,8 +72,8 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 
 		for _, lyt := range lmap {
 			key := project.LayoutKey{
-				RelLayoutPath: lyt.Path(),
-				BaseDir:       base,
+				CtxPath: lyt.Path(),
+				LayoutPath:       base,
 			}
 
 			for _, cc := range lyt.Contents() {
@@ -106,14 +106,14 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 					TagName:    cc.Name,
 					ToTpl:      cc.To,
 					Layout:     lyt,
-					LayoutKey:  project.LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base},
+					LayoutKey:  project.LayoutKey{CtxPath: lyt.Path(), LayoutPath: base},
 				}
 				// TODO handle ok
 				entry, _ := plan.UpsertEntry(spec)
 
 				log.IInfo(log.Handler).
 					Str("id", entry.ID).
-					Str("layout", key.RelLayoutPath).
+					Str("layout", key.CtxPath).
 					Msg("new content added to plan")
 			}
 		}
@@ -259,7 +259,7 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 
 		affectedKeys := plan.EntryKeys(func(e *project.Entry) bool {
 			return e.Type == "content" &&
-				filepath.ToSlash(e.LayoutKey.RelLayoutPath) == filepath.ToSlash(path)
+				filepath.ToSlash(e.LayoutKey.CtxPath) == filepath.ToSlash(path)
 		})
 
 		for _, entryID := range affectedKeys {

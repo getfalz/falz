@@ -540,8 +540,8 @@ target_suffix: html`,
 	server := newTestServer(t, proj)
 
 	layoutKey := project.LayoutKey{
-		RelLayoutPath: "layout.xml",
-		BaseDir:       ".",
+		CtxPath: "layout.xml",
+		LayoutPath:       ".",
 	}
 
 	initialDeps, ok := proj.Layouts.GetDeps(layoutKey)

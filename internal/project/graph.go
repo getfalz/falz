@@ -22,6 +22,7 @@ const (
 
 type BuildEntry struct {
 	ID         string     // Unique identifier: "content/about.md" or "assets/style.css"
+	// TODO simplify fields: ID, type. source from type
 	Type       EntryType  // "content" or "asset"
 	SourceRoot SourceType // Source root: "source" or "scheme"
 	SourcePath string     // Source file path
@@ -38,13 +39,7 @@ type BuildEntry struct {
 	Error error // Build error if any
 }
 
-// DependencyGraph manages the build dependency graph and entry storage.
-// It serves as the single source of truth for all build entities and their relationships.
-//
-// The graph is thread-safe and supports concurrent operations.
-// All entry modifications should go through UpdateEntry to ensure proper locking.
 type DependencyGraph interface {
-	// Node operations
 	AddNode(node Node)
 	RemoveNode(node Node)
 	GetNode(id string) (Node, bool)
@@ -60,17 +55,14 @@ type DependencyGraph interface {
 	MarkAllDirty() error
 	ClearDirty() error
 
-	// Edge operations
 	AddEdge(dependent Node, dependency Node)
 	RemoveEdgesFrom(node Node)
 	RemoveEdgesTo(node Node)
 
-	// Traversal operations
 	DependentsOf(node Node) []Node
 	DependenciesOf(node Node) []Node
 	AffectedBy(node Node) []Node
 
-	// Utility
 	Clear()
 }
 
@@ -98,7 +90,7 @@ func NewLayoutNode(key LayoutKey) *LayoutNode {
 }
 
 func (n *LayoutNode) ID() string {
-	return fmt.Sprintf("layout:%s:%s", n.key.BaseDir, n.key.RelLayoutPath)
+	return fmt.Sprintf("layout:%s:%s", n.key.LayoutPath, n.key.CtxPath)
 }
 func (n *LayoutNode) Kind() NodeKind { return NodeKindLayout }
 func (n *LayoutNode) Key() LayoutKey { return n.key }

@@ -419,7 +419,7 @@ func (p *Project) Scan(ctx context.Context, plan *Plan, baseDir string, full boo
 
 		// For each layout at this directory, enumerate contents + assets
 		for _, lyt := range lmap {
-			key := LayoutKey{RelLayoutPath: lyt.Path(), BaseDir: base}
+			key := LayoutKey{CtxPath: lyt.Path(), LayoutPath: base}
 
 			// Contents
 			for _, cc := range lyt.Contents() {
@@ -546,7 +546,7 @@ func (p *Plan) UpsertEntry(spec EntrySpec) (*Entry, bool) {
 	}
 
 	if spec.Type == "content" && spec.Layout != nil {
-		key := LayoutKey{RelLayoutPath: spec.Layout.Path(), BaseDir: spec.BaseDir}
+		key := LayoutKey{CtxPath: spec.Layout.Path(), LayoutPath: spec.BaseDir}
 
 		entry.Layout = spec.Layout
 		entry.LayoutKey = key

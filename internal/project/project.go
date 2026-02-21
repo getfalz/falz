@@ -3,9 +3,7 @@ package project
 import (
 	"errors"
 	"fmt"
-	"path"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -25,10 +23,7 @@ var (
 type Project struct {
 	Config *CraeftConfig
 
-	SourceFS *utils.RootFS
-	SchemeFS *utils.RootFS
-	outputFS *utils.RootFS
-
+	FS      FSRegistry
 	Layouts LayoutRegistry
 
 	Pipes *pipeline.Registry
@@ -38,6 +33,68 @@ type Project struct {
 
 	Manifest *Manifest
 	CAS      *CAS
+}
+
+type FSRegistry struct {
+	source *utils.RootFS
+	scheme *utils.RootFS
+	output *utils.RootFS
+}
+
+func NewFSRegistry(source, scheme, output string) (*FSRegistry, error) {
+	sourceRoot, err := utils.NewRootFs(source)
+	if err != nil {
+		return nil, fmt.Errorf("source root fs: %w", err)
+	}
+
+	schemeRoot, err := utils.NewRootFs(scheme)
+	if err != nil {
+		_ = sourceRoot.Close()
+		return nil, fmt.Errorf("scheme root fs: %w", err)
+	}
+	outputRoot, err := utils.NewRootFs(output)
+	if err != nil {
+		_ = sourceRoot.Close()
+		_ = schemeRoot.Close()
+		return nil, fmt.Errorf("output root fs: %w", err)
+	}
+
+	return &FSRegistry{
+		source: sourceRoot,
+		scheme: schemeRoot,
+		output: outputRoot,
+	}, nil
+}
+func (r *FSRegistry) Get(name string) (*utils.RootFS, error) {
+	switch name {
+	case "source":
+		return r.source, nil
+	case "scheme":
+		return r.scheme, nil
+	case "output":
+		return r.output, nil
+	default:
+		return nil, fmt.Errorf("unknown fs: %s", name)
+	}
+}
+
+func (r *FSRegistry) Source() *utils.RootFS { return r.source }
+func (r *FSRegistry) Scheme() *utils.RootFS { return r.scheme }
+func (r *FSRegistry) Output() *utils.RootFS { return r.output }
+
+func (r *FSRegistry) Close()  error {
+	var err error
+	if e := r.source.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+	if e := r.scheme.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+	if e := r.output.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+
+	return err
 }
 
 func New(config *CraeftConfig) (*Project, error) {
@@ -50,21 +107,9 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
-	sourceRoot, err := utils.NewRootFs(config.SourcePath)
+	fs, err := NewFSRegistry(config.SourcePath, config.SchemePath, config.OutputPath)
 	if err != nil {
-		return nil, fmt.Errorf("source root fs: %w", err)
-	}
-
-	schemeRoot, err := utils.NewRootFs(config.SchemePath)
-	if err != nil {
-		_ = sourceRoot.Close()
-		return nil, fmt.Errorf("scheme root fs: %w", err)
-	}
-	outputRoot, err := utils.NewRootFs(config.OutputPath)
-	if err != nil {
-		_ = sourceRoot.Close()
-		_ = schemeRoot.Close()
-		return nil, fmt.Errorf("output root fs: %w", err)
+		return nil, err
 	}
 
 	outAbs, _ := filepath.Abs(config.OutputPath)
@@ -98,62 +143,21 @@ func New(config *CraeftConfig) (*Project, error) {
 		PoolSize:        config.Build.Concurrency,
 	})
 	if err := reg.LoadAll(); err != nil {
-		_ = sourceRoot.Close()
-		_ = schemeRoot.Close()
-		_ = outputRoot.Close()
+		fs.Close()
 		return nil, err
 	}
 
-	layoutCache := NewLayoutCache(schemeRoot, reg, config.Layout)
+	layoutCache := NewLayoutCache(fs.scheme, reg, config.Layout)
 
 	return &Project{
 		Config:   config,
 		Pipes:    reg,
 		Layouts:  layoutCache,
-		SourceFS: sourceRoot,
-		SchemeFS: schemeRoot,
-		outputFS: outputRoot,
+		FS: 	 *fs,
 
 		CAS:      cas,
 		Manifest: manifest,
 	}, nil
-}
-
-func (p *Project) IgnoreFile(name string) bool {
-	name = filepath.ToSlash(filepath.Clean(name))
-
-	for _, raw := range p.Config.Ignore {
-		pat := filepath.ToSlash(strings.TrimSpace(raw))
-		if pat == "" {
-			continue
-		}
-
-		if strings.HasSuffix(pat, "/**") {
-			prefix := strings.TrimSuffix(pat, "/**")
-			if name == prefix || strings.HasPrefix(name, prefix+"/") {
-				log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by prefix/**")
-				return true
-			}
-			continue
-		}
-		if !strings.ContainsAny(pat, "*?[]") {
-			if name == pat || strings.HasPrefix(name, pat+"/") {
-				log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by exact/prefix")
-				return true
-			}
-			continue
-		}
-
-		ok, err := path.Match(pat, name)
-		if err != nil {
-			continue
-		}
-		if ok {
-			log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by glob")
-			return true
-		}
-	}
-	return false
 }
 
 func (p *Project) CurrentPlan() (*Plan, error) {
@@ -167,16 +171,9 @@ func (p *Project) CurrentPlan() (*Plan, error) {
 }
 
 func (p *Project) Close() error {
-	var err error
 	log.IInfo(log.Project).Msg("closing roots")
-	if e := p.SourceFS.Close(); e != nil {
-		err = errors.Join(err, e)
+	if e := p.FS.Close(); e != nil {
+		return e
 	}
-	if e := p.SchemeFS.Close(); e != nil {
-		err = errors.Join(err, e)
-	}
-	if e := p.outputFS.Close(); e != nil {
-		err = errors.Join(err, e)
-	}
-	return err
+	return nil
 }

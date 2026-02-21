@@ -177,8 +177,8 @@ func TestLayout_Cache(t *testing.T) {
 
 	ctx := context.Background()
 	key := LayoutKey{
-		RelLayoutPath: "layout.xml",
-		BaseDir:       ".",
+		CtxPath: "layout.xml",
+		LayoutPath:       ".",
 	}
 
 	layouts, err := proj.GetLayouts(".")
@@ -231,8 +231,8 @@ target_suffix: html`,
 
 	ctx := context.Background()
 	key := LayoutKey{
-		RelLayoutPath: "layout.xml",
-		BaseDir:       ".",
+		CtxPath: "layout.xml",
+		LayoutPath:       ".",
 	}
 
 	layouts, err := proj.GetLayouts(".")
@@ -258,7 +258,7 @@ target_suffix: html`,
 	// Check that the key was invalidated
 	found := false
 	for _, k := range affected {
-		if k.RelLayoutPath == key.RelLayoutPath && k.BaseDir == key.BaseDir {
+		if k.RelLayoutPath == key.CtxPath && k.BaseDir == key.LayoutPath {
 			found = true
 			break
 		}
@@ -296,8 +296,8 @@ target_suffix: html`,
 
 	ctx := context.Background()
 	key := LayoutKey{
-		RelLayoutPath: "layout.xml",
-		BaseDir:       ".",
+		CtxPath: "layout.xml",
+		LayoutPath:       ".",
 	}
 
 	layouts, err := proj.GetLayouts(".")

@@ -106,9 +106,9 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 			Int("inline_len", len(tmpl)).
 			Msg("using inline layout template")
 	} else {
-		tplPaths, err := rctx.FS.FindFile(base, l.tplPath)
+		tplPaths, err := rctx.FS.FindFile(base, l.TplPath)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: find template with base %q and path %q: %w", l.path, base, l.tplPath, err)
+			return "", nil, fmt.Errorf("layout %q: find template with base %q and path %q: %w", l.path, base, l.TplPath, err)
 		}
 
 		tplPath := filepath.ToSlash(tplPaths[0])
@@ -177,7 +177,7 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 }
 
 func (l Layout) Validate() error {
-	if l.tpl == "" && l.tplPath == "" {
+	if l.tpl == "" && l.TplPath == "" {
 		return errors.New("element <Layout>: layout requires Tpl or TplPath")
 	}
 	return nil

@@ -17,7 +17,7 @@ type Layout struct {
 	// XML
 	XMLName xml.Name `xml:"Layout"`
 	tpl     string
-	tplPath string
+	TplPath string
 }
 
 type Fragment struct {
@@ -55,7 +55,7 @@ func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 		case "tpl":
 			l.tpl = attr.Value
 		case "src":
-			l.tplPath = attr.Value
+			l.TplPath = attr.Value
 		}
 	}
 

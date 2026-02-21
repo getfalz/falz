@@ -14,7 +14,7 @@ func TestGraph_FragmentChangeAffectsMultipleEntries(t *testing.T) {
 
 	// Setup: Blog with shared header fragment
 	header := NewFragmentNode("header.html")
-	layout := NewLayoutNode(LayoutKey{BaseDir: "blog", RelLayoutPath: "layout.xml"})
+	layout := NewLayoutNode(LayoutKey{LayoutPath: "blog", CtxPath: "layout.xml"})
 
 	post1 := NewEntryNode(&BuildEntry{ID: "blog/post1.md", Dirty: false})
 	post2 := NewEntryNode(&BuildEntry{ID: "blog/post2.md", Dirty: false})
@@ -111,7 +111,7 @@ func TestGraph_IncrementalBuildAfterFragmentChange(t *testing.T) {
 	g := NewDependencyGraph()
 
 	// Initial state: 5 blog posts, all clean
-	layout := NewLayoutNode(LayoutKey{BaseDir: "blog", RelLayoutPath: "layout.xml"})
+	layout := NewLayoutNode(LayoutKey{LayoutPath: "blog", CtxPath: "layout.xml"})
 	header := NewFragmentNode("header.html")
 
 	g.AddNode(layout)
@@ -176,8 +176,8 @@ func TestGraph_MultipleLayoutsWithSharedFragments(t *testing.T) {
 	footer := NewFragmentNode("footer.html")
 
 	// Different layouts
-	blogLayout := NewLayoutNode(LayoutKey{BaseDir: "blog", RelLayoutPath: "layout.xml"})
-	docsLayout := NewLayoutNode(LayoutKey{BaseDir: "docs", RelLayoutPath: "layout.xml"})
+	blogLayout := NewLayoutNode(LayoutKey{LayoutPath: "blog", CtxPath: "layout.xml"})
+	docsLayout := NewLayoutNode(LayoutKey{LayoutPath: "docs", CtxPath: "layout.xml"})
 
 	// Entries
 	blogPost := NewEntryNode(&BuildEntry{ID: "blog/post.md", Dirty: false})
@@ -265,7 +265,7 @@ func TestGraph_ConcurrentBuildsWithSharedLayout(t *testing.T) {
 	g := NewDependencyGraph()
 
 	// One layout, many entries
-	layout := NewLayoutNode(LayoutKey{BaseDir: "blog", RelLayoutPath: "layout.xml"})
+	layout := NewLayoutNode(LayoutKey{LayoutPath: "blog", CtxPath: "layout.xml"})
 	g.AddNode(layout)
 
 	// Add 100 entries
@@ -326,7 +326,7 @@ func TestGraph_ComplexDependencyChain(t *testing.T) {
 	// Chain: entry -> layout -> template -> fragment
 	fragment := NewFragmentNode("base.html")
 	template := NewTemplateNode("template.html")
-	layout := NewLayoutNode(LayoutKey{BaseDir: ".", RelLayoutPath: "layout.xml"})
+	layout := NewLayoutNode(LayoutKey{LayoutPath: ".", CtxPath: "layout.xml"})
 	entry := NewEntryNode(&BuildEntry{ID: "page.md", Dirty: false})
 
 	g.AddNode(fragment)
@@ -412,7 +412,7 @@ func TestGraph_RealisticProjectStructure(t *testing.T) {
 	g.AddNode(sass)
 
 	// Blog section
-	blogLayout := NewLayoutNode(LayoutKey{BaseDir: "blog", RelLayoutPath: "layout.xml"})
+	blogLayout := NewLayoutNode(LayoutKey{LayoutPath: "blog", CtxPath: "layout.xml"})
 	g.AddNode(blogLayout)
 	g.AddEdge(blogLayout, header)
 	g.AddEdge(blogLayout, footer)
@@ -426,7 +426,7 @@ func TestGraph_RealisticProjectStructure(t *testing.T) {
 	}
 
 	// Docs section
-	docsLayout := NewLayoutNode(LayoutKey{BaseDir: "docs", RelLayoutPath: "layout.xml"})
+	docsLayout := NewLayoutNode(LayoutKey{LayoutPath: "docs", CtxPath: "layout.xml"})
 	g.AddNode(docsLayout)
 	g.AddEdge(docsLayout, header)
 	g.AddEdge(docsLayout, footer)
