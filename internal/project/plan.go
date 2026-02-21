@@ -87,7 +87,7 @@ type Entry struct {
 	BuildTime time.Time // Last successful build
 }
 
-var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
+// var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
 
 func (e *Entry) OutputPath() (string, error) {
 	e.outputPathOnce.Do(func() {

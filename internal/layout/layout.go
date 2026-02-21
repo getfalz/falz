@@ -216,6 +216,10 @@ func (c *Content) Validate() error {
 	if c.To == "" {
 		return errors.New("element <Content>: missing required field: to")
 	}
+	// TODO "./file.md" fails. is this a problem?
+	if filepath.Base(c.To) != c.To {
+		return errors.New("element <Content>: field 'to' should be a filename, not a path")
+	}
 	return nil
 }
 
