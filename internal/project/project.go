@@ -20,11 +20,22 @@ var (
 	}
 )
 
+type SourceType int
+
+const (
+	SourceTypeUnknown SourceType = iota
+	SourceTypeSource
+	SourceTypeScheme
+	SourceTypeOutput
+)
+
 type Project struct {
 	Config *CraeftConfig
 
-	FS      FSRegistry
+	FS      *FSRegistry
 	Layouts LayoutRegistry
+	si      *SourceIndex
+	hi      *HashIndex
 
 	Pipes *pipeline.Registry
 
@@ -35,6 +46,7 @@ type Project struct {
 	CAS      *CAS
 }
 
+// TODO move to utils.fsroot
 type FSRegistry struct {
 	source *utils.RootFS
 	scheme *utils.RootFS
@@ -65,16 +77,16 @@ func NewFSRegistry(source, scheme, output string) (*FSRegistry, error) {
 		output: outputRoot,
 	}, nil
 }
-func (r *FSRegistry) Get(name string) (*utils.RootFS, error) {
+func (r *FSRegistry) Get(name SourceType) *utils.RootFS {
 	switch name {
-	case "source":
-		return r.source, nil
-	case "scheme":
-		return r.scheme, nil
-	case "output":
-		return r.output, nil
+	case SourceTypeSource:
+		return r.source
+	case SourceTypeScheme:
+		return r.scheme
+	case SourceTypeOutput:
+		return r.output
 	default:
-		return nil, fmt.Errorf("unknown fs: %s", name)
+		return nil
 	}
 }
 
@@ -82,7 +94,7 @@ func (r *FSRegistry) Source() *utils.RootFS { return r.source }
 func (r *FSRegistry) Scheme() *utils.RootFS { return r.scheme }
 func (r *FSRegistry) Output() *utils.RootFS { return r.output }
 
-func (r *FSRegistry) Close()  error {
+func (r *FSRegistry) Close() error {
 	var err error
 	if e := r.source.Close(); e != nil {
 		err = errors.Join(err, e)
@@ -149,25 +161,20 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	layoutCache := NewLayoutCache(fs.scheme, reg, config.Layout)
 
+	si := NewSourceIndex(fs.source, layoutCache, SourceIndexConfig{Ignore: config.Ignore})
+	hi := NewHashIndex(fs, layoutCache, reg)
+
 	return &Project{
-		Config:   config,
-		Pipes:    reg,
-		Layouts:  layoutCache,
-		FS: 	 *fs,
+		Config:  config,
+		Pipes:   reg,
+		Layouts: layoutCache,
+		FS:      fs,
+		si:      si,
+		hi:      hi,
 
 		CAS:      cas,
 		Manifest: manifest,
 	}, nil
-}
-
-func (p *Project) CurrentPlan() (*Plan, error) {
-	p.currentPlanMu.Lock()
-	defer p.currentPlanMu.Unlock()
-
-	if p.currentPlan == nil {
-		return nil, fmt.Errorf("no current plan, call Plan() first")
-	}
-	return p.currentPlan, nil
 }
 
 func (p *Project) Close() error {

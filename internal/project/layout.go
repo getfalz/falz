@@ -37,6 +37,10 @@ func (lc *LayoutCacheEntry) ExecuteString(vars map[string]interface{}) string {
 	return lc.layoutTpl.ExecuteString(vars)
 }
 
+func (lc *LayoutCacheEntry) GetDeps() []string {
+	return lc.deps
+}
+
 var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
 
 func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry) (string, error) {
@@ -110,6 +114,8 @@ type CompiledLayout interface {
 	ExecuteString(vars map[string]interface{}) string
 
 	ContentOutput(contentName string, entry *BuildEntry) (string, error)
+
+	GetDeps() []string
 }
 
 type content struct {
