@@ -113,22 +113,22 @@ func (c *CAS) Link(key string, outputPath string) error {
 func (c *CAS) copyFile(src, dst, key string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
-		return fmt.Errorf("open source: %w", err)
+		return fmt.Errorf("open source %q: %w", src, err)
 	}
 	defer srcFile.Close()
 
 	dstFile, err := os.Create(dst)
 	if err != nil {
-		return fmt.Errorf("create dest: %w", err)
+		return fmt.Errorf("create dest %q: %w", dst, err)
 	}
 	defer dstFile.Close()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("copy file: %w", err)
+		return fmt.Errorf("copy file %q: %w", dstFile, err)
 	}
 
 	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("sync dest: %w", err)
+		return fmt.Errorf("sync dest %q: %w", dstFile, err)
 	}
 
 	return nil

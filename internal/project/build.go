@@ -182,6 +182,23 @@ func (b *builder) buildStage(
 						Entry:  entry,
 						Cached: true,
 					}
+
+					// compute output path
+					lyt, err := b.layouts.Get(ctx, entry.LayoutKey)
+					if err != nil {
+						sendErr(artifact.Error)
+						artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
+						return
+					}
+
+					outputPath, err := lyt.ContentOutput(entry.TagName, entry)
+					if err != nil {
+						artifact.Error = fmt.Errorf("compute output path: %w", err)
+						return
+					}
+
+					artifact.OutputPath = outputPath
+
 					metrics.cached.Add(1)
 					metrics.built.Add(1)
 
