@@ -107,7 +107,7 @@ func (hi *HashIndex) ComputeHash(ctx context.Context, entry *BuildEntry) (string
 	}
 
 	var layoutHash string
-	if entry.Type == "content" && entry.LayoutKey.LayoutPath != "" {
+	if entry.Type == ContentType && entry.LayoutKey.LayoutPath != "" {
 		layoutHash, err = hi.hashLayoutDeps(ctx, entry)
 		if err != nil {
 			return "", fmt.Errorf("layout deps: %w", err)
@@ -162,30 +162,4 @@ func (hi *HashIndex) hashPipeline(name string) string {
 	cfg := pl.Config()
 	return utils.HashString(fmt.Sprintf("%s-%s-%s",
 		cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
-}
-
-// =============================================================================
-// MarkDirty - diff step between Hash and Build
-// =============================================================================
-
-// MarkDirty compares each entry's current hash against the manifest and sets
-// entry.Dirty = true for anything that has changed or is new.
-//
-// Placement rationale:
-//
-//	It is a free function (not a method on Graph or Manifest) because it bridges
-//	two independent components — neither Graph nor Manifest should depend on each
-//	other. The caller (project.Plan) owns both and passes them in.
-//
-// Returns the count of dirty entries.
-func MarkDirty(graph DependencyGraph, manifest *Manifest) int {
-	entries := graph.AllEntries()
-	dirty := 0
-	for _, e := range entries {
-		if manifest.IsDirty(e.ID, e.Hash) {
-			graph.MarkDirty(e.ID) //nolint:errcheck
-			dirty++
-		}
-	}
-	return dirty
 }

@@ -14,6 +14,7 @@ type CAS struct {
 }
 
 // NewCAS creates a new content-addressable storage
+// TODO use fsroot
 func NewCAS(path string) (*CAS, error) {
 	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
 		return nil, fmt.Errorf("cas base is a symlink: %s", path)

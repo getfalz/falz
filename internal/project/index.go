@@ -172,7 +172,7 @@ func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyG
 	for _, rel := range matches {
 		entry := &BuildEntry{
 			ID:         rel,
-			Type:       EntryTypeContent,
+			Type:       ContentType,
 			SourceRoot: SourceTypeSource,
 			SourcePath: rel,
 
@@ -197,7 +197,7 @@ func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyG
 		for _, rel := range matches {
 			entry := &BuildEntry{
 				ID:         rel,
-				Type:       EntryTypeAsset,
+				Type:       AssetType,
 				SourceRoot: SourceTypeSource,
 				SourcePath: rel,
 
@@ -227,7 +227,7 @@ func (si *SourceIndex) scanAssetPattern(ctx context.Context, graph DependencyGra
 	for _, rel := range matches {
 		entry := &BuildEntry{
 			ID:         fmt.Sprintf("asset:scheme:%s", rel),
-			Type:       EntryTypeAsset,
+			Type:       AssetType,
 			SourceRoot: SourceTypeScheme,
 			SourcePath: rel,
 

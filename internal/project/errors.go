@@ -5,6 +5,7 @@ import (
 	"fmt"
 )
 
+// TODO deprecate
 type BuildError struct {
 	Errors []error
 }

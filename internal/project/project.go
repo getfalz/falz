@@ -1,10 +1,10 @@
 package project
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"craeft/internal/log"
@@ -20,27 +20,15 @@ var (
 	}
 )
 
-type SourceType int
-
-const (
-	SourceTypeUnknown SourceType = iota
-	SourceTypeSource
-	SourceTypeScheme
-	SourceTypeOutput
-)
-
 type Project struct {
 	Config *CraeftConfig
 
 	FS      *FSRegistry
 	Layouts LayoutRegistry
-	si      *SourceIndex
-	hi      *HashIndex
+
+	graph DependencyGraph
 
 	Pipes *pipeline.Registry
-
-	currentPlanMu sync.Mutex
-	currentPlan   *Plan
 
 	Manifest *Manifest
 	CAS      *CAS
@@ -133,6 +121,22 @@ func New(config *CraeftConfig) (*Project, error) {
 	)
 	config.Ignore = append(config.Ignore, blackList...)
 
+	pipes := pipeline.NewRegistry(&pipeline.RegistryConfig{
+		Pipelines:       config.Pipes,
+		PipelinesPath:   config.PipesPath,
+		PipeTimeout:     time.Duration(config.Build.PipeTimeout) * time.Second,
+		SourceDirectory: srcAbs,
+		PoolSize:        config.Build.Concurrency,
+	})
+	if err := pipes.LoadAll(); err != nil {
+		fs.Close()
+		return nil, err
+	}
+
+	layouts := NewLayoutCache(fs.scheme, pipes, config.Layout)
+
+	graph := NewDependencyGraph()
+
 	manifest, err := LoadManifest(filepath.Join(config.OutputPath, manifestoFile))
 	if err != nil {
 		log.Warn(fmt.Sprintf("failed to load manifest: %v. Creating a new one", err))
@@ -147,30 +151,13 @@ func New(config *CraeftConfig) (*Project, error) {
 		}
 	}
 
-	reg := pipeline.NewRegistry(&pipeline.RegistryConfig{
-		Pipelines:       config.Pipes,
-		PipelinesPath:   config.PipesPath,
-		PipeTimeout:     time.Duration(config.Build.PipeTimeout) * time.Second,
-		SourceDirectory: srcAbs,
-		PoolSize:        config.Build.Concurrency,
-	})
-	if err := reg.LoadAll(); err != nil {
-		fs.Close()
-		return nil, err
-	}
-
-	layoutCache := NewLayoutCache(fs.scheme, reg, config.Layout)
-
-	si := NewSourceIndex(fs.source, layoutCache, SourceIndexConfig{Ignore: config.Ignore})
-	hi := NewHashIndex(fs, layoutCache, reg)
-
 	return &Project{
 		Config:  config,
-		Pipes:   reg,
-		Layouts: layoutCache,
+		Pipes:   pipes,
+		Layouts: layouts,
 		FS:      fs,
-		si:      si,
-		hi:      hi,
+
+		graph: graph,
 
 		CAS:      cas,
 		Manifest: manifest,
@@ -183,4 +170,106 @@ func (p *Project) Close() error {
 		return e
 	}
 	return nil
+}
+
+func (p *Project) Build(ctx context.Context) error {
+	log.IInfo(log.Project).Msg("starting build")
+
+	source := NewSourceIndex(p.FS.Source(), p.Layouts, SourceIndexConfig{Ignore: p.Config.Ignore})
+
+	if err := source.Scan(ctx, p.graph); err != nil {
+		return fmt.Errorf("scan: %w", err)
+	}
+
+	entries := p.graph.AllEntries()
+
+	log.IInfo(log.Project).
+		Int("entries", len(entries)).
+		Msg("scan complete")
+
+	hasher := NewHashIndex(p.FS, p.Layouts, p.Pipes)
+	hashed, err := hasher.HashAll(ctx, p.graph)
+	if err != nil {
+		return fmt.Errorf("hash: %w", err)
+	}
+	log.IInfo(log.Project).
+		Int("hashed", hashed).
+		Msg("hash complete")
+
+	dirty := p.MarkDirty()
+	log.IInfo(log.Project).
+		Int("dirty", dirty).
+		Msg("diff complete")
+
+	if p.Config.Build.CleanStale {
+		currentIDs := make(map[string]struct{})
+		for _, entry := range entries {
+			currentIDs[entry.ID] = struct{}{}
+		}
+		removed := p.Manifest.CleanStale(currentIDs)
+
+		for _, manifestEntry := range removed {
+			if err := p.FS.Output().Remove(manifestEntry.OutputPath); err != nil {
+				log.Warn(fmt.Sprintf("remove stale %s: %v", manifestEntry.OutputPath, err))
+			}
+		}
+
+		if len(removed) > 0 {
+			log.IInfo(log.Project).
+				Int("removed", len(removed)).
+				Msg("cleaned stale entries")
+		}
+
+	}
+
+	if dirty == 0 {
+		log.IInfo(log.Project).Msg("nothing to build")
+		return nil
+	}
+
+	dirtyEntries := p.graph.DirtyEntries()
+	if p.Config.Build.ForceRebuild {
+		dirtyEntries = entries
+	}
+
+	builder := NewBuilder(
+		p.FS,
+		p.Layouts,
+		p.Pipes,
+		p.Manifest,
+		p.CAS,
+
+		&BuilderConfig{
+			Concurrency:  p.Config.Build.Concurrency,
+			UseCAS:       p.Config.Build.UseCAS,
+			ForceRebuild: p.Config.Build.ForceRebuild,
+			CleanStale:   p.Config.Build.CleanStale,
+			Variables:    p.Config.Variables,
+		},
+	)
+	// TODO report stats
+	_, err = builder.Build(ctx, dirtyEntries)
+	if err != nil {
+		return fmt.Errorf("build: %w", err)
+	}
+
+	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
+	if err := p.Manifest.Save(manifestPath); err != nil {
+		return fmt.Errorf("save manifest: %w", err)
+	}
+
+	log.IInfo(log.Project).Msg("build complete")
+	return nil
+
+}
+
+func (p *Project) MarkDirty() int {
+	dirty := 0
+	for _, e := range p.graph.AllEntries() {
+		if p.Manifest.IsDirty(e.ID, e.Hash) {
+			p.graph.MarkDirty(e.ID)
+			dirty++
+		}
+	}
+	return dirty
 }

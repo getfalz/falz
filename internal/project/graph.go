@@ -20,8 +20,23 @@ const (
 	NodeKindPipeline NodeKind = "pipeline"
 )
 
+type SourceType int
+
+const (
+	SourceTypeUnknown SourceType = iota
+	SourceTypeSource
+	SourceTypeScheme
+	SourceTypeOutput
+)
+
+type EntryType int
+const (
+	ContentType EntryType = iota
+	AssetType
+)
+
 type BuildEntry struct {
-	ID         string     // Unique identifier: "content/about.md" or "assets/style.css"
+	ID string // Unique identifier: "content/about.md" or "assets/style.css"
 	// TODO simplify fields: ID, type. source from type
 	Type       EntryType  // "content" or "asset"
 	SourceRoot SourceType // Source root: "source" or "scheme"

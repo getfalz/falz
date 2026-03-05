@@ -129,64 +129,82 @@ func (r *RootFS) FindFile(targetPath, pattern string) ([]string, error) {
 	return results, nil
 }
 
-// TODO refactor code to use this new method
-// TODO: write file atomically:
-// wait for go1.25: https://github.com/golang/go/issues/73041
-func WriteFile(root *os.Root, dst string, data []byte, perm fs.FileMode) error {
+func (r *RootFS) WriteFile(dst string, data []byte, perm fs.FileMode) error {
 	dst = filepath.Clean(filepath.ToSlash(dst))
-
 	log.TTrace(log.IO).Str("dst", dst).Int("bytes", len(data)).Msg("writeFile begin")
 
-	if err := MkdirAllFS(root, filepath.Dir(dst), 0o755); err != nil {
-		return fmt.Errorf("mkdir %q: %w", filepath.Dir(dst), err)
+	dir := filepath.Dir(dst)
+	if err := r.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("mkdir %q: %w", dir, err)
 	}
 
-	f, err := root.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	tmpDst := dst + ".tmp"
+
+	f, err := r.root.OpenFile(tmpDst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
-		return fmt.Errorf("open %q: %w", dst, err)
+		return fmt.Errorf("open temp %q: %w", tmpDst, err)
 	}
+
+	success := false
+	defer func() {
+		if !success {
+			f.Close()
+			_ = r.root.Remove(tmpDst)
+		}
+	}()
+
 	if _, err := f.Write(data); err != nil {
-		f.Close()
-		return fmt.Errorf("write %q: %w", dst, err)
+		return fmt.Errorf("write %q: %w", tmpDst, err)
 	}
-	if err := f.Chmod(perm); err != nil {
-		f.Close()
-		return fmt.Errorf("chmod %q: %w", dst, err)
-	}
+
 	if err := f.Sync(); err != nil {
-		f.Close()
-		return fmt.Errorf("fsync %q: %w", dst, err)
+		return fmt.Errorf("fsync %q: %w", tmpDst, err)
 	}
 
+	if err := f.Close(); err != nil {
+		return fmt.Errorf("close %q: %w", tmpDst, err)
+	}
+
+	if err := r.root.Rename(tmpDst, dst); err != nil {
+		return fmt.Errorf("rename %q to %q: %w", tmpDst, dst, err)
+	}
+
+	success = true
 	log.TTrace(log.IO).Str("dst", dst).Uint32("perm", uint32(perm)).Msg("writeFile done")
-	return f.Close()
+	return nil
 }
 
-type mkdirer interface {
-	Mkdir(name string, perm os.FileMode) error
-}
+func (r *RootFS) MkdirAll(path string, perm fs.FileMode) error {
+	path = filepath.Clean(filepath.ToSlash(path))
 
-func MkdirAllFS(fs mkdirer, p string, perm os.FileMode) error {
-	p = filepath.Clean(p)
-	if p == "." {
+	if filepath.IsAbs(path) {
+		return fmt.Errorf("mkdir: absolute path not allowed: %s", path)
+	}
+	if vol := filepath.VolumeName(path); vol != "" {
+		return fmt.Errorf("mkdir: volume name not allowed: %s", path)
+	}
+
+	if path == "." || path == "" {
 		return nil
 	}
 
-	cur := filepath.VolumeName(p)
-	if filepath.IsAbs(p) {
-		cur += string(filepath.Separator)
-		p = strings.TrimPrefix(p, cur)
-	}
-
-	for part := range strings.SplitSeq(p, string(filepath.Separator)) {
+	current := ""
+	for part := range strings.SplitSeq(path, "/") {
 		if part == "" || part == "." {
 			continue
 		}
-		cur = filepath.Join(cur, part)
-		if err := fs.Mkdir(cur, perm); err != nil && !errors.Is(err, os.ErrExist) {
-			return err
+
+		if current == "" {
+			current = part
+		} else {
+			current = current + "/" + part
+		}
+
+		if err := r.root.Mkdir(current, perm); err != nil && !errors.Is(err, fs.ErrExist) {
+			return fmt.Errorf("mkdir %s: %w", current, err)
 		}
 	}
+
 	return nil
 }
 

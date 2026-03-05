@@ -110,12 +110,12 @@ func (m *Manifest) Delete(id string) {
 }
 
 // IsDirty checks if an entry needs rebuilding
-func (m *Manifest) IsDirty(id string, currentOutput, currentHash string) bool {
+func (m *Manifest) IsDirty(id string, currentHash string) bool {
 	entry, exists := m.Get(id)
-	return !exists || entry.Hash != currentHash || entry.OutputPath != "" && currentOutput != "" && entry.OutputPath != currentOutput
+	return !exists || entry.Hash != currentHash
 }
 
-// CleanStale removes entries that are no longer in the current plan
+// CleanStale removes entries that are no longer needed
 func (m *Manifest) CleanStale(currentIDs map[string]struct{}) []ManifestEntry {
 	m.entriesMu.Lock()
 	defer m.entriesMu.Unlock()
