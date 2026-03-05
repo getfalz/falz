@@ -10,11 +10,10 @@ import (
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
-	"craeft/internal/utils"
 )
 
 type SourceIndex struct {
-	fs *utils.RootFS
+	fs *FSRegistry
 	lc LayoutRegistry
 
 	ignore []string
@@ -24,7 +23,7 @@ type SourceIndexConfig struct {
 	Ignore []string
 }
 
-func NewSourceIndex(fs *utils.RootFS, lc LayoutRegistry, config SourceIndexConfig) *SourceIndex {
+func NewSourceIndex(fs *FSRegistry, lc LayoutRegistry, config SourceIndexConfig) *SourceIndex {
 	return &SourceIndex{
 		fs: fs,
 		lc: lc,
@@ -36,9 +35,8 @@ func NewSourceIndex(fs *utils.RootFS, lc LayoutRegistry, config SourceIndexConfi
 // Scan performs a full scan of the entire source tree.
 // Used during initial build.
 func (si *SourceIndex) Scan(ctx context.Context, graph DependencyGraph) error {
-	srcFS := si.fs.FS()
 
-	return fs.WalkDir(srcFS, ".", func(path string, d fs.DirEntry, walkErr error) error {
+	return fs.WalkDir(si.fs.Source().FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -65,9 +63,8 @@ func (si *SourceIndex) Scan(ctx context.Context, graph DependencyGraph) error {
 // Stops at subdirectories that have their own layouts.
 // Used in watch mode when a directory is created or layout is added.
 func (si *SourceIndex) PartialScan(ctx context.Context, graph DependencyGraph, baseDir string) error {
-	srcFS := si.fs.FS()
 
-	return fs.WalkDir(srcFS, baseDir, func(path string, d fs.DirEntry, walkErr error) error {
+	return fs.WalkDir(si.fs.Source().FS(), baseDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
 		}
@@ -121,7 +118,7 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph DependencyGraph,
 		graph.AddNode(lytNode)
 
 		for _, frag := range lyt.Fragments() {
-			fragPaths, err := si.fs.FindFile(path, frag.Source)
+			fragPaths, err := si.fs.Scheme().FindFile(path, frag.Source)
 			if err != nil {
 				return err
 			}
@@ -132,7 +129,7 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph DependencyGraph,
 		}
 
 		if lyt.TplPath != "" {
-			tplPaths, err := si.fs.FindFile(path, lyt.TplPath)
+			tplPaths, err := si.fs.Scheme().FindFile(path, lyt.TplPath)
 			if err != nil {
 				return err
 			}
@@ -164,7 +161,7 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph DependencyGraph,
 func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyGraph, base string, key LayoutKey, content layout.Content) error {
 
 	glob := filepath.ToSlash(filepath.Join(base, content.Source))
-	matches, err := si.fs.Glob(glob)
+	matches, err := si.fs.Source().Glob(glob)
 	if err != nil {
 		return err
 	}
@@ -190,7 +187,7 @@ func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyG
 
 	for _, asset := range content.Assets() {
 		glob := filepath.ToSlash(filepath.Join(base, asset.Source))
-		matches, err := si.fs.Glob(glob)
+		matches, err := si.fs.Source().Glob(glob)
 		if err != nil {
 			return err
 		}
@@ -220,7 +217,7 @@ func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyG
 func (si *SourceIndex) scanAssetPattern(ctx context.Context, graph DependencyGraph, base string, key LayoutKey, asset layout.Asset) error {
 
 	glob := filepath.ToSlash(filepath.Join(base, asset.Source))
-	matches, err := si.fs.Glob(glob)
+	matches, err := si.fs.Scheme().Glob(glob)
 	if err != nil {
 		return err
 	}

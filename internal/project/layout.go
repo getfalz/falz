@@ -27,6 +27,7 @@ type LayoutKey struct {
 
 type LayoutCacheEntry struct {
 	layoutTpl *fasttemplate.Template
+	// TODO change name from content to X. contents has also assets
 	contents  map[string]*fasttemplate.Template
 	mtime     time.Time
 	size      int64
@@ -221,6 +222,14 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
 		if err != nil {
 			log.Warn(fmt.Sprintf("failed to parse content output template for content %q in layout %q: %v. This content will be ignored.", c.Name, key.LayoutPath, err))
+			continue
+		}
+		contents[c.Name] = tpl
+	}
+	for _, c := range lyt.Assets() {
+		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to parse asset output template for asset %q in layout %q: %v. This asset will be ignored.", c.Name, key.LayoutPath, err))
 			continue
 		}
 		contents[c.Name] = tpl

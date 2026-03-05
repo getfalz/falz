@@ -175,7 +175,7 @@ func (p *Project) Close() error {
 func (p *Project) Build(ctx context.Context) error {
 	log.IInfo(log.Project).Msg("starting build")
 
-	source := NewSourceIndex(p.FS.Source(), p.Layouts, SourceIndexConfig{Ignore: p.Config.Ignore})
+	source := NewSourceIndex(p.FS, p.Layouts, SourceIndexConfig{Ignore: p.Config.Ignore})
 
 	if err := source.Scan(ctx, p.graph); err != nil {
 		return fmt.Errorf("scan: %w", err)

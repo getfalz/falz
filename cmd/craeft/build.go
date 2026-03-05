@@ -25,16 +25,16 @@ func Build(c *cli.Context) error {
 
 	start := time.Now()
 
-	stats, err := p.Build(ctx)
+	err := p.Build(ctx)
 	dur := time.Since(start)
 
 	switch {
 	case err == nil:
-		log.Print("Build OK in %s — %s\n", dur, stats)
+		log.Print("Build OK in %s\n", dur)
 		return nil
 
 	case errors.Is(err, context.Canceled):
-		log.Print("Build canceled after %s — %s\n", dur, stats)
+		log.Print("Build canceled after %s\n", dur)
 		return nil
 
 	default:
