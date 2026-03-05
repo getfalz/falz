@@ -11,7 +11,11 @@ import (
 	"craeft/internal/utils"
 )
 
-func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, paths []string) error {
+type Handlers struct {
+
+}
+
+func (h *Handlers) handleContentModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 
 		if !plan.HasEntry(path) {
@@ -53,7 +57,7 @@ func (s *Server) handleContentModified(ctx context.Context, plan *project.Plan, 
 	return nil
 }
 
-func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleContentCreated(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		if plan.HasEntry(path) {
 			continue
@@ -121,7 +125,7 @@ func (s *Server) handleContentCreated(ctx context.Context, plan *project.Plan, p
 	return nil
 }
 
-func (s *Server) handleContentDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleContentDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		if plan.HasEntry(path) {
 			plan.DeleteEntry(path)
@@ -136,7 +140,7 @@ func (s *Server) handleContentDeleted(ctx context.Context, plan *project.Plan, p
 }
 
 // Content Asset handlers
-func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleContentAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:source:%s", path)
 		if !plan.HasEntry(id) {
@@ -175,7 +179,7 @@ func (s *Server) handleContentAssetModified(ctx context.Context, plan *project.P
 	return nil
 }
 
-func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleContentAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:source:%s", path)
 
@@ -229,7 +233,7 @@ func (s *Server) handleContentAssetCreated(ctx context.Context, plan *project.Pl
 	return nil
 }
 
-func (s *Server) handleContentAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleContentAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:source:%s", path)
 		if plan.HasEntry(id) {
@@ -246,7 +250,7 @@ func (s *Server) handleContentAssetDeleted(ctx context.Context, plan *project.Pl
 
 // Layout handlers
 
-func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleLayoutModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	var keys []project.LayoutKey
 
 	for _, path := range paths {
@@ -278,7 +282,7 @@ func (s *Server) handleLayoutModified(ctx context.Context, plan *project.Plan, p
 	return s.project.InvalidateLayouts(ctx, plan, keys, true)
 }
 
-func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleLayoutCreated(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 
@@ -313,7 +317,7 @@ func (s *Server) handleLayoutCreated(ctx context.Context, plan *project.Plan, pa
 	return nil
 }
 
-func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleLayoutDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 
@@ -360,7 +364,7 @@ func (s *Server) handleLayoutDeleted(ctx context.Context, plan *project.Plan, pa
 
 // Fragment handler
 
-func (s *Server) handleFragmentModified(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleFragmentModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	var keys []project.LayoutKey
 	for _, path := range paths {
 		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
@@ -377,7 +381,7 @@ func (s *Server) handleFragmentModified(ctx context.Context, plan *project.Plan,
 
 // Scheme Asset handlers
 
-func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleSchemeAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:scheme:%s", path)
 
@@ -418,7 +422,7 @@ func (s *Server) handleSchemeAssetModified(ctx context.Context, plan *project.Pl
 	return nil
 }
 
-func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 
@@ -465,7 +469,7 @@ func (s *Server) handleSchemeAssetCreated(ctx context.Context, plan *project.Pla
 	return nil
 }
 
-func (s *Server) handleSchemeAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handleSchemeAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:scheme:%s", path)
 
@@ -484,7 +488,7 @@ func (s *Server) handleSchemeAssetDeleted(ctx context.Context, plan *project.Pla
 // Pipeline handler
 
 // TODO this method need rework
-func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan, paths []string) error {
+func (h *Handlers) handlePipelineModified(ctx context.Context, plan *project.Plan, paths []string) error {
 	pipelineNames := make(map[string]struct{})
 	for _, path := range paths {
 		parts := strings.Split(path, "/")
@@ -540,4 +544,37 @@ func (s *Server) handlePipelineModified(ctx context.Context, plan *project.Plan,
 		}
 	}
 	return nil
+}
+
+
+func (h *Handlers) RegisterAll(r *EventRegistry) {
+	// Content handlers
+	r.Register(FileTypeContent, ModTypeModified, HandlerFunc(h.handleContentModified))
+	r.Register(FileTypeContent, ModTypeCreated, HandlerFunc(h.handleContentCreated))
+	r.Register(FileTypeContent, ModTypeDeleted, HandlerFunc(h.handleContentDeleted))
+
+	// Content Asset handlers
+	r.Register(FileTypeContentAsset, ModTypeModified, HandlerFunc(h.handleContentAssetModified))
+	r.Register(FileTypeContentAsset, ModTypeCreated, HandlerFunc(h.handleContentAssetCreated))
+	r.Register(FileTypeContentAsset, ModTypeDeleted, HandlerFunc(h.handleContentAssetDeleted))
+
+	// Layout handlers
+	r.Register(FileTypeLayout, ModTypeModified, HandlerFunc(h.handleLayoutModified))
+	r.Register(FileTypeLayout, ModTypeCreated, HandlerFunc(h.handleLayoutCreated))
+	r.Register(FileTypeLayout, ModTypeDeleted, HandlerFunc(h.handleLayoutDeleted))
+
+	// Fragment handlers
+	r.Register(FileTypeFragment, ModTypeModified, HandlerFunc(h.handleFragmentModified))
+	r.Register(FileTypeFragment, ModTypeCreated, HandlerFunc(h.handleFragmentModified))
+	r.Register(FileTypeFragment, ModTypeDeleted, HandlerFunc(h.handleFragmentModified))
+
+	// Scheme Asset handlers
+	r.Register(FileTypeSchemeAsset, ModTypeModified, HandlerFunc(h.handleSchemeAssetModified))
+	r.Register(FileTypeSchemeAsset, ModTypeCreated, HandlerFunc(h.handleSchemeAssetCreated))
+	r.Register(FileTypeSchemeAsset, ModTypeDeleted, HandlerFunc(h.handleSchemeAssetDeleted))
+
+	// Pipeline handlers
+	r.Register(FileTypePipeline, ModTypeModified, HandlerFunc(h.handlePipelineModified))
+	r.Register(FileTypePipeline, ModTypeCreated, HandlerFunc(h.handlePipelineModified))
+	r.Register(FileTypePipeline, ModTypeDeleted, HandlerFunc(h.handlePipelineModified))
 }
