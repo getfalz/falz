@@ -175,7 +175,7 @@ func (p *Project) Close() error {
 func (p *Project) Build(ctx context.Context) error {
 	log.IInfo(log.Project).Msg("starting build")
 
-	source := NewSourceIndex(p.FS, p.Layouts, SourceIndexConfig{Ignore: p.Config.Ignore})
+	source := NewSourceIndex(p.FS, p.Layouts, IgnoreList(p.Config.Ignore))
 
 	if err := source.Scan(ctx, p.graph); err != nil {
 		return fmt.Errorf("scan: %w", err)
@@ -243,7 +243,6 @@ func (p *Project) Build(ctx context.Context) error {
 			Concurrency:  p.Config.Build.Concurrency,
 			UseCAS:       p.Config.Build.UseCAS,
 			ForceRebuild: p.Config.Build.ForceRebuild,
-			CleanStale:   p.Config.Build.CleanStale,
 			Variables:    p.Config.Variables,
 		},
 	)
@@ -260,7 +259,31 @@ func (p *Project) Build(ctx context.Context) error {
 
 	log.IInfo(log.Project).Msg("build complete")
 	return nil
+}
 
+func (p *Project) Graph() DependencyGraph {
+	return p.graph
+}
+
+func (p *Project) IncrementalBuild(ctx context.Context) (BuildStats, error) {
+    dirtyEntries := p.graph.DirtyEntries()
+    if len(dirtyEntries) == 0 {
+        return BuildStats{}, nil
+    }
+    builder := NewBuilder(p.FS, p.Layouts, p.Pipes, p.Manifest, p.CAS, &BuilderConfig{
+        Concurrency: p.Config.Build.Concurrency,
+        UseCAS:      p.Config.Build.UseCAS,
+        Variables:   p.Config.Variables,
+    })
+    stats, err := builder.Build(ctx, dirtyEntries)
+    if err != nil {
+        return stats, err
+    }
+    manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
+    if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
+        return stats, fmt.Errorf("save manifest: %w", saveErr)
+    }
+    return stats, nil
 }
 
 func (p *Project) MarkDirty() int {

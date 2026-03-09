@@ -8,544 +8,21 @@ import (
 
 	"craeft/internal/log"
 	"craeft/internal/project"
-	"craeft/internal/utils"
 )
 
 type Handlers struct {
-
+	project *project.Project
+	source  *project.SourceIndex
+	hasher  *project.HashIndex
 }
 
-func (h *Handlers) handleContentModified(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-
-		if !plan.HasEntry(path) {
-			log.DDebug(log.Handler).
-				Str("path", path).
-				Msg("content modified but not in plan")
-			continue
-		}
-
-		newHash, err := s.project.SourceFS.HashFile(path)
-		if err != nil {
-			log.Warn(fmt.Sprintf("hash content %s: %v", path, err))
-			return nil
-		}
-
-		_ = plan.UpdateEntry(path, func(entry *project.Entry) error {
-			if entry.ContentHash != newHash {
-				oldHash := entry.ContentHash
-				entry.ContentHash = newHash
-
-				entry.Hash = utils.CombineHashes(
-					entry.ContentHash,
-					entry.LayoutHash,
-					entry.PipelineHash,
-					utils.CombineHashes(entry.FragmentHashes...),
-				)
-				entry.Dirty = true
-
-				log.DDebug(log.Handler).
-					Str("id", entry.ID).
-					Str("old_hash", oldHash[:8]).
-					Str("new_hash", newHash[:8]).
-					Msg("content changed, marked for rebuild")
-
-			}
-			return nil
-		})
+func NewHandlers(p *project.Project) *Handlers {
+	return &Handlers{
+		project: p,
+		source:  project.NewSourceIndex(p.FS, p.Layouts, project.IgnoreList(p.Config.Ignore)),
+		hasher:  project.NewHashIndex(p.FS, p.Layouts, p.Pipes),
 	}
-	return nil
 }
-
-func (h *Handlers) handleContentCreated(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		if plan.HasEntry(path) {
-			continue
-		}
-
-		base := filepath.Dir(path)
-
-		lmap, err := s.project.GetLayouts(base)
-		if err != nil {
-			log.TTrace(log.Handler).
-				Str("path", path).
-				Err(err).
-				Msg("no layouts for new content")
-			continue
-		}
-
-		for _, lyt := range lmap {
-			key := project.LayoutKey{
-				CtxPath: lyt.Path(),
-				LayoutPath:       base,
-			}
-
-			for _, cc := range lyt.Contents() {
-				glob := filepath.ToSlash(filepath.Join(base, cc.Source))
-				matches, err := s.project.SourceFS.Glob(glob)
-				if err != nil || len(matches) == 0 {
-					continue
-				}
-
-				_, err = s.project.Layouts.GetOrBuild(ctx, s.project.SchemeFS, key, lyt)
-				if err != nil {
-					log.Warn(fmt.Sprintf("warm up layout for new content %s: %v", path, err))
-					continue
-				}
-
-				// entry, err := s.project.CreateEntryWithHash(ctx, plan, "content", "source", path, cc.To, base, cc.Pipe, cc.Name, lyt)
-				// if err != nil {
-				// 	log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
-				// 	continue
-				// }
-				//
-				// entry.Dirty = true
-				// plan.AddEntry(entry.ID, entry)
-				spec := project.EntrySpec{
-					Type:       project.EntryTypeContent,
-					SourceRoot: project.SourceTypeSource,
-					Rel:        path,
-					BaseDir:    base,
-					Pipeline:   cc.Pipe,
-					TagName:    cc.Name,
-					ToTpl:      cc.To,
-					Layout:     lyt,
-					LayoutKey:  project.LayoutKey{CtxPath: lyt.Path(), LayoutPath: base},
-				}
-				// TODO handle ok
-				entry, _ := plan.UpsertEntry(spec)
-
-				log.IInfo(log.Handler).
-					Str("id", entry.ID).
-					Str("layout", key.CtxPath).
-					Msg("new content added to plan")
-			}
-		}
-	}
-	return nil
-}
-
-func (h *Handlers) handleContentDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		if plan.HasEntry(path) {
-			plan.DeleteEntry(path)
-			s.project.Manifest.Delete(path)
-
-			log.IInfo(log.Handler).
-				Str("id", path).
-				Msg("content deleted from plan")
-		}
-	}
-	return nil
-}
-
-// Content Asset handlers
-func (h *Handlers) handleContentAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		id := fmt.Sprintf("asset:source:%s", path)
-		if !plan.HasEntry(id) {
-			log.DDebug(log.Handler).
-				Str("path", path).
-				Msg("asset modified but not in plan")
-			continue
-		}
-
-		newHash, err := s.project.SourceFS.HashFile(path)
-		if err != nil {
-			log.Warn(fmt.Sprintf("hash asset %s: %v", path, err))
-			continue
-		}
-
-		_ = plan.UpdateEntry(id, func(entry *project.Entry) error {
-			if entry.ContentHash != newHash {
-				entry.ContentHash = newHash
-
-				entry.Hash = utils.CombineHashes(
-					entry.ContentHash,
-					entry.LayoutHash,
-					entry.PipelineHash,
-					utils.CombineHashes(entry.FragmentHashes...),
-				)
-
-				entry.Dirty = true
-
-				log.DDebug(log.Handler).
-					Str("id", entry.ID).
-					Msg("asset changed, marked for rebuild")
-			}
-			return nil
-		})
-	}
-	return nil
-}
-
-func (h *Handlers) handleContentAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		id := fmt.Sprintf("asset:source:%s", path)
-
-		if plan.HasEntry(id) {
-			continue
-		}
-
-		dir := filepath.Dir(path)
-
-		lmap, err := s.project.GetLayouts(dir)
-		if err != nil {
-			continue
-		}
-
-		for _, lyt := range lmap {
-			for _, cc := range lyt.Contents() {
-				for _, a := range cc.Assets() {
-					glob := filepath.ToSlash(filepath.Join(dir, a.Source))
-					matches, err := s.project.SourceFS.Glob(glob)
-					if err != nil || len(matches) == 0 {
-						continue
-					}
-
-					// entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "source", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
-					// if err != nil {
-					// 	log.Warn(fmt.Sprintf("create content asset %s: %v", path, err))
-					// 	continue
-					// }
-					//
-					// entry.Dirty = true
-					// plan.AddEntry(entry.ID, entry)
-					spec := project.EntrySpec{
-						Type:       project.EntryTypeAsset,
-						SourceRoot: project.SourceTypeSource,
-						Rel:        path,
-						BaseDir:    filepath.Base(path),
-						ToTpl:      a.To,
-						Pipeline:   a.Pipe,
-					}
-					// TODO handle ok
-					entry, _ := plan.UpsertEntry(spec)
-
-					log.IInfo(log.Handler).
-						Str("id", entry.ID).
-						Str("pipeline", a.Pipe).
-						Msg("new asset added to plan")
-				}
-			}
-		}
-	}
-	return nil
-}
-
-func (h *Handlers) handleContentAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		id := fmt.Sprintf("asset:source:%s", path)
-		if plan.HasEntry(id) {
-			plan.DeleteEntry(id)
-			s.project.Manifest.Delete(id)
-
-			log.IInfo(log.Handler).
-				Str("id", id).
-				Msg("asset deleted from plan")
-		}
-	}
-	return nil
-}
-
-// Layout handlers
-
-func (h *Handlers) handleLayoutModified(ctx context.Context, plan *project.Plan, paths []string) error {
-	var keys []project.LayoutKey
-
-	for _, path := range paths {
-		dir := filepath.Dir(path)
-
-		log.IInfo(log.Handler).
-			Str("layout", path).
-			Str("dir", dir).
-			Msg("layout modified, rescanning directory")
-
-		affectedKeys := plan.EntryKeys(func(e *project.Entry) bool {
-			return e.Type == "content" &&
-				filepath.ToSlash(e.LayoutKey.CtxPath) == filepath.ToSlash(path)
-		})
-
-		for _, entryID := range affectedKeys {
-			if entry, ok := plan.Entry(entryID); ok {
-				// s.project.Layouts.InvalidateByKey(entry.LayoutKey)
-				keys = append(keys, entry.LayoutKey)
-			}
-		}
-
-		log.DDebug(log.Handler).
-			Str("layout", path).
-			Int("affected_keys", len(affectedKeys)).
-			Msg("layout cache invalidated")
-
-	}
-	return s.project.InvalidateLayouts(ctx, plan, keys, true)
-}
-
-func (h *Handlers) handleLayoutCreated(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		dir := filepath.Dir(path)
-
-		log.IInfo(log.Handler).
-			Str("layout", path).
-			Str("dir", dir).
-			Msg("new layout created, rescanning directory")
-
-		// Remove entries that were using parent layout
-		plan.RemoveIf(func(entry *project.Entry) bool {
-			return entry.Type == "content" && strings.HasPrefix(entry.BaseDir, dir)
-		}, false)
-
-		// if err := s.project.PartialScan(ctx, plan, dir); err != nil {
-		// 	log.EError(log.Handler).
-		// 		Err(err).
-		// 		Str("dir", dir).
-		// 		Msg("partial scan failed")
-		// }
-
-		if _, err := s.project.Scan(ctx, plan, dir, false); err != nil {
-			log.EError(log.Handler).
-				Err(err).
-				Str("dir", dir).
-				Msg("scan failed")
-		} else {
-			if _, err := s.project.HashDirty(ctx, plan); err != nil {
-				log.EError(log.Handler).Err(err).Str("dir", dir).Msg("hash dirty failed")
-			}
-		}
-	}
-	return nil
-}
-
-func (h *Handlers) handleLayoutDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		dir := filepath.Dir(path)
-
-		log.IInfo(log.Handler).
-			Str("layout", path).
-			Str("dir", dir).
-			Msg("layout deleted, rescanning with parent layout")
-
-		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
-
-		affectedKeysMap := make(map[project.LayoutKey]struct{})
-		for _, key := range affectedKeys {
-			affectedKeysMap[key] = struct{}{}
-		}
-
-		plan.RemoveIf(func(entry *project.Entry) bool {
-			if entry.Type != "content" {
-				return false
-			}
-			_, found := affectedKeysMap[entry.LayoutKey]
-			return found
-		}, true)
-
-		// if err := s.project.PartialScan(ctx, plan, dir); err != nil {
-		// 	log.EError(log.Handler).
-		// 		Err(err).
-		// 		Str("dir", dir).
-		// 		Msg("partial scan failed")
-		// }
-
-		if _, err := s.project.Scan(ctx, plan, dir, false); err != nil {
-			log.EError(log.Handler).
-				Err(err).
-				Str("dir", dir).
-				Msg("scan failed")
-		} else {
-			if _, err := s.project.HashDirty(ctx, plan); err != nil {
-				log.EError(log.Handler).Err(err).Str("dir", dir).Msg("hash dirty failed")
-			}
-		}
-	}
-	return nil
-}
-
-// Fragment handler
-
-func (h *Handlers) handleFragmentModified(ctx context.Context, plan *project.Plan, paths []string) error {
-	var keys []project.LayoutKey
-	for _, path := range paths {
-		affectedKeys := s.project.Layouts.InvalidateAndGetAffected(path)
-		keys = append(keys, affectedKeys...)
-
-		log.DDebug(log.Handler).
-			Str("fragment", path).
-			Int("affected_keys", len(affectedKeys)).
-			Msg("fragment modified")
-	}
-
-	return s.project.InvalidateLayouts(ctx, plan, keys, false)
-}
-
-// Scheme Asset handlers
-
-func (h *Handlers) handleSchemeAssetModified(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		id := fmt.Sprintf("asset:scheme:%s", path)
-
-		if !plan.HasEntry(id) {
-			log.DDebug(log.Handler).
-				Str("path", path).
-				Msg("scheme asset modified but not in plan")
-			continue
-		}
-
-		newHash, err := s.project.SchemeFS.HashFile(path)
-		if err != nil {
-			log.Warn(fmt.Sprintf("hash scheme asset %s: %v", path, err))
-			continue
-		}
-
-		plan.UpdateEntry(id, func(entry *project.Entry) error {
-			if entry.ContentHash != newHash {
-				entry.ContentHash = newHash
-
-				entry.Hash = utils.CombineHashes(
-					entry.ContentHash,
-					entry.LayoutHash,
-					entry.PipelineHash,
-					utils.CombineHashes(entry.FragmentHashes...),
-				)
-
-				entry.Dirty = true
-
-				log.DDebug(log.Handler).
-					Str("id", entry.ID).
-					Msg("scheme asset changed, marked for rebuild")
-			}
-
-			return nil
-		})
-	}
-	return nil
-}
-
-func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		dir := filepath.Dir(path)
-
-		lmap, err := s.project.GetLayouts(dir)
-		if err != nil {
-			continue
-		}
-
-		for _, lyt := range lmap {
-			for _, a := range lyt.Assets() {
-				glob := filepath.ToSlash(filepath.Join(dir, a.Source))
-
-				matches, err := s.project.SchemeFS.Glob(glob)
-				if err != nil || len(matches) == 0 {
-					continue
-				}
-
-				// entry, err := s.project.CreateEntryWithHash(ctx, plan, "asset", "scheme", path, a.To, filepath.Dir(path), a.Pipe, a.Name, nil)
-				// if err != nil {
-				// 	log.Warn(fmt.Sprintf("create scheme asset %s: %v", path, err))
-				// 	continue
-				// }
-				//
-				// entry.Dirty = true
-				// plan.AddEntry(entry.ID, entry)
-				spec := project.EntrySpec{
-					Type:       project.EntryTypeAsset,
-					SourceRoot: project.SourceTypeScheme,
-					Rel:        path,
-					BaseDir:    filepath.Dir(path),
-					ToTpl:      a.To,
-					Pipeline:   a.Pipe,
-				}
-				// TODO handle ok
-				entry, _ := plan.UpsertEntry(spec)
-
-				log.IInfo(log.Handler).
-					Str("id", entry.ID).
-					Str("pipeline", a.Pipe).
-					Msg("new scheme asset added to plan")
-			}
-		}
-	}
-	return nil
-}
-
-func (h *Handlers) handleSchemeAssetDeleted(ctx context.Context, plan *project.Plan, paths []string) error {
-	for _, path := range paths {
-		id := fmt.Sprintf("asset:scheme:%s", path)
-
-		if plan.HasEntry(id) {
-			plan.DeleteEntry(id)
-			s.project.Manifest.Delete(id)
-
-			log.DDebug(log.Handler).
-				Str("id", id).
-				Msg("scheme asset deleted from plan")
-		}
-	}
-	return nil
-}
-
-// Pipeline handler
-
-// TODO this method need rework
-func (h *Handlers) handlePipelineModified(ctx context.Context, plan *project.Plan, paths []string) error {
-	pipelineNames := make(map[string]struct{})
-	for _, path := range paths {
-		parts := strings.Split(path, "/")
-		if len(parts) > 0 {
-			pipelineNames[parts[0]] = struct{}{}
-		}
-	}
-	fmt.Printf("TODO: pipeline modified: %v\n", pipelineNames)
-
-	for pipeName := range pipelineNames {
-		if err := s.project.Pipes.Reload(pipeName); err != nil {
-			log.Warn(fmt.Sprintf("pipeline reload failed: %s: %v", pipeName, err))
-			continue
-		}
-
-		log.IInfo(log.Handler).Str("pipeline", pipeName).Msg("reloaded")
-
-		pl, err := s.project.Pipes.Get(pipeName)
-		if err != nil {
-			continue
-		}
-
-		cfg := pl.Config()
-		newPipelineHash := utils.HashString(fmt.Sprintf("%s-%s-%s",
-			cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
-
-		keys := plan.EntryKeys(func(e *project.Entry) bool {
-			// TODO rework pipe hash?
-			// reload on any file change in pipe. ignore hash
-			return e.Pipeline == pipeName // && e.PipelineHash != newPipelineHash
-		})
-		for _, k := range keys {
-			plan.UpdateEntry(k, func(entry *project.Entry) error {
-
-				entry.PipelineHash = newPipelineHash
-
-				entry.Hash = utils.CombineHashes(
-					entry.ContentHash,
-					entry.LayoutHash,
-					entry.PipelineHash,
-					utils.CombineHashes(entry.FragmentHashes...),
-				)
-
-				entry.Dirty = true
-
-				log.DDebug(log.Handler).
-					Str("id", entry.ID).
-					Str("pipeline", pipeName).
-					Msg("pipeline changed, entry marked for rebuild")
-
-				return nil
-			})
-		}
-	}
-	return nil
-}
-
 
 func (h *Handlers) RegisterAll(r *EventRegistry) {
 	// Content handlers
@@ -577,4 +54,342 @@ func (h *Handlers) RegisterAll(r *EventRegistry) {
 	r.Register(FileTypePipeline, ModTypeModified, HandlerFunc(h.handlePipelineModified))
 	r.Register(FileTypePipeline, ModTypeCreated, HandlerFunc(h.handlePipelineModified))
 	r.Register(FileTypePipeline, ModTypeDeleted, HandlerFunc(h.handlePipelineModified))
+}
+
+func (h *Handlers) handleContentModified(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		h.rehashAndMark(ctx, path)
+	}
+	return nil
+}
+
+func (h *Handlers) handleContentCreated(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
+	for _, path := range paths {
+		if _, ok := graph.EntryByID(path); ok {
+			continue
+		}
+
+		entry, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeSource)
+		if !ok {
+			log.DDebug(log.Handler).Str("path", path).Msg("created file matched no content pattern")
+			continue
+		}
+
+		if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+			log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content")
+			continue
+		}
+
+		log.IInfo(log.Handler).Str("id", entry.ID).Msg("new content added to graph")
+	}
+	return nil
+}
+
+func (h *Handlers) handleContentDeleted(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		h.removeEntry(path)
+	}
+	return nil
+}
+
+// --- Content Assets ---
+
+func (h *Handlers) handleContentAssetModified(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		h.rehashAndMark(ctx, fmt.Sprintf("asset:source:%s", path))
+	}
+	return nil
+}
+
+func (h *Handlers) handleContentAssetCreated(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:source:%s", path)
+		if _, ok := graph.EntryByID(id); ok {
+			continue
+		}
+
+		entry, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeSource)
+		if !ok {
+			log.DDebug(log.Handler).Str("path", path).Msg("created file matched no asset pattern")
+			continue
+		}
+
+		if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+			log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content asset")
+			continue
+		}
+
+		log.IInfo(log.Handler).Str("id", entry.ID).Msg("new content asset added to graph")
+	}
+	return nil
+}
+
+func (h *Handlers) handleContentAssetDeleted(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		h.removeEntry(fmt.Sprintf("asset:source:%s", path))
+	}
+	return nil
+}
+
+// --- Layouts ---
+
+func (h *Handlers) handleLayoutModified(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		log.IInfo(log.Handler).Str("layout", path).Msg("layout modified")
+		h.invalidateAndRehash(ctx, path, false)
+	}
+	return nil
+}
+
+func (h *Handlers) handleLayoutCreated(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+		log.IInfo(log.Handler).Str("layout", path).Str("dir", dir).Msg("layout created, rescanning directory")
+
+		// Entries in this dir were bound to a parent layout; remove them so
+		// PartialScan re-adds them under the new, more specific layout.
+		for _, entry := range graph.AllEntries() {
+			if entry.Type == project.ContentType && strings.HasPrefix(entry.BaseDir, dir) {
+				graph.RemoveNode(project.NewEntryNode(entry))
+			}
+		}
+
+		if err := h.source.PartialScan(ctx, graph, dir); err != nil {
+			log.EError(log.Handler).Err(err).Str("dir", dir).Msg("partial scan failed")
+			continue
+		}
+
+		h.hashNewEntries(ctx)
+	}
+	return nil
+}
+
+func (h *Handlers) handleLayoutDeleted(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
+	for _, path := range paths {
+		dir := filepath.Dir(path)
+		log.IInfo(log.Handler).Str("layout", path).Str("dir", dir).Msg("layout deleted, rescanning with parent layout")
+
+		lkey := project.LayoutKey{CtxPath: dir, LayoutPath: path}
+		layoutNode := project.NewLayoutNode(lkey)
+
+		// Remove all entries that depended on this layout before rescanning.
+		for _, n := range graph.AffectedBy(layoutNode) {
+			if n.Kind() == project.NodeKindEntry {
+				graph.RemoveNode(n)
+			}
+		}
+		graph.RemoveNode(layoutNode)
+		h.project.Layouts.Invalidate(lkey)
+
+		if err := h.source.PartialScan(ctx, graph, dir); err != nil {
+			log.EError(log.Handler).Err(err).Str("dir", dir).Msg("partial scan failed")
+			continue
+		}
+
+		h.hashNewEntries(ctx)
+	}
+	return nil
+}
+
+// --- Fragments ---
+
+// A fragment change never restructures the graph — it only invalidates the
+// compiled layout cache and triggers a rehash of all dependent entries.
+// Create/modify/delete are all treated the same way.
+func (h *Handlers) handleFragmentModified(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		log.DDebug(log.Handler).Str("fragment", path).Msg("fragment changed")
+		h.invalidateAndRehash(ctx, path, true)
+	}
+	return nil
+}
+
+// --- Scheme Assets ---
+
+func (h *Handlers) handleSchemeAssetModified(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		h.rehashAndMark(ctx, fmt.Sprintf("asset:scheme:%s", path))
+	}
+	return nil
+}
+
+func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
+	for _, path := range paths {
+		id := fmt.Sprintf("asset:scheme:%s", path)
+		if _, ok := graph.EntryByID(id); ok {
+			continue
+		}
+
+		entry, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeScheme)
+		if !ok {
+			log.DDebug(log.Handler).Str("path", path).Msg("created file matched no scheme asset pattern")
+			continue
+		}
+
+		if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+			log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new scheme asset")
+			continue
+		}
+
+		log.IInfo(log.Handler).Str("id", entry.ID).Msg("new scheme asset added to graph")
+	}
+	return nil
+}
+
+func (h *Handlers) handleSchemeAssetDeleted(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		h.removeEntry(fmt.Sprintf("asset:scheme:%s", path))
+	}
+	return nil
+}
+
+// --- Pipelines ---
+
+func (h *Handlers) handlePipelineModified(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
+	pipeNames := make(map[string]struct{})
+	for _, path := range paths {
+		name, _, _ := strings.Cut(path, "/")
+		pipeNames[name] = struct{}{}
+	}
+
+	for pipeName := range pipeNames {
+		if err := h.project.Pipes.Reload(pipeName); err != nil {
+			log.WWarn(log.Handler).Err(err).Str("pipeline", pipeName).Msg("pipeline reload failed")
+			continue
+		}
+		log.IInfo(log.Handler).Str("pipeline", pipeName).Msg("pipeline reloaded")
+
+		for _, entry := range graph.AllEntries() {
+			if entry.Pipeline == pipeName {
+				h.rehashAndMark(ctx, entry.ID)
+			}
+		}
+	}
+	return nil
+}
+
+// rehashAndMark recomputes the hash for an existing entry by ID and marks it
+// dirty if the hash changed. No-ops silently if the entry is not in the graph
+// or the hash is unchanged.
+func (h *Handlers) rehashAndMark(ctx context.Context, id string) {
+	graph := h.project.Graph()
+
+	entry, ok := graph.EntryByID(id)
+	if !ok {
+		log.DDebug(log.Handler).Str("id", id).Msg("modified entry not in graph, skipping")
+		return
+	}
+
+	newHash, err := h.hasher.ComputeHash(ctx, entry)
+	if err != nil {
+		log.WWarn(log.Handler).Err(err).Str("id", id).Msg("failed to compute hash")
+		return
+	}
+
+	if entry.Hash == newHash {
+		return
+	}
+
+	_ = graph.UpdateEntry(id, func(e *project.BuildEntry) error {
+		e.Hash = newHash
+		e.Dirty = true
+		return nil
+	})
+
+	log.DDebug(log.Handler).Str("id", id).Msg("entry changed, marked for rebuild")
+}
+
+// removeEntry removes an entry from the graph and clears it from the manifest.
+func (h *Handlers) removeEntry(id string) {
+	graph := h.project.Graph()
+
+	entry, ok := graph.EntryByID(id)
+	if !ok {
+		return
+	}
+
+	graph.RemoveNode(project.NewEntryNode(entry))
+	h.project.Manifest.Delete(id)
+
+	log.IInfo(log.Handler).Str("id", id).Msg("entry removed from graph")
+}
+
+// computeAndMarkDirty sets the initial hash on a freshly added entry and
+// marks it dirty. Used only for newly created files with no prior hash.
+func (h *Handlers) computeAndMarkDirty(ctx context.Context, entry *project.BuildEntry) error {
+	hash, err := h.hasher.ComputeHash(ctx, entry)
+	if err != nil {
+		return err
+	}
+	return h.project.Graph().UpdateEntry(entry.ID, func(e *project.BuildEntry) error {
+		e.Hash = hash
+		e.Dirty = true
+		return nil
+	})
+}
+
+// hashNewEntries hashes all entries with an empty hash. Used after
+// PartialScan adds fresh nodes that have no hash yet.
+func (h *Handlers) hashNewEntries(ctx context.Context) {
+	for _, entry := range h.project.Graph().AllEntries() {
+		if entry.Hash == "" {
+			if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+				log.WWarn(log.Handler).Err(err).Str("id", entry.ID).Msg("failed to hash new entry")
+			}
+		}
+	}
+}
+
+// invalidateAndRehash invalidates the compiled layout cache for a layout or
+// fragment path, then rehashes all graph entries that depend on it.
+// Set fromFragment=true when path is a fragment rather than a layout file.
+func (h *Handlers) invalidateAndRehash(ctx context.Context, path string, fromFragment bool) {
+	graph := h.project.Graph()
+
+	var layoutNodes []project.Node
+
+	if fromFragment {
+		fragNode, ok := graph.GetNode(fmt.Sprintf("fragment:%s", path))
+		if !ok {
+			return
+		}
+		for _, n := range graph.DependentsOf(fragNode) {
+			if n.Kind() == project.NodeKindLayout {
+				layoutNodes = append(layoutNodes, n)
+			}
+		}
+	} else {
+		for _, n := range graph.AllNodes() {
+			if n.Kind() == project.NodeKindLayout {
+				if ln, ok := n.(*project.LayoutNode); ok && ln.Key().LayoutPath == path {
+					layoutNodes = append(layoutNodes, n)
+				}
+			}
+		}
+	}
+
+	for _, n := range layoutNodes {
+		ln := n.(*project.LayoutNode)
+		h.project.Layouts.Invalidate(ln.Key())
+
+		for _, affected := range graph.AffectedBy(n) {
+			if affected.Kind() == project.NodeKindEntry {
+				if en, ok := affected.(*project.EntryNode); ok {
+					h.rehashAndMark(ctx, en.Entry().ID)
+				}
+			}
+		}
+	}
 }

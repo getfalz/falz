@@ -16,6 +16,9 @@ type HotReloadMsg struct {
 	Reload bool   `json:"reload"`
 	URL    string `json:"url"`
 }
+type HotReloadConfig struct {
+	Enabled bool
+}
 
 type HotReload struct {
 	upgrader       websocket.Upgrader
@@ -23,63 +26,69 @@ type HotReload struct {
 	wsclientsMutex sync.Mutex
 }
 
-func (h *HotReload) HotReload() error {
-	// s.upgrader.CheckOrigin = func(r *http.Request) bool { return true }
-	s.routing.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		conn, err := s.upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			log.DDebug(log.Server).Err(err).Msg("websocket upgrade failed")
-			return
-		}
+func NewHotReload(config HotReloadConfig, mux *http.ServeMux) *HotReload {
+	if !config.Enabled {
+		return nil
+	}
+	hr := &HotReload{
+		wsclients: make(map[*websocket.Conn]bool),
+	}
+	mux.HandleFunc("/ws", hr.wsHandler)
+	return hr
+}
 
-		log.IInfo(log.Server).Str("remote", r.RemoteAddr).Msg("websocket connected")
+func (h *HotReload) wsHandler(w http.ResponseWriter, r *http.Request) {
+	conn, err := h.upgrader.Upgrade(w, r, nil)
+	if err != nil {
+		log.DDebug(log.Server).Err(err).Msg("websocket upgrade failed")
+		return
+	}
 
-		_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		conn.SetPongHandler(func(string) error {
-			return conn.SetReadDeadline(time.Now().Add(60 * time.Second))
-		})
+	log.IInfo(log.Server).Str("remote", r.RemoteAddr).Msg("websocket connected")
 
-		h.wsclientsMutex.Lock()
-		h.wsclients[conn] = true
-		h.wsclientsMutex.Unlock()
-
-		go func() {
-			defer func() {
-				h.wsclientsMutex.Lock()
-				delete(h.wsclients, conn)
-				h.wsclientsMutex.Unlock()
-				conn.Close()
-				log.DDebug(log.Server).Msg("websocket disconnected")
-			}()
-
-			for {
-				mt, _, err := conn.ReadMessage()
-				if err != nil || mt == websocket.CloseMessage {
-					// break
-					return
-				}
-			}
-		}()
-
-		go func() {
-			t := time.NewTicker(30 * time.Second)
-			defer t.Stop()
-			defer conn.Close()
-			for range t.C {
-				h.wsclientsMutex.Lock()
-				if _, ok := h.wsclients[conn]; !ok {
-					h.wsclientsMutex.Unlock()
-					return
-				}
-				h.wsclientsMutex.Unlock()
-				_ = conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
-				log.TTrace(log.Server).Msg("websocket ping")
-			}
-		}()
-
+	_ = conn.SetReadDeadline(time.Now().Add(60 * time.Second))
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(60 * time.Second))
 	})
 
-	return nil
+	h.wsclientsMutex.Lock()
+	h.wsclients[conn] = true
+	h.wsclientsMutex.Unlock()
+
+	go func() {
+		defer func() {
+			h.wsclientsMutex.Lock()
+			delete(h.wsclients, conn)
+			h.wsclientsMutex.Unlock()
+			conn.Close()
+			log.DDebug(log.Server).Msg("websocket disconnected")
+		}()
+
+		for {
+			mt, _, err := conn.ReadMessage()
+			if err != nil || mt == websocket.CloseMessage {
+				// break
+				return
+			}
+		}
+	}()
+
+	go func() {
+		t := time.NewTicker(30 * time.Second)
+		defer t.Stop()
+		defer conn.Close()
+		for range t.C {
+			h.wsclientsMutex.Lock()
+			if _, ok := h.wsclients[conn]; !ok {
+				h.wsclientsMutex.Unlock()
+				return
+			}
+			h.wsclientsMutex.Unlock()
+			_ = conn.WriteControl(websocket.PingMessage, []byte{}, time.Now().Add(5*time.Second))
+			log.TTrace(log.Server).Msg("websocket ping")
+		}
+	}()
+
 }
 
 func (h *HotReload) sendToClient(msg HotReloadMsg) {

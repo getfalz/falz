@@ -6,9 +6,11 @@ import (
 )
 
 type EventCoalescer struct {
-
-	// eventCache stores recent events by path
 	eventCache sync.Map // path -> *recentEvent
+}
+
+func NewEventCoalescer() *EventCoalescer {
+    return &EventCoalescer{}
 }
 
 // eventMergeWindow defines how long two events for the same file
@@ -24,25 +26,25 @@ type recentEvent struct {
 // coalesceFileEvents merges redundant or rapid events for the same file.
 // this can happen when editors when changing a file e.g. first save a tmp file, then create a new one, and finally rename them
 // Returns nil if the event should be suppressed.
-func (c *EventCoalescer) Coalesce(change FileChange) *FileChange {
+func (c *EventCoalescer) Coalesce(change *FileChange) *FileChange {
 	now := time.Now()
 
 	v, ok := c.eventCache.Load(change.Path)
 	if !ok {
 		c.eventCache.Store(change.Path, &recentEvent{LastMod: change.Mod, LastTime: now})
-		return &change
+		return change
 	}
 
-	st := v.(*recentEvent)
-	if now.Sub(st.LastTime) < eventMergeWindow {
-		st.LastMod = c.resolveEventType(st.LastMod, change.Mod)
-		st.LastTime = now
-		c.eventCache.Store(change.Path, st)
+	event := v.(*recentEvent)
+	if now.Sub(event.LastTime) < eventMergeWindow {
+		event.LastMod = c.resolveEventType(event.LastMod, change.Mod)
+		event.LastTime = now
+		c.eventCache.Store(change.Path, event)
 		return nil
 	}
 
 	c.eventCache.Store(change.Path, &recentEvent{LastMod: change.Mod, LastTime: now})
-	return &change
+	return change
 }
 
 // resolveEventType fuses two modification types into one

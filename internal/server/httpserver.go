@@ -13,10 +13,22 @@ import (
 type HTTPServer struct {
 	httpServer *http.Server
 	routing    *http.ServeMux
+	config     HTTPServerConfig
+}
+type HTTPServerConfig struct {
+	OutputPath string
+	Port       int
+}
+
+func NewHTTPServer(cfg HTTPServerConfig) *HTTPServer {
+	return &HTTPServer{
+		config:  cfg,
+		routing: http.NewServeMux(),
+	}
 }
 
 func (h *HTTPServer) Serve(ctx context.Context) error {
-	fs := http.FileServer(http.Dir(s.config.OutputPath))
+	fs := http.FileServer(http.Dir(h.config.OutputPath))
 
 	h.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		// log.TTrace(log.Server).
@@ -28,7 +40,7 @@ func (h *HTTPServer) Serve(ctx context.Context) error {
 	})
 
 	h.httpServer = &http.Server{
-		Addr:         fmt.Sprintf(":%d", s.config.Server.Port),
+		Addr:         fmt.Sprintf(":%d", h.config.Port),
 		Handler:      h.routing,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 10 * time.Second,
@@ -36,30 +48,27 @@ func (h *HTTPServer) Serve(ctx context.Context) error {
 
 	go func() {
 		<-ctx.Done()
-		_ = s.Shutdown(ctx)
+		_ = h.Shutdown(ctx)
 	}()
 
 	log.IInfo(log.Server).
-		Int("port", s.config.Server.Port).
-		Str("root", s.config.OutputPath).
+		Int("port", h.config.Port).
+		Str("root", h.config.OutputPath).
 		Msg("http server starting")
 
 	return h.httpServer.ListenAndServe()
 }
 
-// TODO remove hotreload, server shutdown logic
 func (h *HTTPServer) Shutdown(ctx context.Context) error {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
 	var errs []error
 
-	if h.httpServer != nil {
-		if err := utils.StopComponent(ctx, "http", func(c context.Context) error {
-			return h.httpServer.Shutdown(c)
-		}); err != nil {
-			errs = append(errs, err)
-		}
+	if err := utils.StopComponent(ctx, "http", func(c context.Context) error {
+		return h.httpServer.Shutdown(c)
+	}); err != nil {
+		errs = append(errs, err)
 	}
 
 	return errors.Join(errs...)

@@ -10,12 +10,29 @@ import (
 	"time"
 )
 
-type Debouncer struct {
-}
-
 type changeKey struct {
 	fileType FileType
 	modType  ModType
+}
+
+type DebouncerConfig struct {
+	HotReload bool
+}
+
+type Debouncer struct {
+	config    DebouncerConfig
+	registry  *EventRegistry
+	onRebuilt func()
+	project   *project.Project
+}
+
+func NewDebouncer(config DebouncerConfig, p *project.Project, registry *EventRegistry, onRebuilt func()) *Debouncer {
+	return &Debouncer{
+		config:    config,
+		registry:  registry,
+		onRebuilt: onRebuilt,
+		project:   p,
+	}
 }
 
 // processChanges debounces changes and triggers incremental rebuilds
@@ -29,30 +46,28 @@ func (d *Debouncer) Run(ctx context.Context, changes <-chan FileChange) {
 		rebuilding     bool
 	)
 
-	triggerRebuild := func() {
+	var triggerRebuild func()
+	triggerRebuild = func() {
 		mu.Lock()
 		if rebuilding {
+			timer = time.AfterFunc(debounceWindow, triggerRebuild)
 			mu.Unlock()
 			return
 		}
+
 		rebuilding = true
 		batch := pendingChanges
 		pendingChanges = nil
 		mu.Unlock()
 
-		if len(batch) == 0 {
-			mu.Lock()
-			rebuilding = false
-			mu.Unlock()
-			return
-		}
+		if len(batch) > 0 {
+			log.DDebug(log.Server).
+				Int("changes", len(batch)).
+				Msg("processing change batch")
 
-		log.DDebug(log.Server).
-			Int("changes", len(batch)).
-			Msg("processing change batch")
-
-		if err := d.handleBatch(ctx, batch); err != nil && !errors.Is(err, context.Canceled) {
-			log.EError(log.Server).Err(err).Msg("rebuild failed")
+			if err := d.handleBatch(ctx, batch); err != nil && !errors.Is(err, context.Canceled) {
+				log.EError(log.Server).Err(err).Msg("rebuild failed")
+			}
 		}
 
 		mu.Lock()
@@ -85,12 +100,7 @@ func (d *Debouncer) Run(ctx context.Context, changes <-chan FileChange) {
 func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error {
 	start := time.Now()
 
-	plan, err := s.project.CurrentPlan()
-	if err != nil {
-		return fmt.Errorf("get current plan: %w", err)
-	}
-
-	grouped := d.groupChanges(changes)
+	grouped := groupChanges(changes)
 
 	log.IInfo(log.Server).
 		Int("total_changes", len(changes)).
@@ -108,42 +118,37 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 		// 	Int("count", len(paths)).
 		// 	Msg("dispatching to handler")
 
-		if err := s.eventRegistry.Dispatch(ctx, plan, key.fileType, key.modType, paths); err != nil {
+		if err := d.registry.Dispatch(ctx, key.fileType, key.modType, paths); err != nil {
 			log.EError(log.Server).
 				Err(err).
 				Str("type", string(key.fileType)).
 				Str("mod", string(key.modType)).
 				Msg("handler failed")
+			// continue: one handler failure must not abort the others
 		}
 	}
 
-	keys := plan.EntryKeys(func(e *project.Entry) bool {
-		return e.Dirty
-	})
-	dirtyCount := len(keys)
-
-	if dirtyCount == 0 {
+	dirty := d.project.Graph().DirtyEntries()
+	if len(dirty) == 0 {
 		log.DDebug(log.Server).
 			Int("changes", len(changes)).
-			Msg("no dirty entries, skipping rebuild")
-		if s.config.FsWatcher.HotReload {
-			s.reloadPage()
-		}
+			Msg("no dirty entries after dispatch, skipping rebuild")
 		return nil
 	}
 
 	log.IInfo(log.Server).
-		Int("dirty", dirtyCount).
+		Int("dirty", len(dirty)).
 		Msg("starting incremental rebuild")
 
-	stats, err := s.project.BuildFromPlan(ctx, plan)
+	stats, err := d.project.IncrementalBuild(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
+		// BuildError means individual entries failed but the build ran normally;
+		// log and continue rather than treating the whole pipeline as broken.
 		var be *project.BuildError
 		if errors.As(err, &be) {
 			log.EError(log.Server).
 				Err(err).
-				Str("stats", stats.String()).
-				Msg("incremental build completed with build errors")
+				Msg("incremental build completed with entry errors")
 		} else {
 			return fmt.Errorf("incremental build: %w", err)
 		}
@@ -151,20 +156,20 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	log.IInfo(log.Server).
 		Int64("built", stats.Built).
-		Int64("cache_hits", stats.CacheHits).
+		Int64("cache", stats.Cached).
 		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
 		Msg("rebuild completed")
 
-	if s.config.FsWatcher.HotReload && stats.Built > 0 {
-		s.reloadPage()
+	if d.config.HotReload && stats.Built > 0 && d.onRebuilt != nil {
+		d.onRebuilt()
 	}
 
 	return nil
 }
 
 // groupChanges groups changes by file type and modification type, deduplicating paths
-func (d *Debouncer) groupChanges(changes []FileChange) map[changeKey][]string {
+func groupChanges(changes []FileChange) map[changeKey][]string {
 	grouped := make(map[changeKey][]string)
 	seen := make(map[changeKey]map[string]bool)
 

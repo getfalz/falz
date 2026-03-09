@@ -4,9 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	"path"
 	"path/filepath"
-	"strings"
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
@@ -16,19 +14,15 @@ type SourceIndex struct {
 	fs *FSRegistry
 	lc LayoutRegistry
 
-	ignore []string
+	ignore IgnoreList
 }
 
-type SourceIndexConfig struct {
-	Ignore []string
-}
-
-func NewSourceIndex(fs *FSRegistry, lc LayoutRegistry, config SourceIndexConfig) *SourceIndex {
+func NewSourceIndex(fs *FSRegistry, lc LayoutRegistry, ignore IgnoreList) *SourceIndex {
 	return &SourceIndex{
 		fs: fs,
 		lc: lc,
 
-		ignore: config.Ignore,
+		ignore: ignore,
 	}
 }
 
@@ -50,7 +44,7 @@ func (si *SourceIndex) Scan(ctx context.Context, graph DependencyGraph) error {
 		if !d.IsDir() {
 			return nil
 		}
-		if si.IgnoreFile(path) {
+		if si.ignore.Match(path) {
 			return fs.SkipDir
 		}
 
@@ -78,7 +72,7 @@ func (si *SourceIndex) PartialScan(ctx context.Context, graph DependencyGraph, b
 		if !d.IsDir() {
 			return nil
 		}
-		if si.IgnoreFile(path) {
+		if si.ignore.Match(path) {
 			return fs.SkipDir
 		}
 
@@ -140,14 +134,14 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph DependencyGraph,
 		}
 
 		for _, content := range lyt.Contents() {
-			err := si.scanContentPattern(ctx, graph, path, lKey, content)
+			err := si.scanContent(ctx, graph, path, lKey, content)
 			if err != nil {
 				continue
 			}
 		}
 
 		for _, asset := range lyt.Assets() {
-			err := si.scanAssetPattern(ctx, graph, path, lKey, asset)
+			err := si.scanAsset(ctx, graph, path, lKey, asset)
 			if err != nil {
 				continue
 			}
@@ -158,7 +152,7 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph DependencyGraph,
 	return nil
 }
 
-func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyGraph, base string, key LayoutKey, content layout.Content) error {
+func (si *SourceIndex) scanContent(ctx context.Context, graph DependencyGraph, base string, key LayoutKey, content layout.Content) error {
 
 	glob := filepath.ToSlash(filepath.Join(base, content.Source))
 	matches, err := si.fs.Source().Glob(glob)
@@ -214,7 +208,7 @@ func (si *SourceIndex) scanContentPattern(ctx context.Context, graph DependencyG
 	return nil
 }
 
-func (si *SourceIndex) scanAssetPattern(ctx context.Context, graph DependencyGraph, base string, key LayoutKey, asset layout.Asset) error {
+func (si *SourceIndex) scanAsset(ctx context.Context, graph DependencyGraph, base string, key LayoutKey, asset layout.Asset) error {
 
 	glob := filepath.ToSlash(filepath.Join(base, asset.Source))
 	matches, err := si.fs.Scheme().Glob(glob)
@@ -257,39 +251,120 @@ func (si *SourceIndex) buildEntryEdge(graph DependencyGraph, entryNode *EntryNod
 	graph.AddEdge(entryNode, lytNode)
 }
 
-func (si *SourceIndex) IgnoreFile(name string) bool {
-	name = filepath.ToSlash(filepath.Clean(name))
+// AddFile adds a single file to the graph by finding which content or asset
+// pattern it matches in the layout governing its directory.
+//
+// This is the targeted alternative to PartialScan for watch-mode created events:
+// instead of walking the whole directory and re-evaluating all patterns, we have
+// the specific file and just need to find its slot.
+//
+// Returns the newly created BuildEntry and true if the file matched a pattern,
+// or nil and false if it belongs to no pattern (not an error — the file may
+// simply not be a tracked source file).
+func (si *SourceIndex) AddFile(ctx context.Context, graph DependencyGraph, filePath string, sourceRoot SourceType) (*BuildEntry, bool) {
+	dir := filepath.ToSlash(filepath.Dir(filePath))
 
-	for _, raw := range si.ignore {
-		pat := filepath.ToSlash(strings.TrimSpace(raw))
-		if pat == "" {
-			continue
-		}
+	lkeys, err := si.lc.LayoutsForDir(ctx, dir)
+	if err != nil {
+		log.WWarn(log.Plan).Err(err).Str("path", filePath).Msg("AddFile: no layout found for directory")
+		return nil, false
+	}
 
-		if strings.HasSuffix(pat, "/**") {
-			prefix := strings.TrimSuffix(pat, "/**")
-			if name == prefix || strings.HasPrefix(name, prefix+"/") {
-				log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by prefix/**")
-				return true
-			}
-			continue
-		}
-		if !strings.ContainsAny(pat, "*?[]") {
-			if name == pat || strings.HasPrefix(name, pat+"/") {
-				log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by exact/prefix")
-				return true
-			}
-			continue
-		}
-
-		ok, err := path.Match(pat, name)
+	for _, lKey := range lkeys {
+		lyt, err := si.lc.Parse(lKey)
 		if err != nil {
+			log.WWarn(log.Plan).Err(err).Str("layout", lKey.LayoutPath).Msg("AddFile: failed to parse layout")
 			continue
 		}
-		if ok {
-			log.TTrace(log.Project).Str("name", name).Str("pattern", pat).Msg("ignored by glob")
-			return true
+
+		switch sourceRoot {
+		case SourceTypeSource:
+			if entry := si.matchContent(graph, filePath, dir, lKey, lyt); entry != nil {
+				return entry, true
+			}
+
+		case SourceTypeScheme:
+			if entry := si.matchAsset(graph, filePath, dir, lKey, lyt); entry != nil {
+				return entry, true
+			}
 		}
 	}
-	return false
+
+	return nil, false
+}
+
+// matchContent checks whether filePath matches any content or content-asset
+// pattern in the layout, builds the entry, and wires it into the graph.
+func (si *SourceIndex) matchContent(graph DependencyGraph, filePath, base string, lKey LayoutKey, lyt *layout.Layout) *BuildEntry {
+	for _, content := range lyt.Contents() {
+		glob := filepath.ToSlash(filepath.Join(base, content.Source))
+
+		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
+			entry := &BuildEntry{
+				ID:         filePath,
+				Type:       ContentType,
+				SourceRoot: SourceTypeSource,
+				SourcePath: filePath,
+				LayoutKey:  lKey,
+				Pipeline:   content.Pipe,
+				TagName:    content.Name,
+				BaseDir:    base,
+			}
+			entryNode := NewEntryNode(entry)
+			graph.AddNode(entryNode)
+			si.buildEntryEdge(graph, entryNode, lKey, content.Pipe)
+			return entry
+		}
+
+		// Also check content-owned assets.
+		for _, asset := range content.Assets() {
+			glob := filepath.ToSlash(filepath.Join(base, asset.Source))
+
+			if matched, err := filepath.Match(glob, filePath); err == nil && matched {
+				entry := &BuildEntry{
+					ID:         filePath,
+					Type:       AssetType,
+					SourceRoot: SourceTypeSource,
+					SourcePath: filePath,
+					LayoutKey:  lKey,
+					Pipeline:   asset.Pipe,
+					TagName:    asset.Name,
+					BaseDir:    filepath.Dir(filePath),
+				}
+				entryNode := NewEntryNode(entry)
+				graph.AddNode(entryNode)
+				si.buildEntryEdge(graph, entryNode, lKey, asset.Pipe)
+				return entry
+			}
+		}
+	}
+
+	return nil
+}
+
+// matchAsset checks whether filePath matches any scheme-level asset
+// pattern in the layout, builds the entry, and wires it into the graph.
+func (si *SourceIndex) matchAsset(graph DependencyGraph, filePath, base string, lKey LayoutKey, lyt *layout.Layout) *BuildEntry {
+	for _, asset := range lyt.Assets() {
+		glob := filepath.ToSlash(filepath.Join(filepath.Dir(lKey.LayoutPath), asset.Source))
+
+		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
+			entry := &BuildEntry{
+				ID:         fmt.Sprintf("asset:scheme:%s", filePath),
+				Type:       AssetType,
+				SourceRoot: SourceTypeScheme,
+				SourcePath: filePath,
+				LayoutKey:  lKey,
+				Pipeline:   asset.Pipe,
+				TagName:    asset.Name,
+				BaseDir:    filepath.Dir(filePath),
+			}
+			entryNode := NewEntryNode(entry)
+			graph.AddNode(entryNode)
+			si.buildEntryEdge(graph, entryNode, lKey, asset.Pipe)
+			return entry
+		}
+	}
+
+	return nil
 }

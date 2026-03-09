@@ -21,7 +21,6 @@ type BuilderConfig struct {
 	Concurrency  int  // Worker pool size (0 = NumCPU)
 	UseCAS       bool // Use content-addressable storage cache
 	ForceRebuild bool // Rebuild everything (ignore dirty flags)
-	CleanStale   bool // Remove outputs for deleted source files
 	Variables    map[string]any
 }
 
