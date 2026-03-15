@@ -103,11 +103,12 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph DependencyGraph,
 	}
 
 	for lytPath, lKey := range lkeys {
-		lyt, err := si.lc.Parse(lKey)
+		clyt, err := si.lc.Get(ctx, lKey)
 		if err != nil {
 			return fmt.Errorf("failed to parse layout %q: %w", lytPath, err)
 		}
 
+		lyt := clyt.Layout()
 		lytNode := NewLayoutNode(lKey)
 		graph.AddNode(lytNode)
 
@@ -271,7 +272,7 @@ func (si *SourceIndex) AddFile(ctx context.Context, graph DependencyGraph, fileP
 	}
 
 	for _, lKey := range lkeys {
-		lyt, err := si.lc.Parse(lKey)
+		clyt, err := si.lc.Get(ctx, lKey)
 		if err != nil {
 			log.WWarn(log.Plan).Err(err).Str("layout", lKey.LayoutPath).Msg("AddFile: failed to parse layout")
 			continue
@@ -279,12 +280,12 @@ func (si *SourceIndex) AddFile(ctx context.Context, graph DependencyGraph, fileP
 
 		switch sourceRoot {
 		case SourceTypeSource:
-			if entry := si.matchContent(graph, filePath, dir, lKey, lyt); entry != nil {
+			if entry := si.matchContent(graph, filePath, dir, lKey, clyt.Layout()); entry != nil {
 				return entry, true
 			}
 
 		case SourceTypeScheme:
-			if entry := si.matchAsset(graph, filePath, dir, lKey, lyt); entry != nil {
+			if entry := si.matchAsset(graph, filePath, dir, lKey, clyt.Layout()); entry != nil {
 				return entry, true
 			}
 		}

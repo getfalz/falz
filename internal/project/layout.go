@@ -26,12 +26,13 @@ type LayoutKey struct {
 }
 
 type LayoutCacheEntry struct {
+	layout    *layout.Layout
 	layoutTpl *fasttemplate.Template
 	// TODO change name from content to X. contents has also assets
-	contents  map[string]*fasttemplate.Template
-	mtime     time.Time
-	size      int64
-	deps      []string
+	contents map[string]*fasttemplate.Template
+	mtime    time.Time
+	size     int64
+	deps     []string
 }
 
 func (lc *LayoutCacheEntry) ExecuteString(vars map[string]interface{}) string {
@@ -40,6 +41,10 @@ func (lc *LayoutCacheEntry) ExecuteString(vars map[string]interface{}) string {
 
 func (lc *LayoutCacheEntry) GetDeps() []string {
 	return lc.deps
+}
+
+func (lc *LayoutCacheEntry) Layout() *layout.Layout {
+	return lc.layout
 }
 
 var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
@@ -113,10 +118,9 @@ type LayoutRegistry interface {
 
 type CompiledLayout interface {
 	ExecuteString(vars map[string]interface{}) string
-
 	ContentOutput(contentName string, entry *BuildEntry) (string, error)
-
 	GetDeps() []string
+	Layout() *layout.Layout
 }
 
 type content struct {
@@ -241,6 +245,7 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 	}
 
 	entry := &LayoutCacheEntry{
+		layout: lyt,
 		layoutTpl: tpl,
 		contents:  contents,
 		deps:      deps,
