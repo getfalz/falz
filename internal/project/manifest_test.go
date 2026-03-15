@@ -59,7 +59,7 @@ func TestManifest_IsDirty(t *testing.T) {
 	m := NewManifest()
 
 	// Non-existent entry should be dirty
-	if !m.IsDirty("new.md", "", "hash123") {
+	if !m.IsDirty("new.md", "hash123") {
 		t.Error("Expected non-existent entry to be dirty")
 	}
 
@@ -67,16 +67,16 @@ func TestManifest_IsDirty(t *testing.T) {
 	m.Set("test.md", ManifestEntry{Hash: "hash123", OutputPath: "test.html"})
 
 	// Same hash should not be dirty
-	if m.IsDirty("test.md", "test.html", "hash123") {
+	if m.IsDirty("test.md", "hash123") {
 		t.Error("Expected entry with same hash to not be dirty")
 	}
 
 	// Different hash should be dirty
-	if !m.IsDirty("test.md", "test.html", "hash456") {
+	if !m.IsDirty("test.md", "hash456") {
 		t.Error("Expected entry with different hash to be dirty")
 	}
 
-	if !m.IsDirty("test.md", "test.txt", "hash456") {
+	if !m.IsDirty("test.md", "hash456") {
 		t.Error("Expected entry with different output path to be dirty")
 	}
 }

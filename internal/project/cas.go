@@ -124,11 +124,11 @@ func (c *CAS) copyFile(src, dst, key string) error {
 	defer dstFile.Close()
 
 	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("copy file %q: %w", dstFile, err)
+		return fmt.Errorf("copy file %q: %w", src, err)
 	}
 
 	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("sync dest %q: %w", dstFile, err)
+		return fmt.Errorf("sync dest %q: %w", src, err)
 	}
 
 	return nil
