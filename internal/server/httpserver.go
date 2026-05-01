@@ -7,6 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -28,13 +30,25 @@ func NewHTTPServer(cfg HTTPServerConfig) *HTTPServer {
 }
 
 func (h *HTTPServer) Serve(ctx context.Context) error {
-	fs := http.FileServer(http.Dir(h.config.OutputPath))
+	outputDir := h.config.OutputPath
+	fs := http.FileServer(http.Dir(outputDir))
 
 	h.routing.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		// log.TTrace(log.Server).
-		// 	Str("method", r.Method).
-		// 	Str("path", r.URL.Path).
-		// 	Msg("http request")
+		path := filepath.Clean(r.URL.Path)
+		fullPath := filepath.Join(outputDir, path)
+		_, err := os.Stat(fullPath)
+
+		if os.IsNotExist(err) && filepath.Ext(path) == "" {
+			htmlPath := fullPath + ".html"
+			if _, err := os.Stat(htmlPath); err == nil {
+				r.URL.Path += ".html"
+			}
+		}
+
+		log.TTrace(log.Server).
+			Str("method", r.Method).
+			Str("path", r.URL.Path).
+			Msg("http request")
 
 		fs.ServeHTTP(w, r)
 	})
