@@ -185,14 +185,16 @@ func (b *builder) buildStage(
 					// compute output path
 					lyt, err := b.layouts.Get(ctx, entry.LayoutKey)
 					if err != nil {
-						sendErr(artifact.Error)
 						artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
+						sendErr(artifact.Error)
 						return
 					}
 
 					outputPath, err := lyt.ContentOutput(entry.TagName, entry)
+					fmt.Printf("outputpath for %s: %s, tag: %s\n", entry.ID, outputPath, entry.TagName)
 					if err != nil {
 						artifact.Error = fmt.Errorf("compute output path: %w", err)
+						sendErr(artifact.Error)
 						return
 					}
 
@@ -399,7 +401,9 @@ func (b *builder) writeArtifact(
 			return fmt.Errorf("restore from CAS %s: %w", artifact.OutputPath, err)
 		}
 	} else {
-		b.fs.Output().WriteFile(artifact.OutputPath, artifact.Data, 0644)
+		if err := b.fs.Output().WriteFile(artifact.OutputPath, artifact.Data, 0644); err != nil {
+			return fmt.Errorf("write file %s: %w", artifact.OutputPath, err)
+		}
 	}
 
 	return nil
