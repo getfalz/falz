@@ -43,7 +43,7 @@ type BuildEntry struct {
 	SourcePath string     // Source file path
 
 	// Build information
-	LayoutKey LayoutKey // empty for assets
+	LayoutKey LayoutKey
 	Pipeline  string    // Pipeline name
 	TagName   string    // Content slot name (empty for assets)
 	BaseDir   string    // Base directory

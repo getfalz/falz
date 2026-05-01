@@ -229,6 +229,15 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 			continue
 		}
 		contents[c.Name] = tpl
+
+		for _, asset := range c.Assets() {
+			tpl, err := fasttemplate.NewTemplate(asset.To, "{", "}")
+			if err != nil {
+				log.Warn(fmt.Sprintf("failed to parse content asset output template for asset %q in layout %q: %v. This asset will be ignored.", asset.Name, key.LayoutPath, err))
+				continue
+			}
+			contents[asset.Name] = tpl
+		}
 	}
 	for _, c := range lyt.Assets() {
 		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
