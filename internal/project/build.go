@@ -219,13 +219,6 @@ func (b *builder) buildStage(
 					return
 				}
 
-				// store in cache
-				if b.config.UseCAS && artifact.Data != nil {
-					if err := b.cas.Store(entry.Hash, artifact.Data); err != nil {
-						log.WWarn(log.Build).Err(err).Msgf("failed to store in CAS for entry %s", entry.ID)
-					}
-				}
-
 				select {
 				case out <- artifact:
 				case <-ctx.Done():
@@ -274,12 +267,14 @@ func (b *builder) buildEntry(
 
 	artifact.OutputPath = outputPath
 
+	// TODO define "default" vars keys somewhere, so that ExecuteString can ignore them
 	vars := pipeline.Vars{
 		"target": outputPath,
 		"vars":   b.config.Variables,
 	}
 
 	transformed, err := pl.Transform(ctx, data, vars)
+	// TODO trigger error if transformer is not string
 	if err != nil {
 		artifact.Error = fmt.Errorf("transform %s: %w", entry.SourcePath, err)
 		return artifact
@@ -396,13 +391,33 @@ func (b *builder) writeArtifact(
 		return fmt.Errorf("create dir for %s: %w", artifact.OutputPath, err)
 	}
 
+	log.TTrace(log.IO).
+		Str("entry", entry.ID).
+		Str("output", artifact.OutputPath).
+		Bool("cached", artifact.Cached).
+		Int("bytes", len(artifact.Data)).
+		Msg("writeArtifact begin")
+
 	if artifact.Cached {
 		if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", artifact.OutputPath, err)
 		}
 	} else {
-		if err := b.fs.Output().WriteFile(artifact.OutputPath, artifact.Data, 0644); err != nil {
-			return fmt.Errorf("write file %s: %w", artifact.OutputPath, err)
+		if artifact.Cached {
+			if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
+				return fmt.Errorf("link from CAS %s: %w", artifact.OutputPath, err)
+			}
+		} else if b.config.UseCAS {
+			if err := b.cas.Store(entry.Hash, artifact.Data); err != nil {
+				return fmt.Errorf("store in CAS %s: %w", entry.ID, err)
+			}
+			if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
+				return fmt.Errorf("link from CAS %s: %w", artifact.OutputPath, err)
+			}
+		} else {
+			if err := b.fs.Output().WriteFile(artifact.OutputPath, artifact.Data, 0644); err != nil {
+				return fmt.Errorf("write file %s: %w", artifact.OutputPath, err)
+			}
 		}
 	}
 

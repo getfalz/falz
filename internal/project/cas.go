@@ -2,151 +2,127 @@ package project
 
 import (
 	"craeft/internal/log"
+	"craeft/internal/utils"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 )
 
-// CAS implements a content-addressable storage system
+// CAS implements a content-addressable storage system.
 type CAS struct {
-	root string
+	rootFS   *utils.RootFS
+	outputFS *utils.RootFS
+	absRoot  string
 }
 
 // NewCAS creates a new content-addressable storage
-// TODO use fsroot
-func NewCAS(path string) (*CAS, error) {
-	if fi, err := os.Lstat(path); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-		return nil, fmt.Errorf("cas base is a symlink: %s", path)
+func NewCAS(path string, outputFS *utils.RootFS) (*CAS, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("cas abs path: %w", err)
 	}
-	if err := os.MkdirAll(path, 0o700); err != nil {
-		return nil, fmt.Errorf("create CAS root: %w", err)
+
+	// Reject symlinks at the root to prevent escaping the sandbox.
+	if fi, err := os.Lstat(absPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("cas base is a symlink: %s", absPath)
+	}
+
+	rootFS, err := utils.NewRootFs(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("create CAS rootFS: %w", err)
 	}
 
 	log.TTrace(log.CAS).
-		Str("path", path).
+		Str("path", absPath).
 		Msg("CAS enabled")
 
 	return &CAS{
-		root: path,
+		rootFS:   rootFS,
+		outputFS: outputFS,
+		absRoot:  absPath,
 	}, nil
 }
 
-// keyPath returns the filesystem path for a given key
-func (c *CAS) keyPath(key string) string {
-	if len(key) < 4 {
-		return filepath.Join(c.root, "short", key)
-	}
-	return filepath.Join(c.root, key[:2], key[2:4], key)
+// Close releases the underlying os.Root handle inside the RootFS.
+func (c *CAS) Close() error {
+	return c.rootFS.Close()
 }
 
-// Has checks if a key exists in the cache
-func (c *CAS) Has(key string) bool {
-	path := c.keyPath(key)
-	_, err := os.Stat(path)
+// keyRel returns the relative path inside the CAS root for a given key.
+func (c *CAS) keyRel(key string) string {
+	if len(key) < 4 {
+		return "short/" + key
+	}
+	return key[:2] + "/" + key[2:4] + "/" + key
+}
 
+func (c *CAS) keyAbs(key string) string {
+	return filepath.Join(c.absRoot, filepath.FromSlash(c.keyRel(key)))
+}
+
+// Has reports whether key exists in the cache.
+func (c *CAS) Has(key string) bool {
+	_, err := c.rootFS.Stat(c.keyRel(key))
 	return err == nil
 }
 
 // Store saves data with the given key
 func (c *CAS) Store(key string, data []byte) error {
-	path := c.keyPath(key)
-	dir := filepath.Dir(path)
-	base := filepath.Base(path)
-
-	if err := os.MkdirAll(dir, 0o700); err != nil {
-		return fmt.Errorf("create CAS dir: %w", err)
+	rel := c.keyRel(key)
+	if err := c.rootFS.WriteFile(rel, data, 0o600); err != nil {
+		return fmt.Errorf("store CAS key %s: %w", key, err)
 	}
-
-	tmpName := filepath.Join(dir, "."+base+".tmp")
-	f, err := os.OpenFile(tmpName, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fmt.Errorf("open CAS temp: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	if _, err := f.Write(data); err != nil {
-		return fmt.Errorf("write CAS temp: %w", err)
-	}
-
-	if err := os.Rename(f.Name(), path); err != nil {
-		_ = os.Remove(f.Name())
-		return fmt.Errorf("rename tmp CAS file: %w", err)
-	}
-
 	return nil
-}
-
-// Restore retrieves data for the given key
-func (c *CAS) Restore(key string) ([]byte, error) {
-	path := c.keyPath(key)
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return nil, fmt.Errorf("read CAS file: %w", err)
-	}
-
-	return data, nil
 }
 
 // Link creates a hard link or copies from cache to output path
 func (c *CAS) Link(key string, outputPath string) error {
-	src := c.keyPath(key)
-
-	if _, err := os.Stat(src); err != nil {
+	if !c.Has(key) {
 		return fmt.Errorf("CAS key not found: %s", key)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
-	os.Remove(outputPath)
+	src := c.keyAbs(key)
+	absOutputPath, err := filepath.Abs(filepath.Join(c.outputFS.Path(), outputPath))
+	if err != nil {
+		return fmt.Errorf("output abs: %w", err)
+	}
 
-	if err := os.Link(src, outputPath); err == nil {
+	_ = os.Remove(absOutputPath)
+
+	fmt.Printf("Linking CAS key %s (%s) to %s\n", key, src, absOutputPath)
+	err = os.Link(src, absOutputPath)
+	if err == nil {
 		return nil
 	}
 
-	return c.copyFile(src, outputPath, key)
+	fmt.Printf("Hard link failed, falling back to copy: %v\n", err)
+	return c.copyOut(key, absOutputPath)
 }
 
-// copyFile copies a file from src to dst
-func (c *CAS) copyFile(src, dst, key string) error {
-	srcFile, err := os.Open(src)
+// copyOut copies a file with key to outputPath
+func (c *CAS) copyOut(key, outputPath string) error {
+	src, err := c.rootFS.FS().Open(c.keyRel(key))
 	if err != nil {
-		return fmt.Errorf("open source %q: %w", src, err)
+		return fmt.Errorf("open CAS source %q: %w", key, err)
 	}
-	defer srcFile.Close()
+	defer src.Close()
 
-	dstFile, err := os.Create(dst)
+	dst, err := os.Create(outputPath)
 	if err != nil {
-		return fmt.Errorf("create dest %q: %w", dst, err)
+		return fmt.Errorf("create dest %q: %w", outputPath, err)
 	}
-	defer dstFile.Close()
+	defer dst.Close()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return fmt.Errorf("copy file %q: %w", src, err)
+	if _, err := io.Copy(dst, src); err != nil {
+		return fmt.Errorf("copy CAS -> %q: %w", outputPath, err)
 	}
-
-	if err := dstFile.Sync(); err != nil {
-		return fmt.Errorf("sync dest %q: %w", src, err)
+	if err := dst.Sync(); err != nil {
+		return fmt.Errorf("sync dest %q: %w", outputPath, err)
 	}
-
 	return nil
-}
-
-// Size returns the total size of the cache in bytes
-func (c *CAS) Size() (int64, error) {
-	var total int64
-
-	err := filepath.Walk(c.root, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !info.IsDir() {
-			total += info.Size()
-		}
-		return nil
-	})
-
-	return total, err
 }
