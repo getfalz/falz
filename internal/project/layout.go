@@ -33,9 +33,17 @@ type LayoutCacheEntry struct {
 	mtime    time.Time
 	size     int64
 	deps     []string
+	tags     map[string]struct{} // a list of all tags used in the layout template
 }
 
 func (lc *LayoutCacheEntry) ExecuteString(vars map[string]interface{}) string {
+	for k := range vars {
+		if !(k == "target" || k == "vars") {
+			if _, exists := lc.tags[k]; !exists {
+				log.WWarn(log.Layout).Str("tag", k).Msg("variable provided but not found in template")
+			}
+		}
+	}
 	return lc.layoutTpl.ExecuteString(vars)
 }
 
@@ -221,31 +229,37 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		return nil, err
 	}
 
+	tags := make(map[string]struct{})
+	tpl.ExecuteFunc(io.Discard, func(w io.Writer, tag string) (int, error) {
+		tags[tag] = struct{}{}
+		return 0, nil
+	})
+
 	contents := make(map[string]*fasttemplate.Template, len(lyt.Contents()))
 	for _, c := range lyt.Contents() {
-		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
+		cToTpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
 		if err != nil {
 			log.Warn(fmt.Sprintf("failed to parse content output template for content %q in layout %q: %v. This content will be ignored.", c.Name, key.LayoutPath, err))
 			continue
 		}
-		contents[c.Name] = tpl
+		contents[c.Name] = cToTpl
 
 		for _, asset := range c.Assets() {
-			tpl, err := fasttemplate.NewTemplate(asset.To, "{", "}")
+			assetToTpl, err := fasttemplate.NewTemplate(asset.To, "{", "}")
 			if err != nil {
 				log.Warn(fmt.Sprintf("failed to parse content asset output template for asset %q in layout %q: %v. This asset will be ignored.", asset.Name, key.LayoutPath, err))
 				continue
 			}
-			contents[asset.Name] = tpl
+			contents[asset.Name] = assetToTpl
 		}
 	}
 	for _, c := range lyt.Assets() {
-		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
+		assetToTpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
 		if err != nil {
 			log.Warn(fmt.Sprintf("failed to parse asset output template for asset %q in layout %q: %v. This asset will be ignored.", c.Name, key.LayoutPath, err))
 			continue
 		}
-		contents[c.Name] = tpl
+		contents[c.Name] = assetToTpl
 	}
 
 	fi, err := lc.fs.Stat(key.LayoutPath)
@@ -254,8 +268,9 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 	}
 
 	entry := &LayoutCacheEntry{
-		layout: lyt,
+		layout:    lyt,
 		layoutTpl: tpl,
+		tags:      tags,
 		contents:  contents,
 		deps:      deps,
 		mtime:     fi.ModTime(),

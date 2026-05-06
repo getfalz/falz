@@ -145,7 +145,7 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	var cas *CAS
 	if config.Build.UseCAS {
-		cas, err = NewCAS(config.Build.CASPath)
+		cas, err = NewCAS(config.Build.CASPath, fs.output)
 		if err != nil {
 			return nil, fmt.Errorf("create CAS: %w", err)
 		}
