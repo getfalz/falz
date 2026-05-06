@@ -72,6 +72,10 @@ func (r *RootFS) Remove(name string) error {
 	return r.root.Remove(name)
 }
 
+func (r *RootFS) Path() string {
+	return r.root.Name()
+}
+
 // FindFile searches for files matching the given glob pattern by walking up the directory
 // tree, starting from the combined basePath and targetPath, and stopping at basePath.
 // It returns a slice of relative file paths (relative to basePath) for each unique match found.
