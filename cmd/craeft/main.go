@@ -87,7 +87,7 @@ func main() {
 					},
 				},
 				Before: func(c *cli.Context) error {
-					initialize(c)
+					initialize(c, true)
 					p, ok := c.App.Metadata["project"].(*project.Project)
 					if !ok {
 						log.Fatal("Project not found in context.")
@@ -113,7 +113,7 @@ func main() {
 					},
 				},
 				Before: func(c *cli.Context) error {
-					initialize(c)
+					initialize(c, true)
 
 					p, ok := c.App.Metadata["project"].(*project.Project)
 					if !ok {
@@ -174,6 +174,15 @@ func main() {
 					},
 				},
 			},
+			{
+				Name:  "graph",
+				Usage: "Scan the project and emit the dependency graph as Graphviz DOT",
+				Before: func(c *cli.Context) error {
+					initialize(c, false)
+					return nil
+				},
+				Action: Graph,
+			},
 		},
 	}
 
@@ -181,7 +190,7 @@ func main() {
 		log.Fatal(err.Error())
 	}
 }
-func initialize(c *cli.Context) {
+func initialize(c *cli.Context, showWelcome bool) {
 	// TODO starting point is the current dir. craeft could search for the root folder
 	currentPath, err := os.Getwd()
 	if err != nil {
@@ -199,7 +208,9 @@ func initialize(c *cli.Context) {
 
 	config.Build.UseCAS = !c.Bool("disable-cas")
 
-	printWelcome(c, config.SourcePath, config.OutputPath)
+	if showWelcome {
+		printWelcome(c, config.SourcePath, config.OutputPath)
+	}
 
 	p, err := project.New(config)
 	if err != nil {
