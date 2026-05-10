@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"craeft/internal/log"
 	"encoding/hex"
 	"errors"
 	"fmt"
@@ -135,7 +134,6 @@ func (r *RootFS) FindFile(targetPath, pattern string) ([]string, error) {
 
 func (r *RootFS) WriteFile(dst string, data []byte, perm fs.FileMode) error {
 	dst = filepath.Clean(filepath.ToSlash(dst))
-	log.TTrace(log.IO).Str("dst", dst).Int("bytes", len(data)).Msg("writeFile begin")
 
 	dir := filepath.Dir(dst)
 	if err := r.MkdirAll(dir, 0o755); err != nil {
@@ -174,7 +172,6 @@ func (r *RootFS) WriteFile(dst string, data []byte, perm fs.FileMode) error {
 	}
 
 	success = true
-	log.TTrace(log.IO).Str("dst", dst).Uint32("perm", uint32(perm)).Msg("writeFile done")
 	return nil
 }
 

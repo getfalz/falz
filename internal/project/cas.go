@@ -33,7 +33,7 @@ func NewCAS(path string, outputFS *utils.RootFS) (*CAS, error) {
 		return nil, fmt.Errorf("create CAS rootFS: %w", err)
 	}
 
-	log.TTrace(log.CAS).
+	log.IInfo(log.CAS).
 		Str("path", absPath).
 		Msg("CAS enabled")
 
@@ -94,13 +94,20 @@ func (c *CAS) Link(key string, outputPath string) error {
 
 	_ = os.Remove(absOutputPath)
 
-	fmt.Printf("Linking CAS key %s (%s) to %s\n", key, src, absOutputPath)
 	err = os.Link(src, absOutputPath)
 	if err == nil {
+		log.TTrace(log.CAS).
+			Str("key", c.keyRel(key)).
+			Str("output", outputPath).
+			Msg("CAS hard link")
 		return nil
 	}
 
-	fmt.Printf("Hard link failed, falling back to copy: %v\n", err)
+	log.DDebug(log.CAS).
+		Str("key", c.keyRel(key)).
+		Str("output", outputPath).
+		Err(err).
+		Msg("CAS hard link failed, copying")
 	return c.copyOut(key, absOutputPath)
 }
 

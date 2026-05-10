@@ -120,6 +120,14 @@ func FFatal(tag TagKey) *zerolog.Event {
 	return l.Fatal()
 }
 
+func LevelIf(tag TagKey, cond bool, ifTrue, ifFalse zerolog.Level) *zerolog.Event {
+    l := logger.With().Str("component", tag.String()).Logger()
+    if cond {
+        return l.WithLevel(ifTrue)
+    }
+    return l.WithLevel(ifFalse)
+}
+
 type Tag struct {
 	Key   TagKey
 	Value string

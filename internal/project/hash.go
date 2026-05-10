@@ -33,10 +33,10 @@ func NewHashIndex(
 	}
 }
 
-func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) (int, error) {
+func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) error {
 	entries := graph.AllEntries()
 	if len(entries) == 0 {
-		return 0, nil
+		return nil
 	}
 
 	// TODO use config
@@ -92,7 +92,7 @@ func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) (int, e
 		Int("total", len(entries)).
 		Msg("hashing complete")
 
-	return n, errors.Join(errs...)
+	return errors.Join(errs...)
 }
 
 // ComputeHash computes the combined hash for a single entry, including content, layout dependencies, and pipeline configuration.
@@ -131,12 +131,7 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 
 	lyt, err := hi.layouts.Get(ctx, entry.LayoutKey)
 	if err != nil {
-		// Layout not yet compiled (e.g. first build) - not a fatal error.
-		log.DDebug(log.Plan).
-			Str("layout", entry.LayoutKey.LayoutPath).
-			Str("context", entry.LayoutKey.CtxPath).
-			Msg("layout deps not cached, skipping fragment hashes")
-		return "", nil
+		return "", err
 	}
 
 	fragmentHashes := make([]string, len(lyt.GetDeps()))

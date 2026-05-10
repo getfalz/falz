@@ -9,6 +9,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/rs/zerolog"
+
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
 )
@@ -122,7 +124,6 @@ func (b *builder) runBuild(
 	close(errChan)
 	var errors []error
 	for err := range errChan {
-
 		log.EError(log.Build).Err(err).Msg("entry build error")
 
 		errors = append(errors, err)
@@ -191,7 +192,6 @@ func (b *builder) buildStage(
 					}
 
 					outputPath, err := lyt.ContentOutput(entry.TagName, entry)
-					fmt.Printf("outputpath for %s: %s, tag: %s\n", entry.ID, outputPath, entry.TagName)
 					if err != nil {
 						artifact.Error = fmt.Errorf("compute output path: %w", err)
 						sendErr(artifact.Error)
@@ -274,7 +274,6 @@ func (b *builder) buildEntry(
 	}
 
 	transformed, err := pl.Transform(ctx, data, vars)
-	// TODO trigger error if transformer is not string
 	if err != nil {
 		artifact.Error = fmt.Errorf("transform %s: %w", entry.SourcePath, err)
 		return artifact
@@ -290,12 +289,13 @@ func (b *builder) buildEntry(
 		artifact.Data = []byte(transformed)
 	}
 
-	log.DDebug(log.Build).
+	elapsed := time.Since(start)
+	log.LevelIf(log.Build, elapsed > 2*time.Second, zerolog.WarnLevel, zerolog.TraceLevel).
 		Str("source", entry.SourcePath).
 		Str("output", outputPath).
 		Str("pipe", entry.Pipeline).
 		Int("bytes", len(artifact.Data)).
-		Dur("duration", time.Since(start)).
+		Dur("duration", elapsed).
 		Msg("built entry")
 
 	return artifact
@@ -391,23 +391,12 @@ func (b *builder) writeArtifact(
 		return fmt.Errorf("create dir for %s: %w", artifact.OutputPath, err)
 	}
 
-	log.TTrace(log.IO).
-		Str("entry", entry.ID).
-		Str("output", artifact.OutputPath).
-		Bool("cached", artifact.Cached).
-		Int("bytes", len(artifact.Data)).
-		Msg("writeArtifact begin")
-
 	if artifact.Cached {
 		if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", artifact.OutputPath, err)
 		}
 	} else {
-		if artifact.Cached {
-			if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
-				return fmt.Errorf("link from CAS %s: %w", artifact.OutputPath, err)
-			}
-		} else if b.config.UseCAS {
+		if b.config.UseCAS {
 			if err := b.cas.Store(entry.Hash, artifact.Data); err != nil {
 				return fmt.Errorf("store in CAS %s: %w", entry.ID, err)
 			}
@@ -420,6 +409,12 @@ func (b *builder) writeArtifact(
 			}
 		}
 	}
+
+	log.TTrace(log.Build).
+		Str("entry", entry.ID).
+		Str("output", artifact.OutputPath).
+		Bool("cached", artifact.Cached).
+		Msg("artifact written")
 
 	return nil
 }

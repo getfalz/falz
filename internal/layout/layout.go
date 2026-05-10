@@ -18,24 +18,6 @@ import (
 	"github.com/valyala/fasttemplate"
 )
 
-const wsClient string = `
-<script>
-(() => {
-    const socketUrl = 'ws://'+window.location.host+'/ws';
-    let socket = new WebSocket(socketUrl);
-        socket.addEventListener('message', (evt) => {
-        let data = JSON.parse(evt.data)
-        if (data.reload) {
-            window.location.reload();
-        } else {
-            window.location.href = data.url;
-        }
-    });
-})();
-</script>
-
-`
-
 type RenderCtx struct {
 	Pipelines *pipeline.Registry
 	FS        *utils.RootFS
@@ -48,10 +30,6 @@ func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) (string, string, 
 	}
 
 	fragmentPath := filepath.ToSlash(files[0])
-	log.TTrace(log.Layout).
-		Str("fragment", f.Name).
-		Str("src", f.Source).
-		Str("file", fragmentPath).Msg("fragment: resolved")
 
 	content, err := fs.ReadFile(rctx.FS.FS(), fragmentPath)
 	if err != nil {
@@ -71,9 +49,10 @@ func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) (string, string, 
 		return "", "", fmt.Errorf("fragment %q: pipe %q couldn't transform: %w", f.Name, pipe.Config().PipelineName, err)
 	}
 
-	log.DDebug(log.Layout).
+	log.TTrace(log.Layout).
 		Str("fragment", f.Name).
 		Str("src", fragmentPath).
+		Str("file", fragmentPath).
 		Msg("fragment rendered")
 
 	return result, fragmentPath, nil
@@ -86,12 +65,6 @@ func (c Content) Render(ctx context.Context) string {
 // Render layout. The fragments will be searched first in the given base path
 func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rendered string, deps []string, err error) {
 
-	log.TTrace(log.Layout).
-		Str("layout_rel", l.path).
-		Str("base", filepath.ToSlash(base)).
-		Bool("hotreload", l.useHotReload).
-		Msg("layout render begin")
-
 	if cerr := ctx.Err(); cerr != nil {
 		log.EError(log.Layout).Err(cerr).Str("layout_rel", l.path).Msg("render canceled (pre)")
 		return "", nil, cerr
@@ -100,11 +73,6 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 	var tmpl []byte
 	if l.tpl != "" {
 		tmpl = []byte(l.tpl)
-
-		log.DDebug(log.Layout).
-			Str("layout_rel", l.path).
-			Int("inline_len", len(tmpl)).
-			Msg("using inline layout template")
 	} else {
 		tplPaths, err := rctx.FS.FindFile(base, l.TplPath)
 		if err != nil {
@@ -118,12 +86,6 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 		}
 		tmpl = tplFile
 		deps = append(deps, tplPath)
-
-		log.DDebug(log.Layout).
-			Str("layout_rel", l.path).
-			Str("tpl_file", tplPath).
-			Int("bytes", len(tmpl)).
-			Msg("loaded layout template file")
 	}
 
 	tplVariables := make(map[string]any)
@@ -139,26 +101,7 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 		}
 		tplVariables[f.Name] = output
 		deps = append(deps, fragmentPath)
-
-		log.TTrace(log.Layout).
-			Str("layout_rel", l.path).
-			Str("fragment", f.Name).
-			Str("src", f.Source).
-			Str("dep", fragmentPath).
-			Msg("fragment rendered")
 	}
-
-	// add reserved variables
-	if l.useHotReload {
-		tplVariables["hotreload"] = wsClient
-	}
-
-	log.DDebug(log.Layout).
-		Str("layout_rel", l.path).
-		Int("assets", len(l.assets)).
-		Int("contents", len(l.contents)).
-		Int("fragments", len(l.fragments)).
-		Msg("rendering layout with variables")
 
 	// builds layout and repace placeholders for fragments
 	t, err := fasttemplate.NewTemplate(string(tmpl), "{{", "}}")
@@ -167,11 +110,19 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 	}
 	result := t.ExecuteString(tplVariables)
 
-	log.TTrace(log.Layout).
+	lo := log.TTrace(log.Layout).
 		Str("layout_rel", l.path).
-		Int("deps", len(deps)).
-		Int("vars", len(tplVariables)).
-		Msg("layout render done")
+		Str("base", filepath.ToSlash(base))
+	if l.tpl != "" {
+		lo.Int("inline_len", len(l.tpl))
+	} else {
+		lo.Str("tpl_file", deps[0])
+	}
+
+	lo.Int("assets", len(l.assets)).
+		Int("contents", len(l.contents)).
+		Int("fragments", len(l.fragments)).
+		Msg("layout template rendered")
 
 	return result, deps, nil
 }
@@ -280,13 +231,12 @@ func normalizeRelFile(p string) string {
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
-func Parse(path string, data []byte, useHotReload bool) (*Layout, error) {
+func Parse(path string, data []byte) (*Layout, error) {
 
 	relPath := normalizeRelFile(path)
 
 	l := &Layout{
-		path:         relPath,
-		useHotReload: useHotReload,
+		path: relPath,
 	}
 	err := xml.Unmarshal(data, l)
 	if err != nil {
@@ -298,12 +248,11 @@ func Parse(path string, data []byte, useHotReload bool) (*Layout, error) {
 	}
 
 	log.TTrace(log.Layout).
-		Str("layout_xml", l.path).
-		Bool("hotreload", useHotReload).
+		Str("layout", l.path).
 		Int("assets", len(l.assets)).
 		Int("contents", len(l.contents)).
 		Int("fragments", len(l.fragments)).
-		Msg("layout parsed")
+		Msg("layout xml parsed")
 
 	return l, nil
 }

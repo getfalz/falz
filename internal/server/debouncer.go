@@ -102,21 +102,16 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	grouped := groupChanges(changes)
 
-	log.IInfo(log.Server).
-		Int("total_changes", len(changes)).
-		Int("unique_handlers", len(grouped)).
-		Msg("processing file changes")
-
 	for key, paths := range grouped {
 		if len(paths) == 0 {
 			continue
 		}
 
-		// log.TTrace(log.Server).
-		// 	Str("type", string(key.fileType)).
-		// 	Str("mod", string(key.modType)).
-		// 	Int("count", len(paths)).
-		// 	Msg("dispatching to handler")
+		log.TTrace(log.Server).
+			Str("type", string(key.fileType)).
+			Str("mod", string(key.modType)).
+			Int("count", len(paths)).
+			Msg("dispatching to handler")
 
 		if err := d.registry.Dispatch(ctx, key.fileType, key.modType, paths); err != nil {
 			log.EError(log.Server).
@@ -130,15 +125,11 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	dirty := d.project.Graph().DirtyEntries()
 	if len(dirty) == 0 {
-		log.DDebug(log.Server).
+		log.TTrace(log.Server).
 			Int("changes", len(changes)).
 			Msg("no dirty entries after dispatch, skipping rebuild")
 		return nil
 	}
-
-	log.IInfo(log.Server).
-		Int("dirty", len(dirty)).
-		Msg("starting incremental rebuild")
 
 	stats, err := d.project.IncrementalBuild(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
@@ -155,11 +146,13 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 	}
 
 	log.IInfo(log.Server).
+		Int("changes", len(changes)).
+		Int("dirty", len(dirty)).
 		Int64("built", stats.Built).
-		Int64("cache", stats.Cached).
+		Int64("cached", stats.Cached).
 		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
-		Msg("rebuild completed")
+		Msg("incremental rebuild")
 
 	if d.config.HotReload && stats.Built > 0 && d.onRebuilt != nil {
 		d.onRebuilt()

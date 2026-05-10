@@ -28,12 +28,12 @@ type LayoutKey struct {
 type LayoutCacheEntry struct {
 	layout    *layout.Layout
 	layoutTpl *fasttemplate.Template
-	// TODO change name from content to X. contents has also assets
-	contents map[string]*fasttemplate.Template
-	mtime    time.Time
-	size     int64
-	deps     []string
-	tags     map[string]struct{} // a list of all tags used in the layout template
+	// TODO change name from content to X. outputs has also assets
+	outputs map[string]*fasttemplate.Template
+	mtime   time.Time
+	size    int64
+	deps    []string
+	tags    map[string]struct{} // a list of all tags used in the layout template
 }
 
 func (lc *LayoutCacheEntry) ExecuteString(vars map[string]interface{}) string {
@@ -58,7 +58,7 @@ func (lc *LayoutCacheEntry) Layout() *layout.Layout {
 var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
 
 func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry) (string, error) {
-	tpl, ok := lc.contents[contentName]
+	tpl, ok := lc.outputs[contentName]
 	if !ok {
 		return "", fmt.Errorf("content %q not found in layout", contentName)
 	}
@@ -143,13 +143,16 @@ type LayoutCache struct {
 	sf        singleflight.Group
 	pipelines *pipeline.Registry
 
+	parsedMu sync.RWMutex
+	parsed   map[string]*layout.Layout
+
 	namePattern string
 }
 
 func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern string) LayoutRegistry {
-	log.DDebug(log.Layout).Msg("layout cache initialized")
 	return &LayoutCache{
 		data:        make(map[LayoutKey]*LayoutCacheEntry),
+		parsed:      make(map[string]*layout.Layout),
 		fs:          fs,
 		pipelines:   pipes,
 		namePattern: namePattern,
@@ -165,12 +168,6 @@ func (lc *LayoutCache) Get(
 		return tpl, nil
 	}
 
-	log.DDebug(log.Layout).
-		Str("ctx_path", key.CtxPath).
-		Str("layout_path", key.LayoutPath).
-		Msg("cache miss; building template")
-
-	start := time.Now()
 	cached, err, _ := lc.sf.Do(key.CtxPath+"|"+key.LayoutPath, func() (any, error) {
 		if compiled := lc.getCached(key); compiled != nil {
 			return compiled, nil
@@ -181,11 +178,6 @@ func (lc *LayoutCache) Get(
 			return nil, err
 		}
 
-		log.DDebug(log.Layout).
-			Str("rel_layout", key.CtxPath).
-			Dur("duration", time.Since(start)).
-			Msg("template built and cached")
-
 		return compiled, nil
 	})
 	if err != nil {
@@ -195,21 +187,34 @@ func (lc *LayoutCache) Get(
 }
 
 func (lc *LayoutCache) Parse(key LayoutKey) (*layout.Layout, error) {
+	lc.parsedMu.RLock()
+	if lyt, ok := lc.parsed[key.LayoutPath]; ok {
+		lc.parsedMu.RUnlock()
+		return lyt, nil
+	}
+	lc.parsedMu.RUnlock()
+
 	// TODO check: previously was key.RelLayoutPath used
 	b, err := lc.fs.ReadFile(key.LayoutPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to read layout file %q: %w", key.LayoutPath, err)
 	}
 
-	// TODO set correct value
-	lyt, err := layout.Parse(key.CtxPath, b /*p.Config.FsWatcher.HotReload*/, true)
+	lyt, err := layout.Parse(key.CtxPath, b)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse layout file %q: %w", key.LayoutPath, err)
 	}
+
+	lc.parsedMu.Lock()
+	lc.parsed[key.LayoutPath] = lyt
+	lc.parsedMu.Unlock()
+
 	return lyt, nil
 }
 
 func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCacheEntry, error) {
+	start := time.Now()
+
 	lyt, err := lc.Parse(key)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load layout: %w", err)
@@ -235,14 +240,14 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		return 0, nil
 	})
 
-	contents := make(map[string]*fasttemplate.Template, len(lyt.Contents()))
+	outputs := make(map[string]*fasttemplate.Template, len(lyt.Contents()))
 	for _, c := range lyt.Contents() {
 		cToTpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
 		if err != nil {
 			log.Warn(fmt.Sprintf("failed to parse content output template for content %q in layout %q: %v. This content will be ignored.", c.Name, key.LayoutPath, err))
 			continue
 		}
-		contents[c.Name] = cToTpl
+		outputs[c.Name] = cToTpl
 
 		for _, asset := range c.Assets() {
 			assetToTpl, err := fasttemplate.NewTemplate(asset.To, "{", "}")
@@ -250,7 +255,7 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 				log.Warn(fmt.Sprintf("failed to parse content asset output template for asset %q in layout %q: %v. This asset will be ignored.", asset.Name, key.LayoutPath, err))
 				continue
 			}
-			contents[asset.Name] = assetToTpl
+			outputs[asset.Name] = assetToTpl
 		}
 	}
 	for _, c := range lyt.Assets() {
@@ -259,7 +264,7 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 			log.Warn(fmt.Sprintf("failed to parse asset output template for asset %q in layout %q: %v. This asset will be ignored.", c.Name, key.LayoutPath, err))
 			continue
 		}
-		contents[c.Name] = assetToTpl
+		outputs[c.Name] = assetToTpl
 	}
 
 	fi, err := lc.fs.Stat(key.LayoutPath)
@@ -271,7 +276,7 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		layout:    lyt,
 		layoutTpl: tpl,
 		tags:      tags,
-		contents:  contents,
+		outputs:   outputs,
 		deps:      deps,
 		mtime:     fi.ModTime(),
 		size:      fi.Size(),
@@ -281,10 +286,13 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 	lc.mu.Unlock()
 
 	log.DDebug(log.Layout).
-		Str("path", key.LayoutPath).
+		Str("layout", key.LayoutPath).
+		Str("ctx", key.CtxPath).
 		Int("contents", len(lyt.Contents())).
 		Int("fragments", len(lyt.Fragments())).
-		Msg("layout compiled")
+		Int("deps", len(deps)).
+		Dur("duration", time.Since(start)).
+		Msg("layout cached")
 
 	return entry, nil
 }
@@ -346,7 +354,7 @@ func (lc *LayoutCache) getCached(key LayoutKey) CompiledLayout {
 		return nil
 	}
 
-	if entry.size != fi.Size() && !entry.mtime.Equal(fi.ModTime()) {
+	if entry.size != fi.Size() || !entry.mtime.Equal(fi.ModTime()) {
 		return nil
 	}
 
@@ -355,9 +363,12 @@ func (lc *LayoutCache) getCached(key LayoutKey) CompiledLayout {
 
 func (lc *LayoutCache) Invalidate(key LayoutKey) {
 	lc.mu.Lock()
-	defer lc.mu.Unlock()
-
 	delete(lc.data, key)
+	lc.mu.Unlock()
+
+	lc.parsedMu.Lock()
+	delete(lc.parsed, key.LayoutPath)
+	lc.parsedMu.Unlock()
 
 	log.DDebug(log.Layout).
 		Str("rel_layout", key.CtxPath).

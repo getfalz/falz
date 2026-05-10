@@ -190,13 +190,10 @@ func (p *Project) Build(ctx context.Context) error {
 		Msg("scan complete")
 
 	hasher := NewHashIndex(p.FS, p.Layouts, p.Pipes)
-	hashed, err := hasher.HashAll(ctx, p.graph)
+	err := hasher.HashAll(ctx, p.graph)
 	if err != nil {
 		return fmt.Errorf("hash: %w", err)
 	}
-	log.IInfo(log.Project).
-		Int("hashed", hashed).
-		Msg("hash complete")
 
 	dirty := p.MarkDirty()
 	log.IInfo(log.Project).
@@ -268,24 +265,24 @@ func (p *Project) Graph() DependencyGraph {
 }
 
 func (p *Project) IncrementalBuild(ctx context.Context) (BuildStats, error) {
-    dirtyEntries := p.graph.DirtyEntries()
-    if len(dirtyEntries) == 0 {
-        return BuildStats{}, nil
-    }
-    builder := NewBuilder(p.FS, p.Layouts, p.Pipes, p.Manifest, p.CAS, &BuilderConfig{
-        Concurrency: p.Config.Build.Concurrency,
-        UseCAS:      p.Config.Build.UseCAS,
-        Variables:   p.Config.Variables,
-    })
-    stats, err := builder.Build(ctx, dirtyEntries)
-    if err != nil {
-        return stats, err
-    }
-    manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
-    if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
-        return stats, fmt.Errorf("save manifest: %w", saveErr)
-    }
-    return stats, nil
+	dirtyEntries := p.graph.DirtyEntries()
+	if len(dirtyEntries) == 0 {
+		return BuildStats{}, nil
+	}
+	builder := NewBuilder(p.FS, p.Layouts, p.Pipes, p.Manifest, p.CAS, &BuilderConfig{
+		Concurrency: p.Config.Build.Concurrency,
+		UseCAS:      p.Config.Build.UseCAS,
+		Variables:   p.Config.Variables,
+	})
+	stats, err := builder.Build(ctx, dirtyEntries)
+	if err != nil {
+		return stats, err
+	}
+	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
+	if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
+		return stats, fmt.Errorf("save manifest: %w", saveErr)
+	}
+	return stats, nil
 }
 
 func (p *Project) MarkDirty() int {
@@ -294,6 +291,10 @@ func (p *Project) MarkDirty() int {
 		if p.Manifest.IsDirty(e.ID, e.Hash) {
 			p.graph.MarkDirty(e.ID)
 			dirty++
+			log.DDebug(log.Plan).
+				Str("id", e.ID).
+				Str("hash", e.Hash[:8]).
+				Msg("dirty")
 		}
 	}
 	return dirty
