@@ -123,7 +123,7 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 
 func (c *CraeftConfig) IsValid() error {
 
-	for name, dir := range map[string]string{"source": c.SourcePath, "scheme": c.SchemePath, "output": c.OutputPath, "pipes": c.PipesPath} {
+	for name, dir := range map[string]string{"scheme": c.SchemePath, "pipes": c.PipesPath} {
 		_, err := os.Stat(dir)
 		if err != nil {
 			return fmt.Errorf("%s folder %q doesn't exist", name, dir)

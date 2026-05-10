@@ -103,6 +103,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		Str("scheme", config.SchemePath).
 		Str("out", config.OutputPath).
 		Msg("project init")
+
 	if err := config.IsValid(); err != nil {
 		return nil, err
 	}
@@ -112,6 +113,7 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
+	// TODO do we need absolute paths here?
 	outAbs, _ := filepath.Abs(config.OutputPath)
 	srcAbs, _ := filepath.Abs(config.SourcePath)
 

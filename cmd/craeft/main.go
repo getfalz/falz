@@ -48,6 +48,12 @@ func main() {
 				Count:   &verbosity,
 			},
 			&cli.BoolFlag{
+				Name:  "disable-cas",
+				Usage: "Disable CAS caching",
+				Value: false,
+			},
+
+			&cli.BoolFlag{
 				Name:  "silence",
 				Usage: "Disable output",
 				Value: false,
@@ -190,6 +196,8 @@ func initialize(c *cli.Context) {
 	if c.String("output") != "" {
 		config.OutputPath = c.String("output")
 	}
+
+	config.Build.UseCAS = !c.Bool("disable-cas")
 
 	printWelcome(c, config.SourcePath, config.OutputPath)
 
