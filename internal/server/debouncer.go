@@ -133,16 +133,7 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	stats, err := d.project.IncrementalBuild(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
-		// BuildError means individual entries failed but the build ran normally;
-		// log and continue rather than treating the whole pipeline as broken.
-		var be *project.BuildError
-		if errors.As(err, &be) {
-			log.EError(log.Server).
-				Err(err).
-				Msg("incremental build completed with entry errors")
-		} else {
-			return fmt.Errorf("incremental build: %w", err)
-		}
+		return fmt.Errorf("incremental build: %w", err)
 	}
 
 	log.IInfo(log.Server).
