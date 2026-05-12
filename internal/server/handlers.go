@@ -19,8 +19,8 @@ type Handlers struct {
 func NewHandlers(p *project.Project) *Handlers {
 	return &Handlers{
 		project: p,
-		source:  project.NewSourceIndex(p.FS, p.Layouts, project.IgnoreList(p.Config.Ignore)),
-		hasher:  project.NewHashIndex(p.FS, p.Layouts, p.Pipes),
+		source:  project.NewSourceIndex(p.Source, p.Scheme, p.Layouts, project.IgnoreList(p.Config.Ignore)),
+		hasher:  project.NewHashIndex(p.Source, p.Scheme, p.Layouts, p.Pipes),
 	}
 }
 

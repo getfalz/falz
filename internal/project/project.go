@@ -23,8 +23,11 @@ var (
 type Project struct {
 	Config *CraeftConfig
 
-	FS      *FSRegistry
-	Layouts LayoutRegistry
+	Source *utils.RootFS
+	Scheme *utils.RootFS
+	Output *utils.RootFS
+
+	Layouts *LayoutCache
 
 	graph DependencyGraph
 
@@ -32,69 +35,6 @@ type Project struct {
 
 	Manifest *Manifest
 	CAS      *CAS
-}
-
-// TODO move to utils.fsroot
-type FSRegistry struct {
-	source *utils.RootFS
-	scheme *utils.RootFS
-	output *utils.RootFS
-}
-
-func NewFSRegistry(source, scheme, output string) (*FSRegistry, error) {
-	sourceRoot, err := utils.NewRootFs(source)
-	if err != nil {
-		return nil, fmt.Errorf("source root fs: %w", err)
-	}
-
-	schemeRoot, err := utils.NewRootFs(scheme)
-	if err != nil {
-		_ = sourceRoot.Close()
-		return nil, fmt.Errorf("scheme root fs: %w", err)
-	}
-	outputRoot, err := utils.NewRootFs(output)
-	if err != nil {
-		_ = sourceRoot.Close()
-		_ = schemeRoot.Close()
-		return nil, fmt.Errorf("output root fs: %w", err)
-	}
-
-	return &FSRegistry{
-		source: sourceRoot,
-		scheme: schemeRoot,
-		output: outputRoot,
-	}, nil
-}
-func (r *FSRegistry) Get(name SourceType) *utils.RootFS {
-	switch name {
-	case SourceTypeSource:
-		return r.source
-	case SourceTypeScheme:
-		return r.scheme
-	case SourceTypeOutput:
-		return r.output
-	default:
-		return nil
-	}
-}
-
-func (r *FSRegistry) Source() *utils.RootFS { return r.source }
-func (r *FSRegistry) Scheme() *utils.RootFS { return r.scheme }
-func (r *FSRegistry) Output() *utils.RootFS { return r.output }
-
-func (r *FSRegistry) Close() error {
-	var err error
-	if e := r.source.Close(); e != nil {
-		err = errors.Join(err, e)
-	}
-	if e := r.scheme.Close(); e != nil {
-		err = errors.Join(err, e)
-	}
-	if e := r.output.Close(); e != nil {
-		err = errors.Join(err, e)
-	}
-
-	return err
 }
 
 func New(config *CraeftConfig) (*Project, error) {
@@ -108,15 +48,28 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, err
 	}
 
-	fs, err := NewFSRegistry(config.SourcePath, config.SchemePath, config.OutputPath)
+	sourceRoot, err := utils.NewRootFs(config.SourcePath)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("source root fs: %w", err)
+	}
+
+	schemeRoot, err := utils.NewRootFs(config.SchemePath)
+	if err != nil {
+		_ = sourceRoot.Close()
+		return nil, fmt.Errorf("scheme root fs: %w", err)
+	}
+	outputRoot, err := utils.NewRootFs(config.OutputPath)
+	if err != nil {
+		_ = sourceRoot.Close()
+		_ = schemeRoot.Close()
+		return nil, fmt.Errorf("output root fs: %w", err)
 	}
 
 	// TODO do we need absolute paths here?
 	outAbs, _ := filepath.Abs(config.OutputPath)
 	srcAbs, _ := filepath.Abs(config.SourcePath)
 
+	fmt.Printf("output abs: %s, srcAbs: %s\n", outAbs, srcAbs)
 	outputBase := filepath.Base(outAbs)
 	config.Ignore = append(config.Ignore,
 		filepath.ToSlash(filepath.Join(outputBase, "**")),
@@ -131,11 +84,13 @@ func New(config *CraeftConfig) (*Project, error) {
 		PoolSize:        config.Build.Concurrency,
 	})
 	if err := pipes.LoadAll(); err != nil {
-		fs.Close()
+		_ = sourceRoot.Close()
+		_ = schemeRoot.Close()
+		_ = outputRoot.Close()
 		return nil, err
 	}
 
-	layouts := NewLayoutCache(fs.scheme, pipes, config.Layout)
+	layouts := NewLayoutCache(schemeRoot, pipes, config.Layout)
 
 	graph := NewDependencyGraph()
 
@@ -147,7 +102,7 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	var cas *CAS
 	if config.Build.UseCAS {
-		cas, err = NewCAS(config.Build.CASPath, fs.output)
+		cas, err = NewCAS(config.Build.CASPath, outputRoot)
 		if err != nil {
 			return nil, fmt.Errorf("create CAS: %w", err)
 		}
@@ -157,7 +112,10 @@ func New(config *CraeftConfig) (*Project, error) {
 		Config:  config,
 		Pipes:   pipes,
 		Layouts: layouts,
-		FS:      fs,
+
+		Scheme: schemeRoot,
+		Source: sourceRoot,
+		Output: outputRoot,
 
 		graph: graph,
 
@@ -166,18 +124,12 @@ func New(config *CraeftConfig) (*Project, error) {
 	}, nil
 }
 
-func (p *Project) Close() error {
-	log.IInfo(log.Project).Msg("closing roots")
-	if e := p.FS.Close(); e != nil {
-		return e
-	}
-	return nil
-}
-
 func (p *Project) Build(ctx context.Context) error {
 	log.IInfo(log.Project).Msg("starting build")
 
-	source := NewSourceIndex(p.FS, p.Layouts, IgnoreList(p.Config.Ignore))
+	p.graph.Clear()
+
+	source := NewSourceIndex(p.Source, p.Scheme, p.Layouts, IgnoreList(p.Config.Ignore))
 
 	if err := source.Scan(ctx, p.graph); err != nil {
 		return fmt.Errorf("scan: %w", err)
@@ -189,7 +141,7 @@ func (p *Project) Build(ctx context.Context) error {
 		Int("entries", len(entries)).
 		Msg("scan complete")
 
-	hasher := NewHashIndex(p.FS, p.Layouts, p.Pipes)
+	hasher := NewHashIndex(p.Source, p.Scheme, p.Layouts, p.Pipes)
 	err := hasher.HashAll(ctx, p.graph)
 	if err != nil {
 		return fmt.Errorf("hash: %w", err)
@@ -208,7 +160,7 @@ func (p *Project) Build(ctx context.Context) error {
 		removed := p.Manifest.CleanStale(currentIDs)
 
 		for _, manifestEntry := range removed {
-			if err := p.FS.Output().Remove(manifestEntry.OutputPath); err != nil {
+			if err := p.Output.Remove(manifestEntry.OutputPath); err != nil {
 				log.Warn(fmt.Sprintf("remove stale %s: %v", manifestEntry.OutputPath, err))
 			}
 		}
@@ -232,7 +184,7 @@ func (p *Project) Build(ctx context.Context) error {
 	}
 
 	builder := NewBuilder(
-		p.FS,
+		p.Source, p.Scheme, p.Output,
 		p.Layouts,
 		p.Pipes,
 		p.Manifest,
@@ -269,11 +221,17 @@ func (p *Project) IncrementalBuild(ctx context.Context) (BuildStats, error) {
 	if len(dirtyEntries) == 0 {
 		return BuildStats{}, nil
 	}
-	builder := NewBuilder(p.FS, p.Layouts, p.Pipes, p.Manifest, p.CAS, &BuilderConfig{
-		Concurrency: p.Config.Build.Concurrency,
-		UseCAS:      p.Config.Build.UseCAS,
-		Variables:   p.Config.Variables,
-	})
+	builder := NewBuilder(
+		p.Source, p.Scheme, p.Output,
+		p.Layouts,
+		p.Pipes,
+		p.Manifest,
+		p.CAS,
+		&BuilderConfig{
+			Concurrency: p.Config.Build.Concurrency,
+			UseCAS:      p.Config.Build.UseCAS,
+			Variables:   p.Config.Variables,
+		})
 	stats, err := builder.Build(ctx, dirtyEntries)
 	if err != nil {
 		return stats, err
@@ -299,3 +257,23 @@ func (p *Project) MarkDirty() int {
 	}
 	return dirty
 }
+
+func (p *Project) Close() error {
+	var err error
+	if e := p.Source.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+	if e := p.Scheme.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+	if e := p.Output.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+	if p.CAS != nil {
+		if err := p.CAS.Close(); err != nil {
+			err = errors.Join(err, err)
+		}
+	}
+	return nil
+}
+

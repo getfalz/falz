@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/fs"
 	"path/filepath"
 	"runtime"
 	"sync"
@@ -26,28 +27,66 @@ type BuilderConfig struct {
 	Variables    map[string]any
 }
 
+type fileReader interface {
+	ReadFile(name string) ([]byte, error)
+}
+
+type outputWriter interface {
+	MkdirAll(path string, perm fs.FileMode) error
+	WriteFile(name string, data []byte, perm fs.FileMode) error
+}
+
+type pipelineLoader interface {
+	Get(name string) (pipeline.PipelineScript, error)
+}
+
+type manifestUpdater interface {
+	Set(id string, entry ManifestEntry)
+}
+
+type artifactCache interface {
+	Has(key string) bool
+	Store(key string, data []byte) error
+	Link(key string, outputPath string) error
+}
+
 type builder struct {
 	config *BuilderConfig
 
-	fs       *FSRegistry
-	layouts  LayoutRegistry
-	pipes    *pipeline.Registry
-	manifest *Manifest
-	cas      *CAS
+	sourceFS fileReader
+	schemeFS fileReader
+	outputFS outputWriter
+
+	layouts  layoutLoader
+	pipes    pipelineLoader
+	manifest manifestUpdater
+	cache    artifactCache
 }
 
-func NewBuilder(fs *FSRegistry, layouts LayoutRegistry, pipes *pipeline.Registry, manifest *Manifest, cas *CAS, config *BuilderConfig) Builder {
+func NewBuilder(
+	sourceFS fileReader, schemeFS fileReader, outputFS outputWriter,
+	layouts layoutLoader,
+	pipes pipelineLoader,
+	manifest manifestUpdater,
+	cas artifactCache,
+	config *BuilderConfig,
+) Builder {
+	if config == nil {
+		config = &BuilderConfig{}
+	}
 	if config.Concurrency <= 0 {
 		config.Concurrency = runtime.NumCPU()
 	}
 	return &builder{
-		pipes:   pipes,
-		layouts: layouts,
-		fs:      fs,
-
-		cas:      cas,
-		manifest: manifest,
 		config:   config,
+		sourceFS: sourceFS,
+		schemeFS: schemeFS,
+		outputFS: outputFS,
+
+		layouts:  layouts,
+		pipes:    pipes,
+		manifest: manifest,
+		cache:    cas,
 	}
 }
 
@@ -114,11 +153,8 @@ func (b *builder) runBuild(
 		}
 	}()
 
-	go func() {
-		buildWg.Wait()
-		close(writeChan)
-	}()
-
+	buildWg.Wait()
+	close(writeChan)
 	writeWg.Wait()
 
 	close(errChan)
@@ -149,7 +185,6 @@ func (b *builder) buildStage(
 ) *sync.WaitGroup {
 
 	var wg sync.WaitGroup
-	sem := make(chan struct{}, b.config.Concurrency)
 
 	sendErr := func(err error) {
 		select {
@@ -159,23 +194,23 @@ func (b *builder) buildStage(
 		}
 	}
 
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	for range b.config.Concurrency {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
 
-		for entry := range in {
-			select {
-			case <-ctx.Done():
-				return
-			case sem <- struct{}{}:
-			}
-
-			wg.Add(1)
-			go func(entry *BuildEntry) {
-				defer wg.Done()
-				defer func() { <-sem }()
-
-				inCache := b.config.UseCAS && !b.config.ForceRebuild && b.cas.Has(entry.Hash)
+			for {
+				var entry *BuildEntry
+				var ok bool
+				select {
+				case <-ctx.Done():
+					return
+				case entry, ok = <-in:
+					if !ok {
+						return
+					}
+				}
+				inCache := b.config.UseCAS && b.cache != nil && !b.config.ForceRebuild && b.cache.Has(entry.Hash)
 
 				if inCache {
 					artifact := &buildArtifact{
@@ -188,14 +223,14 @@ func (b *builder) buildStage(
 					if err != nil {
 						artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
 						sendErr(artifact.Error)
-						return
+						continue
 					}
 
 					outputPath, err := lyt.ContentOutput(entry.TagName, entry)
 					if err != nil {
 						artifact.Error = fmt.Errorf("compute output path: %w", err)
 						sendErr(artifact.Error)
-						return
+						continue
 					}
 
 					artifact.OutputPath = outputPath
@@ -208,7 +243,7 @@ func (b *builder) buildStage(
 						return
 					case out <- artifact:
 					}
-					return
+					continue
 				}
 
 				artifact := b.buildEntry(ctx, entry)
@@ -216,7 +251,7 @@ func (b *builder) buildStage(
 
 				if artifact.Error != nil {
 					sendErr(artifact.Error)
-					return
+					continue
 				}
 
 				select {
@@ -224,11 +259,22 @@ func (b *builder) buildStage(
 				case <-ctx.Done():
 					return
 				}
-			}(entry)
-		}
-	}()
+			}
+		}()
+	}
 
 	return &wg
+}
+
+func (b *builder) inputFS(root SourceType) (fileReader, error) {
+	switch root {
+	case SourceTypeSource:
+		return b.sourceFS, nil
+	case SourceTypeScheme:
+		return b.schemeFS, nil
+	default:
+		return nil, fmt.Errorf("unknown source root: %v", root)
+	}
 }
 
 // @ts type global.tCtx
@@ -241,7 +287,13 @@ func (b *builder) buildEntry(
 	start := time.Now()
 	artifact := &buildArtifact{Entry: entry}
 
-	data, err := b.fs.Get(entry.SourceRoot).ReadFile(entry.SourcePath)
+	inputFS, err := b.inputFS(entry.SourceRoot)
+	if err != nil {
+		artifact.Error = err
+		return artifact
+	}
+
+	data, err := inputFS.ReadFile(entry.SourcePath)
 	if err != nil {
 		artifact.Error = fmt.Errorf("read %s: %w", entry.SourcePath, err)
 		return artifact
@@ -387,24 +439,27 @@ func (b *builder) writeArtifact(
 ) error {
 	entry := artifact.Entry
 
-	if err := b.fs.Output().MkdirAll(filepath.Dir(artifact.OutputPath), 0755); err != nil {
+	if err := b.outputFS.MkdirAll(filepath.Dir(artifact.OutputPath), 0755); err != nil {
 		return fmt.Errorf("create dir for %s: %w", artifact.OutputPath, err)
 	}
 
 	if artifact.Cached {
-		if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
+		if err := b.cache.Link(entry.Hash, artifact.OutputPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", artifact.OutputPath, err)
 		}
 	} else {
 		if b.config.UseCAS {
-			if err := b.cas.Store(entry.Hash, artifact.Data); err != nil {
+			if b.cache == nil {
+				return errors.New("CAS enabled but not configured")
+			}
+			if err := b.cache.Store(entry.Hash, artifact.Data); err != nil {
 				return fmt.Errorf("store in CAS %s: %w", entry.ID, err)
 			}
-			if err := b.cas.Link(entry.Hash, artifact.OutputPath); err != nil {
+			if err := b.cache.Link(entry.Hash, artifact.OutputPath); err != nil {
 				return fmt.Errorf("link from CAS %s: %w", artifact.OutputPath, err)
 			}
 		} else {
-			if err := b.fs.Output().WriteFile(artifact.OutputPath, artifact.Data, 0644); err != nil {
+			if err := b.outputFS.WriteFile(artifact.OutputPath, artifact.Data, 0644); err != nil {
 				return fmt.Errorf("write file %s: %w", artifact.OutputPath, err)
 			}
 		}
@@ -417,18 +472,4 @@ func (b *builder) writeArtifact(
 		Msg("artifact written")
 
 	return nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

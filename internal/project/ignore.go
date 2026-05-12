@@ -9,7 +9,6 @@ import (
 
 type IgnoreList []string
 
-// TODO rename to Match
 func (il IgnoreList) Match(name string) bool {
 	name = filepath.ToSlash(filepath.Clean(name))
 

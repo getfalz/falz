@@ -28,7 +28,8 @@ type LayoutKey struct {
 type LayoutCacheEntry struct {
 	layout    *layout.Layout
 	layoutTpl *fasttemplate.Template
-	// TODO change name from content to X. outputs has also assets
+
+	// map of output path templates for the current layout
 	outputs map[string]*fasttemplate.Template
 	mtime   time.Time
 	size    int64
@@ -116,26 +117,6 @@ func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry)
 	return filepath.Join(entry.BaseDir, output), nil
 }
 
-type LayoutRegistry interface {
-	Get(ctx context.Context, key LayoutKey) (CompiledLayout, error)
-	Parse(key LayoutKey) (*layout.Layout, error)
-	Invalidate(key LayoutKey)
-	LayoutsForDir(ctx context.Context, path string) (map[string]LayoutKey, error)
-	LayoutsInDir(ctx context.Context, path string) (map[string]LayoutKey, error)
-}
-
-type CompiledLayout interface {
-	ExecuteString(vars map[string]interface{}) string
-	ContentOutput(contentName string, entry *BuildEntry) (string, error)
-	GetDeps() []string
-	Layout() *layout.Layout
-}
-
-type content struct {
-	Name          string
-	OutputPathTpl *fasttemplate.Template
-}
-
 type LayoutCache struct {
 	mu        sync.RWMutex
 	data      map[LayoutKey]*LayoutCacheEntry
@@ -149,7 +130,7 @@ type LayoutCache struct {
 	namePattern string
 }
 
-func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern string) LayoutRegistry {
+func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern string) *LayoutCache {
 	return &LayoutCache{
 		data:        make(map[LayoutKey]*LayoutCacheEntry),
 		parsed:      make(map[string]*layout.Layout),
@@ -162,7 +143,7 @@ func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern stri
 func (lc *LayoutCache) Get(
 	ctx context.Context,
 	key LayoutKey,
-) (CompiledLayout, error) {
+) (*LayoutCacheEntry, error) {
 
 	if tpl := lc.getCached(key); tpl != nil {
 		return tpl, nil
@@ -340,7 +321,7 @@ func (lc *LayoutCache) LayoutsForDir(ctx context.Context, path string) (map[stri
 	return out, nil
 }
 
-func (lc *LayoutCache) getCached(key LayoutKey) CompiledLayout {
+func (lc *LayoutCache) getCached(key LayoutKey) *LayoutCacheEntry {
 	lc.mu.RLock()
 	entry, exists := lc.data[key]
 	lc.mu.RUnlock()

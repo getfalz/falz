@@ -8,28 +8,44 @@ import (
 	"sync/atomic"
 
 	"craeft/internal/log"
-	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
 	"golang.org/x/sync/errgroup"
 )
 
+type fileHasher interface {
+	HashFile(path string) (string, error)
+}
+
+type layoutLoader interface {
+	Get(ctx context.Context, key LayoutKey) (*LayoutCacheEntry, error)
+}
+
+type entryHashGraph interface {
+	AllEntries() []*BuildEntry
+	UpdateEntry(id string, fn func(*BuildEntry) error) error
+}
+
 // HashIndex computes and updates hashes for all entries in the dependency graph.
 type HashIndex struct {
-	fs      *FSRegistry
-	layouts LayoutRegistry
-	pipes   *pipeline.Registry
+	sourceFS fileHasher
+	schemeFS fileHasher
+
+	layouts layoutLoader
+	pipes   pipelineLoader
 }
 
 func NewHashIndex(
-	fs *FSRegistry,
-	layouts LayoutRegistry,
-	pipes *pipeline.Registry,
+	sourceFS fileHasher,
+	schemeFS fileHasher,
+	layouts layoutLoader,
+	pipes pipelineLoader,
 ) *HashIndex {
 	return &HashIndex{
-		fs:      fs,
-		layouts: layouts,
-		pipes:   pipes,
+		sourceFS: sourceFS,
+		schemeFS: schemeFS,
+		layouts:  layouts,
+		pipes:    pipes,
 	}
 }
 
@@ -40,10 +56,7 @@ func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) error {
 	}
 
 	// TODO use config
-	workers := runtime.NumCPU()
-	if workers < 1 {
-		workers = 1
-	}
+	workers := max(runtime.NumCPU(), 1)
 
 	eg, egCtx := errgroup.WithContext(ctx)
 	eg.SetLimit(workers)
@@ -52,8 +65,6 @@ func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) error {
 	errs := make([]error, len(entries))
 
 	for i, entry := range entries {
-		i, entry := i, entry
-
 		eg.Go(func() error {
 			if egCtx.Err() != nil {
 				return nil
@@ -95,13 +106,29 @@ func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) error {
 	return errors.Join(errs...)
 }
 
+
+func (hi *HashIndex) hasherFS(root SourceType) (fileHasher, error) {
+	switch root {
+	case SourceTypeSource:
+		return hi.sourceFS, nil
+	case SourceTypeScheme:
+		return hi.schemeFS, nil
+	default:
+		return nil, fmt.Errorf("unknown source root: %v", root)
+	}
+}
+
 // ComputeHash computes the combined hash for a single entry, including content, layout dependencies, and pipeline configuration.
 func (hi *HashIndex) ComputeHash(ctx context.Context, entry *BuildEntry) (string, error) {
 	if ctx.Err() != nil {
 		return "", ctx.Err()
 	}
 
-	contentHash, err := hi.fs.Get(entry.SourceRoot).HashFile(entry.SourcePath)
+	fs, err := hi.hasherFS(entry.SourceRoot)
+	if err != nil {
+		return "", fmt.Errorf("root fs: %w", err)
+	}
+	contentHash, err := fs.HashFile(entry.SourcePath)
 	if err != nil {
 		return "", fmt.Errorf("content: %w", err)
 	}
@@ -124,7 +151,7 @@ func (hi *HashIndex) ComputeHash(ctx context.Context, entry *BuildEntry) (string
 }
 
 func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (string, error) {
-	layoutHash, err := hi.fs.Scheme().HashFile(entry.LayoutKey.LayoutPath)
+	layoutHash, err := hi.schemeFS.HashFile(entry.LayoutKey.LayoutPath)
 	if err != nil {
 		return "", fmt.Errorf("layout %s: %w", entry.LayoutKey.LayoutPath, err)
 	}
@@ -136,7 +163,7 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 
 	fragmentHashes := make([]string, len(lyt.GetDeps()))
 	for _, path := range lyt.GetDeps() {
-		fragHash, err := hi.fs.Scheme().HashFile(path)
+		fragHash, err := hi.schemeFS.HashFile(path)
 		if err != nil {
 			return "", fmt.Errorf("fragment %s: %w", path, err)
 		}

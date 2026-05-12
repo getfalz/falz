@@ -22,7 +22,7 @@ func Graph(c *cli.Context) error {
 	defer stop()
 
 	g := p.Graph()
-	source := project.NewSourceIndex(p.FS, p.Layouts, project.IgnoreList(p.Config.Ignore))
+	source := project.NewSourceIndex(p.Source, p.Scheme, p.Layouts, project.IgnoreList(p.Config.Ignore))
 
 	if err := source.Scan(ctx, g); err != nil {
 		return fmt.Errorf("scan: %w", err)

@@ -70,6 +70,11 @@ func (c *CAS) Has(key string) bool {
 // Store saves data with the given key
 func (c *CAS) Store(key string, data []byte) error {
 	rel := c.keyRel(key)
+
+	if err := c.rootFS.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
+		return fmt.Errorf("create CAS dir for key %s: %w", key, err)
+	}
+
 	if err := c.rootFS.WriteFile(rel, data, 0o600); err != nil {
 		return fmt.Errorf("store CAS key %s: %w", key, err)
 	}
@@ -82,7 +87,7 @@ func (c *CAS) Link(key string, outputPath string) error {
 		return fmt.Errorf("CAS key not found: %s", key)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
 		return fmt.Errorf("create output dir: %w", err)
 	}
 
