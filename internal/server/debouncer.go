@@ -139,13 +139,13 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 	log.IInfo(log.Server).
 		Int("changes", len(changes)).
 		Int("dirty", len(dirty)).
-		Int64("built", stats.Built).
-		Int64("cached", stats.Cached).
+		Int64("built", stats.Completed).
+		Int64("cached", stats.CacheHits).
 		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
 		Msg("incremental rebuild")
 
-	if d.config.HotReload && stats.Built > 0 && d.onRebuilt != nil {
+	if d.config.HotReload && stats.Completed > 0 && d.onRebuilt != nil {
 		d.onRebuilt()
 	}
 

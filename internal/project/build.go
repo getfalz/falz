@@ -102,13 +102,14 @@ func (b *builder) Build(ctx context.Context, entries []*BuildEntry) (BuildStats,
 		Msg("starting incremental build")
 
 	stats := b.runBuild(ctx, entries)
-	stats.Total = len(entries)
+	stats.Scheduled = len(entries)
 
 	log.IInfo(log.Build).
-		Int("total", stats.Total).
-		Int64("built", stats.Built).
-		Int64("cache_hits", stats.Cached).
+		Int("total", stats.Scheduled).
+		Int64("built", stats.Completed).
+		Int64("cache_hits", stats.CacheHits).
 		Int("errors", len(stats.Errors)).
+        Dur("duration", stats.Duration).
 		Msg("build completed")
 
 	if len(stats.Errors) > 0 {
@@ -132,7 +133,7 @@ func (b *builder) runBuild(
 	entries []*BuildEntry,
 ) BuildStats {
 
-	metrics := &buildMetrics{}
+	metrics := &buildMetrics{start: time.Now()}
 
 	buildChan := make(chan *BuildEntry, b.config.Concurrency*2)
 	writeChan := make(chan *buildArtifact, b.config.Concurrency*4)

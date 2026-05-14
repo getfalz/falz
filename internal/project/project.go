@@ -106,9 +106,9 @@ func New(config *CraeftConfig) (*Project, error) {
 	}
 
 	return &Project{
-		Config:  config,
-		PipesRegistry:   pipes,
-		Layouts: layouts,
+		Config:        config,
+		PipesRegistry: pipes,
+		Layouts:       layouts,
 
 		Scheme: schemeRoot,
 		Source: sourceRoot,
@@ -194,11 +194,17 @@ func (p *Project) Build(ctx context.Context) error {
 			Variables:    p.Config.Variables,
 		},
 	)
-	// TODO report stats
-	_, err = builder.Build(ctx, dirtyEntries)
+	stats, err := builder.Build(ctx, dirtyEntries)
 	if err != nil {
 		return fmt.Errorf("build: %w", err)
 	}
+
+	log.IInfo(log.Project).
+		Int("total", stats.Scheduled).
+		Int64("built", stats.Written).
+		Int64("cached", stats.CacheHits).
+		Dur("duration", stats.Duration).
+		Msg("build complete")
 
 	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
 	if err := p.Manifest.Save(manifestPath); err != nil {
