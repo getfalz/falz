@@ -270,10 +270,13 @@ func (p *Project) Close() error {
 		err = errors.Join(err, e)
 	}
 	if p.CAS != nil {
-		if err := p.CAS.Close(); err != nil {
-			err = errors.Join(err, err)
+		if e := p.CAS.Close(); e != nil {
+			err = errors.Join(err, e)
 		}
 	}
-	return nil
+	if e := p.Pipes.Close(); e != nil {
+		err = errors.Join(err, e)
+	}
+	return err
 }
 

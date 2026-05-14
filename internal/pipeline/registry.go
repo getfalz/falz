@@ -26,8 +26,6 @@ type Registry struct {
 	config   *RegistryConfig
 	active   sync.Map
 	defaults map[string]PipelineScript
-
-	sfReload sync.Map
 }
 
 func NewRegistry(cfg *RegistryConfig) *Registry {
@@ -102,4 +100,9 @@ func (r *Registry) Get(name string) (PipelineScript, error) {
 	}
 	// return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found, using default", name)
 	return nil, fmt.Errorf("pipeline '%s' not found", name)
+}
+
+func (r *Registry) Close() error {
+	// TODO
+	return nil
 }

@@ -38,11 +38,17 @@ func (h *HTTPServer) Serve(ctx context.Context) error {
 		fullPath := filepath.Join(outputDir, path)
 		_, err := os.Stat(fullPath)
 
-		if os.IsNotExist(err) && filepath.Ext(path) == "" {
-			htmlPath := fullPath + ".html"
-			if _, err := os.Stat(htmlPath); err == nil {
-				r.URL.Path += ".html"
+		if os.IsNotExist(err) {
+			if filepath.Ext(path) == "" {
+				htmlPath := fullPath + ".html"
+				if _, htmlErr := os.Stat(htmlPath); htmlErr == nil {
+					r.URL.Path += ".html"
+				}
 			}
+			// TODO add notFound page to config and serve it here
+			// w.WriteHeader(http.StatusNotFound)
+			// http.ServeFile(w, r, fallbackPath)
+			// return
 		}
 
 		log.TTrace(log.Server).

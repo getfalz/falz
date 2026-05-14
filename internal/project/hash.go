@@ -161,7 +161,7 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 		return "", err
 	}
 
-	fragmentHashes := make([]string, len(lyt.GetDeps()))
+	fragmentHashes := make([]string, 0, len(lyt.GetDeps()))
 	for _, path := range lyt.GetDeps() {
 		fragHash, err := hi.schemeFS.HashFile(path)
 		if err != nil {
@@ -182,6 +182,7 @@ func (hi *HashIndex) hashPipeline(name string) string {
 		return ""
 	}
 	cfg := pl.Config()
+	// TODO better pipeline hash
 	return utils.HashString(fmt.Sprintf("%s-%s-%s",
 		cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
 }

@@ -11,7 +11,7 @@ import (
 
 // CAS implements a content-addressable storage system.
 type CAS struct {
-	rootFS   *utils.RootFS
+	casFS    *utils.RootFS
 	outputFS *utils.RootFS
 	absRoot  string
 }
@@ -38,7 +38,7 @@ func NewCAS(path string, outputFS *utils.RootFS) (*CAS, error) {
 		Msg("CAS enabled")
 
 	return &CAS{
-		rootFS:   rootFS,
+		casFS:    rootFS,
 		outputFS: outputFS,
 		absRoot:  absPath,
 	}, nil
@@ -46,7 +46,7 @@ func NewCAS(path string, outputFS *utils.RootFS) (*CAS, error) {
 
 // Close releases the underlying os.Root handle inside the RootFS.
 func (c *CAS) Close() error {
-	return c.rootFS.Close()
+	return c.casFS.Close()
 }
 
 // keyRel returns the relative path inside the CAS root for a given key.
@@ -57,13 +57,9 @@ func (c *CAS) keyRel(key string) string {
 	return key[:2] + "/" + key[2:4] + "/" + key
 }
 
-func (c *CAS) keyAbs(key string) string {
-	return filepath.Join(c.absRoot, filepath.FromSlash(c.keyRel(key)))
-}
-
 // Has reports whether key exists in the cache.
 func (c *CAS) Has(key string) bool {
-	_, err := c.rootFS.Stat(c.keyRel(key))
+	_, err := c.casFS.Stat(c.keyRel(key))
 	return err == nil
 }
 
@@ -71,60 +67,51 @@ func (c *CAS) Has(key string) bool {
 func (c *CAS) Store(key string, data []byte) error {
 	rel := c.keyRel(key)
 
-	if err := c.rootFS.MkdirAll(filepath.Dir(rel), 0o700); err != nil {
+	if err := c.casFS.MkdirAll(filepath.Dir(rel), CacheDirPerm); err != nil {
 		return fmt.Errorf("create CAS dir for key %s: %w", key, err)
 	}
 
-	if err := c.rootFS.WriteFile(rel, data, 0o600); err != nil {
+	if err := c.casFS.WriteFile(rel, data, CacheFilePerm); err != nil {
 		return fmt.Errorf("store CAS key %s: %w", key, err)
 	}
 	return nil
 }
 
-// Link creates a hard link or copies from cache to output path
-func (c *CAS) Link(key string, outputPath string) error {
+// Restore retrieves the data for a given key and writes it to outputPath
+func (c *CAS) Restore(key string, outputPath string) error {
 	if !c.Has(key) {
 		return fmt.Errorf("CAS key not found: %s", key)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(outputPath), 0o700); err != nil {
-		return fmt.Errorf("create output dir: %w", err)
-	}
+	// if err := os.MkdirAll(filepath.Dir(outputPath), OutputDirPerm); err != nil {
+	// 	return fmt.Errorf("create output dir: %w", err)
+	// }
 
-	src := c.keyAbs(key)
 	absOutputPath, err := filepath.Abs(filepath.Join(c.outputFS.Path(), outputPath))
 	if err != nil {
 		return fmt.Errorf("output abs: %w", err)
 	}
 
-	_ = os.Remove(absOutputPath)
-
-	err = os.Link(src, absOutputPath)
-	if err == nil {
-		log.TTrace(log.CAS).
-			Str("key", c.keyRel(key)).
-			Str("output", outputPath).
-			Msg("CAS hard link")
-		return nil
-	}
-
-	log.DDebug(log.CAS).
+	log.TTrace(log.CAS).
 		Str("key", c.keyRel(key)).
 		Str("output", outputPath).
-		Err(err).
-		Msg("CAS hard link failed, copying")
+		Msg("CAS restore")
 	return c.copyOut(key, absOutputPath)
 }
 
 // copyOut copies a file with key to outputPath
 func (c *CAS) copyOut(key, outputPath string) error {
-	src, err := c.rootFS.FS().Open(c.keyRel(key))
+	src, err := c.casFS.FS().Open(c.keyRel(key))
 	if err != nil {
 		return fmt.Errorf("open CAS source %q: %w", key, err)
 	}
 	defer src.Close()
 
-	dst, err := os.Create(outputPath)
+	dst, err := os.OpenFile(
+		outputPath,
+		os.O_WRONLY|os.O_CREATE|os.O_TRUNC,
+		OutputFilePerm,
+	)
 	if err != nil {
 		return fmt.Errorf("create dest %q: %w", outputPath, err)
 	}

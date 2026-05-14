@@ -70,12 +70,12 @@ func (m *Manifest) Save(path string) error {
 	}
 
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0755); err != nil {
+	if err := os.MkdirAll(dir, OutputDirPerm); err != nil {
 		return fmt.Errorf("create manifest dir: %w", err)
 	}
 
 	tmpFile := path + ".tmp"
-	if err := os.WriteFile(tmpFile, data, 0644); err != nil {
+	if err := os.WriteFile(tmpFile, data, OutputFilePerm); err != nil {
 		return fmt.Errorf("write temp manifest: %w", err)
 	}
 

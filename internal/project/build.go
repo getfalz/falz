@@ -47,7 +47,7 @@ type manifestUpdater interface {
 type artifactCache interface {
 	Has(key string) bool
 	Store(key string, data []byte) error
-	Link(key string, outputPath string) error
+	Restore(key string, outputPath string) error
 }
 
 type builder struct {
@@ -439,12 +439,12 @@ func (b *builder) writeArtifact(
 ) error {
 	entry := artifact.Entry
 
-	if err := b.outputFS.MkdirAll(filepath.Dir(artifact.OutputPath), 0755); err != nil {
+	if err := b.outputFS.MkdirAll(filepath.Dir(artifact.OutputPath), OutputDirPerm); err != nil {
 		return fmt.Errorf("create dir for %s: %w", artifact.OutputPath, err)
 	}
 
 	if artifact.Cached {
-		if err := b.cache.Link(entry.Hash, artifact.OutputPath); err != nil {
+		if err := b.cache.Restore(entry.Hash, artifact.OutputPath); err != nil {
 			return fmt.Errorf("restore from CAS %s: %w", artifact.OutputPath, err)
 		}
 	} else {
@@ -455,11 +455,11 @@ func (b *builder) writeArtifact(
 			if err := b.cache.Store(entry.Hash, artifact.Data); err != nil {
 				return fmt.Errorf("store in CAS %s: %w", entry.ID, err)
 			}
-			if err := b.cache.Link(entry.Hash, artifact.OutputPath); err != nil {
+			if err := b.cache.Restore(entry.Hash, artifact.OutputPath); err != nil {
 				return fmt.Errorf("link from CAS %s: %w", artifact.OutputPath, err)
 			}
 		} else {
-			if err := b.outputFS.WriteFile(artifact.OutputPath, artifact.Data, 0644); err != nil {
+			if err := b.outputFS.WriteFile(artifact.OutputPath, artifact.Data, OutputFilePerm); err != nil {
 				return fmt.Errorf("write file %s: %w", artifact.OutputPath, err)
 			}
 		}
