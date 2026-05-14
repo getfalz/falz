@@ -5,16 +5,18 @@ import (
 	"fmt"
 	"regexp"
 
+	"craeft/internal/utils"
+
 	"github.com/gobuffalo/plush"
 	"github.com/gomarkdown/markdown"
 	"github.com/gomarkdown/markdown/html"
 	"github.com/gomarkdown/markdown/parser"
 )
 
-type NopPipeline struct {
+type NopPipe struct {
 }
 
-func (d *NopPipeline) Config() PipelineConfig {
+func (d *NopPipe) Config() PipelineConfig {
 	re := regexp.MustCompile(fmt.Sprintf(`\.(%s)\b`, ""))
 	return PipelineConfig{
 		PipelineName:   "default",
@@ -24,17 +26,22 @@ func (d *NopPipeline) Config() PipelineConfig {
 		TargetSuffix:   "",
 	}
 }
-func (d *NopPipeline) Index(ctx context.Context, input []byte, vars Vars) error {
+func (d *NopPipe) Index(ctx context.Context, input []byte, vars Vars) error {
 	return nil
 }
-func (d *NopPipeline) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
+func (d *NopPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
 	return string(input), nil
 }
 
-type MdPipeline struct {
+func (d *NopPipe) Hash() string {
+	config := d.Config()
+	return utils.HashString(config.PipelineName + config.SourceSuffix + config.TargetSuffix)
 }
 
-func (m *MdPipeline) Config() PipelineConfig {
+type MdPipe struct {
+}
+
+func (m *MdPipe) Config() PipelineConfig {
 	pattern := "md|markdown|mkd|mkdn|mdown"
 
 	re := regexp.MustCompile(fmt.Sprintf(`\.(%s)\b`, pattern))
@@ -46,10 +53,10 @@ func (m *MdPipeline) Config() PipelineConfig {
 		SourceSuffixRe: re,
 	}
 }
-func (m *MdPipeline) Index(ctx context.Context, input []byte, vars Vars) error {
+func (m *MdPipe) Index(ctx context.Context, input []byte, vars Vars) error {
 	return nil
 }
-func (m *MdPipeline) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
+func (m *MdPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
 
 	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
 	p := parser.NewWithExtensions(extensions)
@@ -63,10 +70,15 @@ func (m *MdPipeline) Transform(ctx context.Context, input []byte, vars Vars) (st
 	return string(result), nil
 }
 
-type TplPipeline struct {
+func (m *MdPipe) Hash() string {
+	config := m.Config()
+	return utils.HashString(config.PipelineName + config.SourceSuffix + config.TargetSuffix)
 }
 
-func (t TplPipeline) Config() PipelineConfig {
+type TplPipe struct {
+}
+
+func (t TplPipe) Config() PipelineConfig {
 	pattern := "tpl|tmpl"
 
 	re := regexp.MustCompile(fmt.Sprintf(`\.(%s)\b`, pattern))
@@ -79,10 +91,10 @@ func (t TplPipeline) Config() PipelineConfig {
 		SourceSuffixRe: re,
 	}
 }
-func (t TplPipeline) Index(ctx context.Context, input []byte, vars Vars) error {
+func (t TplPipe) Index(ctx context.Context, input []byte, vars Vars) error {
 	return nil
 }
-func (t TplPipeline) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
+func (t TplPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
 	pctx := plush.NewContextWith(vars)
 	result, err := plush.Render(string(input), pctx)
 	if err != nil {
@@ -90,4 +102,9 @@ func (t TplPipeline) Transform(ctx context.Context, input []byte, vars Vars) (st
 	}
 
 	return result, nil
+}
+
+func (t *TplPipe) Hash() string {
+	config := t.Config()
+	return utils.HashString(config.PipelineName + config.SourceSuffix + config.TargetSuffix)
 }

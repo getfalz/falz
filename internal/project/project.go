@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
-	"time"
 
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
@@ -31,7 +30,7 @@ type Project struct {
 
 	graph DependencyGraph
 
-	Pipes *pipeline.Registry
+	PipesRegistry *pipeline.Registry
 
 	Manifest *Manifest
 	CAS      *CAS
@@ -77,11 +76,9 @@ func New(config *CraeftConfig) (*Project, error) {
 	config.Ignore = append(config.Ignore, blackList...)
 
 	pipes := pipeline.NewRegistry(&pipeline.RegistryConfig{
-		Pipelines:       config.Pipes,
-		PipelinesPath:   config.PipesPath,
-		PipeTimeout:     time.Duration(config.Build.PipeTimeout) * time.Second,
-		SourceDirectory: srcAbs,
-		PoolSize:        config.Build.Concurrency,
+		Pipes:      config.Pipes,
+		PipesPath:  config.PipesPath,
+		SourceRoot: sourceRoot,
 	})
 	if err := pipes.LoadAll(); err != nil {
 		_ = sourceRoot.Close()
@@ -110,7 +107,7 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	return &Project{
 		Config:  config,
-		Pipes:   pipes,
+		PipesRegistry:   pipes,
 		Layouts: layouts,
 
 		Scheme: schemeRoot,
@@ -141,7 +138,7 @@ func (p *Project) Build(ctx context.Context) error {
 		Int("entries", len(entries)).
 		Msg("scan complete")
 
-	hasher := NewHashIndex(p.Source, p.Scheme, p.Layouts, p.Pipes)
+	hasher := NewHashIndex(p.Source, p.Scheme, p.Layouts, p.PipesRegistry)
 	err := hasher.HashAll(ctx, p.graph)
 	if err != nil {
 		return fmt.Errorf("hash: %w", err)
@@ -186,7 +183,7 @@ func (p *Project) Build(ctx context.Context) error {
 	builder := NewBuilder(
 		p.Source, p.Scheme, p.Output,
 		p.Layouts,
-		p.Pipes,
+		p.PipesRegistry,
 		p.Manifest,
 		p.CAS,
 
@@ -224,7 +221,7 @@ func (p *Project) IncrementalBuild(ctx context.Context) (BuildStats, error) {
 	builder := NewBuilder(
 		p.Source, p.Scheme, p.Output,
 		p.Layouts,
-		p.Pipes,
+		p.PipesRegistry,
 		p.Manifest,
 		p.CAS,
 		&BuilderConfig{
@@ -274,9 +271,8 @@ func (p *Project) Close() error {
 			err = errors.Join(err, e)
 		}
 	}
-	if e := p.Pipes.Close(); e != nil {
+	if e := p.PipesRegistry.Close(); e != nil {
 		err = errors.Join(err, e)
 	}
 	return err
 }
-

@@ -20,7 +20,7 @@ func NewHandlers(p *project.Project) *Handlers {
 	return &Handlers{
 		project: p,
 		source:  project.NewSourceIndex(p.Source, p.Scheme, p.Layouts, project.IgnoreList(p.Config.Ignore)),
-		hasher:  project.NewHashIndex(p.Source, p.Scheme, p.Layouts, p.Pipes),
+		hasher:  project.NewHashIndex(p.Source, p.Scheme, p.Layouts, p.PipesRegistry),
 	}
 }
 
@@ -265,7 +265,7 @@ func (h *Handlers) handlePipelineModified(ctx context.Context, paths []string) e
 	}
 
 	for pipeName := range pipeNames {
-		if err := h.project.Pipes.Reload(pipeName); err != nil {
+		if err := h.project.PipesRegistry.Reload(pipeName); err != nil {
 			log.WWarn(log.Handler).Err(err).Str("pipeline", pipeName).Msg("pipeline reload failed")
 			continue
 		}

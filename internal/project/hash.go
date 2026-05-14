@@ -174,15 +174,9 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 }
 
 func (hi *HashIndex) hashPipeline(name string) string {
-	if name == "" {
-		return ""
-	}
-	pl, err := hi.pipes.Get(name)
-	if err != nil {
-		return ""
-	}
-	cfg := pl.Config()
-	// TODO better pipeline hash
-	return utils.HashString(fmt.Sprintf("%s-%s-%s",
-		cfg.PipelineName, cfg.SourceSuffix, cfg.TargetSuffix))
+    pl, err := hi.pipes.Get(name)
+    if err != nil {
+        return ""
+    }
+    return pl.Hash()
 }

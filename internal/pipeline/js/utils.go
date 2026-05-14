@@ -3,7 +3,11 @@ package js
 import (
 	"errors"
 	"fmt"
+	"io/fs"
+	"os"
+	"path/filepath"
 	"reflect"
+	"time"
 
 	"github.com/dop251/goja"
 )
@@ -28,13 +32,50 @@ func argMustObject(arg goja.Value) (*goja.Object, error) {
 	return nil, fmt.Errorf("argument must be an object")
 }
 
+// mustStringArg extracts a string from a goja.Value, throwing a JS TypeError if it fails.
+func mustStringArg(vm *goja.Runtime, fn string, arg goja.Value) string {
+	s, err := argMustString(arg)
+	if err != nil {
+		panic(vm.NewTypeError("%s: first argument must be a string: %v", fn, err))
+	}
+	return s
+}
+
+// cleanPath normalises a relative path for use with fs.FS:
+// strips leading slashes (fs.FS uses unrooted paths) and cleans dots.
+func cleanPath(p string) string {
+	p = filepath.ToSlash(filepath.Clean(p))
+	for len(p) > 0 && p[0] == '/' {
+		p = p[1:]
+	}
+	if p == "" {
+		return "."
+	}
+	return p
+}
+
+// isNotExist reports whether an error indicates a missing file,
+// covering both os and io/fs sentinel errors.
+func isNotExist(err error) bool {
+	return os.IsNotExist(err) || err == fs.ErrNotExist
+}
+
+// newJSDate constructs a JS Date from a Go time.Time using Unix milliseconds.
+func newJSDate(vm *goja.Runtime, t time.Time) goja.Value {
+	date, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(t.UnixMilli()))
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("construct Date: %w", err)))
+	}
+	return date
+}
+
 func HasArg(vm *goja.Runtime, arg goja.Value) bool {
-	if arg == nil || goja.IsUndefined(arg) || goja.IsNull(arg){
+	if arg == nil || goja.IsUndefined(arg) || goja.IsNull(arg) {
 		return false
 	}
 	return true
 }
-func GetSafe(vm *goja.Runtime, obj *goja.Object, key string) (goja.Value, *goja.Exception){
+func GetSafe(vm *goja.Runtime, obj *goja.Object, key string) (goja.Value, *goja.Exception) {
 	var val goja.Value
 	exception := vm.Try(func() {
 		val = obj.Get(key)

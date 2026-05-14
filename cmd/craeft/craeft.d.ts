@@ -1,31 +1,33 @@
+/**
+ * 
+ * @doc
+ * Synchronous template rendering with support for string and function-valued parameters.
+ *
+ */
 declare module "fasttpl" {
-  /**
-   * 
-   * This config sets which extensions are enabled when rendering Markdown.
-   * 
-   *
-   */
   interface Config {
     /**
-     * Opening tag for variable substitution in templates. Defaults to "{{"
+     * string - Opening delimiter. Default: "{{"
      */
-    startTag: string
+    startTag?
     /**
-     * Closing tag for variable substitution in templates. Defaults to "}}"
+     * string - Closing delimiter. Default: "}}"
      */
-    endTag: string
+    endTag?
   }
   /**
    * 
-   * Renders a template using the provided variables.
+   * Renders a template by substituting tagged placeholders with values from the
+   * parameters object. Parameter values may be plain strings or zero-argument
+   * functions that return strings (evaluated lazily per occurrence).
    * 
-   * @param template A template string with embedded dynamic content (e.g., "<%= name %>").
-   * @param variables An object (map) containing key-value pairs to replace placeholders in the template.
-   * @param config? An object (map) containing key-value pairs to replace placeholders in the template.
-   * @returns A promise that resolves to the rendered string with variables replaced.
+   * @param template Template string, e.g. "Hello {{name}}!"
+   * @param params Substitution values.
+   * @param config? Optional tag delimiters.
+   * @returns The rendered string.
    *
    */
-  export function compile (template: string, variables: Record<string, any>, config?: Config): Promise<string>
+  export function compile (template: string, params: Record<string, string | (() => string)>, config?: fasttpl.Config): string
 }
 /**
  * 
@@ -36,39 +38,150 @@ declare module "fasttpl" {
 declare module "fs" {
   /**
    * 
-   * This function opens a file.
+   * Represents a single filesystem entry as returned by fs.list and fs.walk.
+   * The path field is always slash-separated and prefixed with /, relative to the fs root.
    * 
-   * @param path The template string to render.
-   * @returns A promise that resolves to the rendered string.
    *
    */
-  export function bytes (path: string): Promise<string>
+  interface FileEntry {
+    /**
+     * string - The entry's filename without any directory component.
+     */
+    name
+    /**
+     * string - Full path relative to the fs root, slash-separated, with leading slash.
+     */
+    path
+    /**
+     * number - Size in bytes. Always 0 for directories.
+     */
+    size
+    /**
+     * Date - Last modification time as a JavaScript Date.
+     */
+    modTime
+    /**
+     * boolean - True if the entry is a regular file.
+     */
+    isFile
+    /**
+     * boolean - True if the entry is a directory.
+     */
+    isDirectory
+    /**
+     * boolean - True if the entry is a symbolic link.
+     */
+    isSymlink
+  }
   /**
    * 
-   * Reads the contents of a file as a UTF-8 string.
+   * Reads a file and returns its contents as a Uint8Array.
+   * Returns undefined if the file does not exist.
+   * Throws an Error for all other I/O failures.
    * 
-   * @param path The template string to render.
-   * @returns A promise that resolves to the rendered string.
+   * @param path Path relative to the fs root.
+   * @returns Uint8Array | undefined
    *
-   * @example
-   * 
-   * const text = await fs.text("files/hello.txt");
-   * console.log(text);
    */
-  export function text (path: string): Promise<string>
+  export function bytes (path: string): any
   /**
    * 
-   * Reads and parses a JSON file.
+   * Reads a file and returns its contents as a UTF-8 string.
+   * Returns undefined if the file does not exist.
+   * Throws an Error for all other I/O failures.
    * 
-   * @param path The file path to read.
-   * @returns A promise that resolves to the parsed JSON object.
+   * @param path Path relative to the fs root.
+   * @returns string | undefined
    *
-   * @example
-   * 
-   * const config = await fs.json("/path/to/config.json");
-   * console.log(config.apiKey);
    */
-  export function json (path: string): Promise<Object>
+  export function text (path: string): any
+  /**
+   * 
+   * Reads and parses a JSON file, returning the parsed value.
+   * Returns undefined if the file does not exist.
+   * Throws a SyntaxError if the file content is not valid JSON.
+   * Throws an Error for all other I/O failures.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns any | undefined
+   *
+   */
+  export function json (path: string): any
+  /**
+   * 
+   * Reports whether a path exists (as a file, directory, or any other entry).
+   * 
+   * @param path Path relative to the fs root.
+   * @returns boolean
+   *
+   */
+  export function exists (path: string): any
+  /**
+   * 
+   * Reports whether the path refers to a regular file.
+   * Returns false if the path does not exist or is not a file.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns boolean
+   *
+   */
+  export function isFile (path: string): any
+  /**
+   * 
+   * Reports whether the path refers to a directory.
+   * Returns false if the path does not exist or is not a directory.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns boolean
+   *
+   */
+  export function isDirectory (path: string): any
+  /**
+   * 
+   * Returns the size of a file in bytes.
+   * Returns undefined if the file does not exist.
+   * Throws an Error for all other I/O failures.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns number | undefined
+   *
+   */
+  export function size (path: string): any
+  /**
+   * 
+   * Returns the last modification time of a file as a JavaScript Date object.
+   * Returns undefined if the file does not exist.
+   * Throws an Error for all other I/O failures.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns Date | undefined
+   *
+   */
+  export function lastModified (path: string): any
+  /**
+   * 
+   * Returns the direct children of a directory as an array of FileEntry objects.
+   * The directory itself is not included. Entries are in filesystem order (typically alphabetical).
+   * Does not recurse into subdirectories — use fs.walk for recursive traversal.
+   * Throws an Error if the path does not exist or is not a directory.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns FileEntry[]
+   *
+   */
+  export function list (path: string): any
+  /**
+   * 
+   * Recursively traverses a directory and returns all entries (files and subdirectories)
+   * as a flat array of FileEntry objects. The root path itself is not included.
+   * Entries are visited in lexical order. Symlinks are not followed.
+   * Throws an Error if the root path does not exist or is not a directory.
+   * 
+   * @param path Path relative to the fs root.
+   * @returns FileEntry[]
+   *
+   */
+  export function walk (path: string): any
 }
 /**
  * 
@@ -270,19 +383,19 @@ declare module "md" {
   }
   /**
    * 
-   * This config sets which extensions are enabled when rendering Markdown.
+   * Top-level options object for md.toHtml.
    * 
    *
    */
   interface Config {
     /**
-     * Generate a table of contents
+     * ParserOptions - Controls which markdown extensions the parser recognises.
      */
-    parser?: ParserOptions
+    parser?
     /**
-     * Renderer options
+     * RendererOptions - Controls HTML output flags.
      */
-    renderer?: RendererOptions
+    renderer?
   }
   /**
    * 
@@ -293,28 +406,17 @@ declare module "md" {
    * @returns The rendered HTML string.
    *
    */
-  export function toHtml (markdown: string, options?: Config): Promise<string>
+  export function toHtml (markdown: string, options?: Config): string
   /**
    * 
-   * Common options for markdown parsing and rendering.
+   * A ready-to-use Config value enabling the most commonly needed parser extensions
+   * and renderer flags
    * 
-   * **Parser flags**
-   * - `NoIntraEmphasis`
-   * - `Tables`
-   * - `FencedCode`
-   * - `Autolink`
-   * - `Strikethrough`
-   * - `SpaceHeadings`
-   * - `HeadingIDs`
-   * - `BackslashLineBreak`
-   * - `DefinitionLists`
-   * - `MathJax`
+   * Enabled parser extensions: NoIntraEmphasis, Tables, FencedCode, Autolink,
+   * Strikethrough, SpaceHeadings, HeadingIDs, BackslashLineBreak, DefinitionLists, MathJax.
    * 
-   * **Renderer flags**
-   * - `Smartypants`
-   * - `SmartypantsFractions`
-   * - `SmartypantsDashes`
-   * - `SmartypantsLatexDashes`
+   * Enabled renderer flags: Smartypants, SmartypantsFractions,
+   * SmartypantsDashes, SmartypantsLatexDashes.
    *
    */
   export const commonOptions: Config
@@ -335,12 +437,19 @@ declare module "md" {
 declare module "tpl" {
   /**
    * 
-   * Renders a template using the provided variables, leveraging the Plush template system.
+   * Renders a Plush template string against a variables map and returns the result.
+   * Plush supports ERB-style tags:
+   * - <%= expr %>  outputs the result of expr (HTML-escaped by default)
+   * - <%== expr %> outputs the result of expr without escaping
+   * - <% stmt %>   executes a statement (if, for, etc.) without output
+   * 
+   * Throws a TypeError if arguments have the wrong type.
+   * Throws an Error if template rendering fails (syntax error, undefined variable, etc.).
    * 
    * @param template A template string with embedded dynamic content (e.g., "<%= name %>").
    * @param variables An object (map) containing key-value pairs to replace placeholders in the template.
    * @returns A promise that resolves to the rendered string with variables replaced.
    *
    */
-  export function compile (template: string, variables: Record<string, any>): Promise<string>
+  export function render (template: string, variables: Record<string, any>): string
 }

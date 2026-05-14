@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -8,101 +9,118 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"time"
 
 	"craeft/internal/log"
-	"craeft/internal/pipeline/js"
+	"craeft/internal/utils"
 )
 
-type RegistryConfig struct {
-	Pipelines       []string
-	PipelinesPath   string
-	SourceDirectory string
-	PoolSize        int
-	PipeTimeout     time.Duration
+type Pipe interface {
+	// Index(ctx context.Context, input []byte, vars Vars) error
+	Transform(ctx context.Context, input []byte, vars Vars) (string, error)
+	Config() PipelineConfig
+	Hash() string
 }
 
+type RegistryConfig struct {
+	Pipes      []string
+	PipesPath  string
+	SourceRoot *utils.RootFS
+}
+
+// Registry maps pipe names to their Pipe implementation.
+// Built-in pipes (md, tpl) are registered at construction.
+// JS pipes are loaded from disk and can be reloaded at runtime.
 type Registry struct {
-	config   *RegistryConfig
-	active   sync.Map
-	defaults map[string]PipelineScript
+	cfg      *RegistryConfig
+	builtins map[string]Pipe
+	jsPipes  sync.Map // map[string]*JSPipe
 }
 
 func NewRegistry(cfg *RegistryConfig) *Registry {
 	return &Registry{
-		config: cfg,
-		defaults: map[string]PipelineScript{
-			"tpl": &TplPipeline{},
-			"md":  &MdPipeline{},
-			"":    &NopPipeline{},
+		cfg: cfg,
+		builtins: map[string]Pipe{
+			"md":  &MdPipe{},
+			"tpl": &TplPipe{},
+			"":    &NopPipe{},
 		},
 	}
 }
 
 func (r *Registry) LoadAll() error {
-	errs := []error{}
+	var errs []error
 	var names []string
-	for _, name := range r.config.Pipelines {
-		if err := r.Reload(name); err != nil {
-			log.Warn(fmt.Sprintf("load %s: %v", name, err))
-			errs = append(errs, err)
+
+	for _, name := range r.cfg.Pipes {
+		if err := r.load(name); err != nil {
+			errs = append(errs, fmt.Errorf("pipe %q: %w", name, err))
+			continue
 		}
 		names = append(names, name)
 	}
 
 	slices.Sort(names)
-	log.IInfo(log.Pipeline).Str("pipelines", strings.Join(names, ", ")).Msg("pipelines loaded")
+	log.IInfo(log.Pipeline).
+		Str("pipes", strings.Join(names, ", ")).
+		Msg("pipes loaded")
 
 	return errors.Join(errs...)
 }
 
-func (r *Registry) Reload(name string) error {
-	path := filepath.Join(r.config.PipelinesPath, name)
+// load creates a new JSPipe for the named pipe and stores it.
+// If a pipe with that name already exists it is replaced and closed.
+func (r *Registry) load(name string) error {
+	path := filepath.Join(r.cfg.PipesPath, name)
 	info, err := os.Stat(path)
+
 	if err != nil || !info.IsDir() {
-		if _, ok := r.defaults[name]; ok {
+		if _, isBuiltin := r.builtins[name]; isBuiltin {
 			return nil
 		}
-		return fmt.Errorf("pipeline dir invalid: %s", path)
+		return fmt.Errorf("pipe %q: directory not found at %s", name, path)
 	}
 
-	jscfg := &js.JSConfig{
-		Name:    name,
-		Root:    path,
-		Timeout: r.config.PipeTimeout,
-	}
-
-	newp, err := NewPipeline(path, jscfg, max(1, r.config.PoolSize))
+	pipe, err := NewJSPipe(path, r.cfg.SourceRoot)
 	if err != nil {
 		return err
 	}
 
-	old, _ := r.active.Load(name)
-	r.active.Store(name, newp)
-
-	if oldp, ok := old.(*Pipeline); ok && oldp != nil {
-		go func(op *Pipeline) {
-			// give in-flight users a grace period
-			time.Sleep(100 * time.Millisecond)
-			op.entry.close()
-		}(oldp)
+	if old, ok := r.jsPipes.Swap(name, pipe); ok {
+		old.(*JSPipe).Close()
 	}
-	log.Trace(fmt.Sprintf("pipeline reloaded %s from %s", name, path))
+
 	return nil
 }
 
-func (r *Registry) Get(name string) (PipelineScript, error) {
-	if v, ok := r.active.Load(name); ok {
-		return v.(*Pipeline), nil
+// Reload rebuilds the JS bundle for a named pipe without replacing the JSPipe.
+func (r *Registry) Reload(name string) error {
+	v, ok := r.jsPipes.Load(name)
+	if !ok {
+		return nil
 	}
-	if d, ok := r.defaults[name]; ok {
-		return d, nil
-	}
-	// return r.defaults["nop"], fmt.Errorf("pipeline '%s' not found, using default", name)
-	return nil, fmt.Errorf("pipeline '%s' not found", name)
+	return v.(*JSPipe).Reload()
 }
 
+// Get returns the Pipe for the given name.
+// Built-in pipes take precedence; JS pipes are looked up second.
+func (r *Registry) Get(name string) (Pipe, error) {
+	if v, ok := r.jsPipes.Load(name); ok {
+		return v.(*JSPipe), nil
+	}
+	if p, ok := r.builtins[name]; ok {
+		return p, nil
+	}
+	return nil, fmt.Errorf("pipe %q not found", name)
+}
+
+// Close releases all JS pipe resources (esbuild contexts).
 func (r *Registry) Close() error {
-	// TODO
-	return nil
+	var errs []error
+	r.jsPipes.Range(func(_, v any) bool {
+		if err := v.(*JSPipe).Close(); err != nil {
+			errs = append(errs, err)
+		}
+		return true
+	})
+	return errors.Join(errs...)
 }

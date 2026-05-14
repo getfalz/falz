@@ -10,181 +10,149 @@ import (
 )
 
 // @ts namespace fasttpl
-func GetFastTplModule(ev *EventLoop) *goja.Object {
-	module := ev.vm.NewObject()
-	module.Set("compile", func(call goja.FunctionCall) goja.Value { return FastCompile(call, ev) })
-
+//
+// @doc
+// Synchronous template rendering with support for string and function-valued parameters.
+func GetFastTplModule(vm *goja.Runtime) *goja.Object {
+	module := vm.NewObject()
+	module.Set("compile", func(call goja.FunctionCall) goja.Value {
+		return fastCompile(call, vm)
+	})
 	return module
 }
 
 // @ts function fasttpl.compile
 //
 // @doc
-// Renders a template using the provided variables.
+// Renders a template by substituting tagged placeholders with values from the
+// parameters object. Parameter values may be plain strings or zero-argument
+// functions that return strings (evaluated lazily per occurrence).
 //
-// @param template - string - A template string with embedded dynamic content (e.g., "<%= name %>").
-// @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
-// @param config? - Config - An object (map) containing key-value pairs to replace placeholders in the template.
-// @returns Promise<string> - A promise that resolves to the rendered string with variables replaced.
-func FastCompile(call goja.FunctionCall, ev *EventLoop) goja.Value {
-	promise, resolve, reject := ev.vm.NewPromise()
+// @param template  - string              - Template string, e.g. "Hello {{name}}!"
+// @param params    - Record<string, string | (() => string)> - Substitution values.
+// @param config?   - fasttpl.Config      - Optional tag delimiters.
+// @returns string  - The rendered string.
+func fastCompile(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
+	tpl, err := argMustString(call.Argument(0))
+	if err != nil {
+		panic(vm.NewTypeError("fasttpl.compile: first argument must be a string: %v", err))
+	}
 
-	arg0 := call.Argument(0)
-	arg1 := call.Argument(1)
-	arg2 := call.Argument(2)
+	params, ok := call.Argument(1).(*goja.Object)
+	if !ok {
+		panic(vm.NewTypeError(
+			"fasttpl.compile: second argument must be an object, got %T", call.Argument(1).Export(),
+		))
+	}
 
-	go func() {
-		tpl, err := GetByteArg(ev.vm, arg0)
-		if err != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(ev.vm.NewTypeError(
-					"First argument to fasttpl.compile must be a string: %w", err,
-				))
-			})
-			return
+	cfg := parseFtplConfig(vm, call.Argument(2))
+
+	tmpl, err := fasttemplate.NewTemplate(tpl, cfg.StartTag, cfg.EndTag)
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fasttpl.compile: invalid template: %w", err)))
+	}
+
+	// Build the substitution map. Values can be strings or functions → string.
+	parameters := make(map[string]func() string, len(params.Keys()))
+	for _, key := range params.Keys() {
+		val := params.Get(key)
+		if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
+			continue
 		}
 
-		params, ok := arg1.(*goja.Object)
-		if !ok {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(ev.vm.NewTypeError(
-					"Second argument to fasttpl.compile must be an object, got '%v'", arg1.Export(),
-				))
-			})
-			return
-		}
-
-		config, err := getFtplConfig(ev.vm, arg2)
-		if err != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(vm.NewTypeError("Third argument to fasttpl.compile could not be parsed: %w", err))
-			})
-			return
-		}
-
-		tmpl, err := fasttemplate.NewTemplate(string(tpl), config.StartTag, config.EndTag)
-		if err != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(vm.NewTypeError("Error creating template: %w", err))
-			})
-			return
-		}
-
-		var keys []string
-		if exc := ev.vm.Try(func() {
-			keys = params.Keys()
-		}); exc != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(exc)
-			})
-			return
-		}
-
-		parameters := make(map[string]func() string)
-		for _, currKey := range keys {
-			key := currKey
-
-			val, exc := GetSafe(ev.vm, params, key)
-			if exc != nil {
-				ev.RunOnLoop(func(vm *goja.Runtime) {
-					reject(vm.NewTypeError("could not get value of %q, %s", key, exc.Error()))
-				})
-				return
-			}
-
-			if fn, isFn := goja.AssertFunction(val); isFn {
-				f := fn
-				parameters[key] = func() string {
-					result, err := f(goja.Undefined())
-					if err != nil {
-						ev.RunOnLoop(func(vm *goja.Runtime) {
-							reject(ev.vm.NewTypeError(
-								"error calling function for key %q: %s", key, err.Error(),
-							))
-						})
-						return ""
-					}
-					str, ok := result.Export().(string)
-					if !ok {
-						ev.RunOnLoop(func(vm *goja.Runtime) {
-							reject(vm.NewTypeError(
-								"function for key %q must return a string", key,
-							))
-						})
-						return ""
-					}
-					return str
+		k := key // capture for closures below
+		if fn, isFn := goja.AssertFunction(val); isFn {
+			parameters[k] = func() string {
+				result, err := fn(goja.Undefined())
+				if err != nil {
+					panic(vm.NewGoError(fmt.Errorf(
+						"fasttpl.compile: function for key %q failed: %w", k, err,
+					)))
 				}
-			} else {
-				str, ok := val.Export().(string)
+				s, ok := result.Export().(string)
 				if !ok {
-					ev.RunOnLoop(func(vm *goja.Runtime) {
-						reject(vm.NewTypeError(
-							"value for key %q must be a string or a function returning string", key,
-						))
-					})
-					return
+					panic(vm.NewTypeError(
+						"fasttpl.compile: function for key %q must return string, got %T",
+						k, result.Export(),
+					))
 				}
-				s := str
-				parameters[key] = func() string {
-					return s
-				}
+				return s
 			}
-		}
-
-		var builder strings.Builder
-		_, err = tmpl.ExecuteFunc(&builder, func(w io.Writer, tag string) (int, error) {
-			if value, ok := parameters[tag]; ok {
-				return w.Write([]byte(value()))
+		} else {
+			s, ok := val.Export().(string)
+			if !ok {
+				panic(vm.NewTypeError(
+					"fasttpl.compile: value for key %q must be a string or function, got %T",
+					k, val.Export(),
+				))
 			}
-			return fmt.Fprintf(w, "%s%s%s", config.StartTag, tag, config.EndTag)
-		})
-
-		if err != nil {
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				reject(vm.NewTypeError("Error rendering template: %w", err))
-			})
-			return
+			parameters[k] = func() string { return s }
 		}
+	}
 
-		ev.RunOnLoop(func(vm *goja.Runtime) {
-			resolve(builder.String())
-		})
-	}()
+	var b strings.Builder
+	_, err = tmpl.ExecuteFunc(&b, func(w io.Writer, tag string) (int, error) {
+		if val, ok := parameters[tag]; ok {
+			return io.WriteString(w, val())
+		}
+		// Unknown tag: emit it verbatim so the template is not silently mangled.
+		return fmt.Fprintf(w, "%s%s%s", cfg.StartTag, tag, cfg.EndTag)
+	})
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fasttpl.compile: render failed: %w", err)))
+	}
 
-	return ev.vm.ToValue(promise)
+	return vm.ToValue(b.String())
 }
 
 // @ts interface fasttpl.Config
 //
-// @doc
-// This config sets which extensions are enabled when rendering Markdown.
-//
-// @field startTag: string - Opening tag for variable substitution in templates. Defaults to "{{"
-// @field endTag: string - Closing tag for variable substitution in templates. Defaults to "}}"
-type FastTplApiConfig struct {
+// @field startTag? - string - Opening delimiter. Default: "{{"
+// @field endTag?   - string - Closing delimiter. Default: "}}"
+type fastTplConfig struct {
 	StartTag string
 	EndTag   string
 }
 
-func getFtplConfig(vm *goja.Runtime, val goja.Value) (*FastTplApiConfig, error) {
-	config := &FastTplApiConfig{
-		StartTag: "{{",
-		EndTag:   "}}",
-	}
-	if HasArg(vm, val) {
-		opts, ok := val.(*goja.Object)
-		if !ok {
-			return nil, fmt.Errorf("argument expected to be an object, got '%v'", val.Export())
-		}
+// parseFtplConfig reads optional config from a JS value.
+// Missing or undefined fields fall back to the defaults safely.
+func parseFtplConfig(vm *goja.Runtime, val goja.Value) fastTplConfig {
+	cfg := fastTplConfig{StartTag: "{{", EndTag: "}}"}
 
-		if exc := vm.Try(func() {
-			config.StartTag = opts.Get("startTag").Export().(string)
-			config.EndTag = opts.Get("endTag").Export().(string)
-		}); exc != nil {
-			return nil, fmt.Errorf("error reading template options: %w", exc)
-		}
+	if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
+		return cfg
 	}
 
-	return config, nil
+	opts, ok := val.(*goja.Object)
+	if !ok {
+		panic(vm.NewTypeError(
+			"fasttpl.compile: config must be an object, got %T", val.Export(),
+		))
+	}
+
+	if v := opts.Get("startTag"); v != nil && !goja.IsUndefined(v) {
+		if s, ok := v.Export().(string); ok {
+			cfg.StartTag = s
+		}
+	}
+	if v := opts.Get("endTag"); v != nil && !goja.IsUndefined(v) {
+		if s, ok := v.Export().(string); ok {
+			cfg.EndTag = s
+		}
+	}
+
+	return cfg
+}
+
+// argString extracts a string from a goja.Value.
+// Accepts JS string primitives and String objects.
+func argString(vm *goja.Runtime, val goja.Value) (string, error) {
+	if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
+		return "", fmt.Errorf("argument is %v", val)
+	}
+	s, ok := val.Export().(string)
+	if !ok {
+		return "", fmt.Errorf("expected string, got %T", val.Export())
+	}
+	return s, nil
 }

@@ -18,59 +18,42 @@ import (
 //
 // Functions available in this module include `render`, which renders a template string
 // using the provided variables, and other utilities that may support different use cases.
-func GetTplModule(ev *EventLoop) *goja.Object {
-	module := ev.vm.NewObject()
-	module.Set("compile", func(call goja.FunctionCall) goja.Value { return Compile(call, ev) })
+func GetTplModule(vm *goja.Runtime) *goja.Object {
+	module := vm.NewObject()
+	module.Set("render", func(call goja.FunctionCall) goja.Value { return tplRender(vm, call) })
 	return module
 }
 
-// @ts function tpl.compile
+// @ts function tpl.render
 //
 // @doc
-// Renders a template using the provided variables, leveraging the Plush template system.
+// Renders a Plush template string against a variables map and returns the result.
+// Plush supports ERB-style tags:
+//   - <%= expr %>  outputs the result of expr (HTML-escaped by default)
+//   - <%== expr %> outputs the result of expr without escaping
+//   - <% stmt %>   executes a statement (if, for, etc.) without output
+//
+// Throws a TypeError if arguments have the wrong type.
+// Throws an Error if template rendering fails (syntax error, undefined variable, etc.).
 //
 // @param template - string - A template string with embedded dynamic content (e.g., "<%= name %>").
 // @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
-// @returns Promise<string> - A promise that resolves to the rendered string with variables replaced.
-func Compile(call goja.FunctionCall, ev *EventLoop) goja.Value {
-	promise, resolve, reject := ev.vm.NewPromise()
+// @returns string - A promise that resolves to the rendered string with variables replaced.
+func tplRender(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	tpl, err := argMustString(call.Argument(0))
+	if err != nil {
+		panic(vm.NewTypeError("tpl.render: first argument must be a string: %v", err))
+	}
 
-	ev.RunOnLoop(func(vm *goja.Runtime) {
-		arg0 := call.Argument(0)
-		arg1 := call.Argument(1)
+	var vars map[string]any
+	if err := vm.ExportTo(call.Argument(1), &vars); err != nil {
+		panic(vm.NewTypeError("tpl.render: second argument must be an object: %v", err))
+	}
 
-		tpl, err := argMustString(arg0)
-		if err != nil {
-			reject(ev.vm.NewTypeError(
-				"First argument to tpl.compile must be a string: %v", err,
-			))
-			return
-		}
-		var vars map[string]any
-		err = ev.vm.ExportTo(arg1, &vars)
-		if err != nil {
-			reject(ev.vm.NewTypeError(
-				"Second argument to tpl.compile must be an object: %v", err,
-			))
-			return
-		}
+	result, err := plush.Render(tpl, plush.NewContextWith(vars))
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("tpl.render: %w", err)))
+	}
 
-		go func(tpl string, vars map[string]any) {
-			ctx := plush.NewContextWith(vars)
-			res, err := plush.Render(tpl, ctx)
-			if err != nil {
-				ev.RunOnLoop(func(vm *goja.Runtime) {
-					reject(ev.vm.NewGoError(fmt.Errorf(
-						"tpl.compile failed rendering tpl: %w", err,
-					)))
-				})
-				return
-			}
-			ev.RunOnLoop(func(vm *goja.Runtime) {
-				resolve(res)
-			})
-		}(tpl, vars)
-	})
-
-	return ev.vm.ToValue(promise)
+	return vm.ToValue(result)
 }

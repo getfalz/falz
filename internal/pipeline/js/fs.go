@@ -1,53 +1,22 @@
 package js
 
 import (
+	"craeft/internal/utils"
 	"encoding/json"
 	"fmt"
-	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/dop251/goja"
 )
 
 type FsApi struct {
-	root string
+	root *utils.RootFS
 }
 
-func NewFsApi(root string) (*FsApi, error) {
-	absRoot, err := filepath.Abs(filepath.Clean(root))
-	if err != nil {
-		return nil, err
-	}
-
-	if _, err := os.Stat(absRoot); os.IsNotExist(err) {
-		return nil, fmt.Errorf("root directory '%s' does not exist", absRoot)
-	}
-
-	return &FsApi{root: absRoot}, nil
-}
-
-func (fs *FsApi) resolvePath(path string) (string, error) {
-	cleanPath := filepath.Clean(path)
-	if filepath.IsAbs(cleanPath) {
-		return "", fmt.Errorf("absolute paths are not allowed: %s", path)
-	}
-	absPath := filepath.Join(fs.root, cleanPath)
-
-	if !fs.isWithinRoot(absPath) {
-		return "", fmt.Errorf("not allowed: path %s is outside of the root directory", path)
-	}
-
-	return absPath, nil
-}
-
-func (fs *FsApi) isWithinRoot(path string) bool {
-	absPath, err := filepath.Abs(path)
-	if err != nil {
-		return false
-	}
-	return strings.HasPrefix(absPath, fs.root)
+func NewFsApi(root *utils.RootFS) *FsApi {
+	return &FsApi{root: root}
 }
 
 // @ts namespace fs
@@ -57,24 +26,16 @@ func (fs *FsApi) isWithinRoot(path string) bool {
 func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 	module := vm.NewObject()
 
-	module.Set("bytes", func(call goja.FunctionCall) goja.Value { return fs.bytes(call, vm) })
-	module.Set("text", func(call goja.FunctionCall) goja.Value { return fs.text(call, vm) })
-	module.Set("json", func(call goja.FunctionCall) goja.Value { return fs.json(call, vm) })
-	module.Set("write", func(call goja.FunctionCall) goja.Value { return fs.write(call, vm) })
-	module.Set("append", func(call goja.FunctionCall) goja.Value { return fs.append(call, vm) })
-	module.Set("isFile", func(call goja.FunctionCall) goja.Value { return fs.isFile(call, vm) })
-	module.Set("isDirectory", func(call goja.FunctionCall) goja.Value { return fs.isDirectory(call, vm) })
-	module.Set("createDirectory", func(call goja.FunctionCall) goja.Value { return fs.createDirectory(call, vm) })
-	module.Set("delete", func(call goja.FunctionCall) goja.Value { return fs.delete(call, vm) })
-	module.Set("deleteAll", func(call goja.FunctionCall) goja.Value { return fs.deleteAll(call, vm) })
-	module.Set("list", func(call goja.FunctionCall) goja.Value { return fs.list(call, vm) })
-	module.Set("walk", func(call goja.FunctionCall) goja.Value { return fs.walk(call, vm) })
-	module.Set("size", func(call goja.FunctionCall) goja.Value { return fs.size(call, vm) })
-	module.Set("lastModified", func(call goja.FunctionCall) goja.Value { return fs.lastModified(call, vm) })
-	module.Set("copy", func(call goja.FunctionCall) goja.Value { return fs.copy(call, vm) })
-	module.Set("copyAll", func(call goja.FunctionCall) goja.Value { return fs.copyAll(call, vm) })
-	module.Set("move", func(call goja.FunctionCall) goja.Value { return fs.move(call, vm) })
-	module.Set("moveAll", func(call goja.FunctionCall) goja.Value { return fs.moveAll(call, vm) })
+	module.Set("bytes", func(call goja.FunctionCall) goja.Value { return fs.bytes(vm, call) })
+	module.Set("text", func(call goja.FunctionCall) goja.Value { return fs.text(vm, call) })
+	module.Set("json", func(call goja.FunctionCall) goja.Value { return fs.readJSON(vm, call) })
+	module.Set("exists", func(call goja.FunctionCall) goja.Value { return fs.exists(vm, call) })
+	module.Set("isFile", func(call goja.FunctionCall) goja.Value { return fs.isFile(vm, call) })
+	module.Set("isDirectory", func(call goja.FunctionCall) goja.Value { return fs.isDirectory(vm, call) })
+	module.Set("list", func(call goja.FunctionCall) goja.Value { return fs.list(vm, call) })
+	module.Set("walk", func(call goja.FunctionCall) goja.Value { return fs.walk(vm, call) })
+	module.Set("size", func(call goja.FunctionCall) goja.Value { return fs.size(vm, call) })
+	module.Set("lastModified", func(call goja.FunctionCall) goja.Value { return fs.lastModified(vm, call) })
 
 	return module
 }
@@ -82,795 +43,242 @@ func (fs *FsApi) GetModule(vm *goja.Runtime) *goja.Object {
 // @ts function fs.bytes
 //
 // @doc
-// This function opens a file.
+// Reads a file and returns its contents as a Uint8Array.
+// Returns undefined if the file does not exist.
+// Throws an Error for all other I/O failures.
 //
-// @param path - string - The template string to render.
-// @returns Promise<string> - A promise that resolves to the rendered string.
-func (fs *FsApi) bytes(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	return fs.readFile(call, vm, false)
+// @param path - string - Path relative to the fs root.
+// @returns Uint8Array | undefined
+func (f *FsApi) bytes(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.bytes", call.Argument(0))
+	data, err := f.root.ReadFile(path)
+	if isNotExist(err) {
+		return goja.Undefined()
+	}
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.bytes: %w", err)))
+	}
+	buf := vm.NewArrayBuffer(data)
+	u8, err := vm.New(vm.Get("Uint8Array").ToObject(vm), vm.ToValue(buf))
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.bytes: construct Uint8Array: %w", err)))
+	}
+	return u8
 }
 
 // @ts function fs.text
 //
 // @doc
-// Reads the contents of a file as a UTF-8 string.
+// Reads a file and returns its contents as a UTF-8 string.
+// Returns undefined if the file does not exist.
+// Throws an Error for all other I/O failures.
 //
-// @param path - string - The template string to render.
-// @returns Promise<string> - A promise that resolves to the rendered string.
-//
-// @example
-// const text = await fs.text("files/hello.txt");
-// console.log(text);
-func (fs *FsApi) text(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	return fs.readFile(call, vm, true)
+// @param path - string - Path relative to the fs root.
+// @returns string | undefined
+func (f *FsApi) text(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.text", call.Argument(0))
+	data, err := f.root.ReadFile(path)
+	if isNotExist(err) {
+		return goja.Undefined()
+	}
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.text: %w", err)))
+	}
+	return vm.ToValue(string(data))
 }
 
 // @ts function fs.json
 //
 // @doc
-// Reads and parses a JSON file.
+// Reads and parses a JSON file, returning the parsed value.
+// Returns undefined if the file does not exist.
+// Throws a SyntaxError if the file content is not valid JSON.
+// Throws an Error for all other I/O failures.
 //
-// @param path - string - The file path to read.
-// @returns Promise<Object> - A promise that resolves to the parsed JSON object.
+// @param path - string - Path relative to the fs root.
+// @returns any | undefined
+func (f *FsApi) readJSON(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.json", call.Argument(0))
+	data, err := f.root.ReadFile(path)
+	if isNotExist(err) {
+		return goja.Undefined()
+	}
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.json: %w", err)))
+	}
+	var result any
+	if err := json.Unmarshal(data, &result); err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.json: %s: %w", path, err)))
+	}
+	return vm.ToValue(result)
+}
+
+// @ts function fs.exists
 //
-// @example
-// const config = await fs.json("/path/to/config.json");
-// console.log(config.apiKey);
-func (fs *FsApi) json(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		filePath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		filePath, err = fs.resolvePath(filePath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(goja.Undefined())
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		var result any
-		if err := json.Unmarshal(data, &result); err != nil {
-			reject(err)
-			return
-		}
-		resolve(vm.ToValue(result))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) readFile(call goja.FunctionCall, vm *goja.Runtime, asText bool) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		filePath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		filePath, err = fs.resolvePath(filePath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		data, err := os.ReadFile(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(goja.Undefined())
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		if asText {
-			resolve(vm.ToValue(string(data)))
-		} else {
-			arrayBuffer := vm.NewArrayBuffer(data)
-			uintArray, err := vm.New(vm.Get("Uint8Array"), vm.ToValue(arrayBuffer))
-			if err == nil {
-				resolve(uintArray)
-			} else {
-				reject(err)
-			}
-		}
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) write(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		filePath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		filePath, err = fs.resolvePath(filePath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		data, err := GetByteArg(vm, call.Argument(1))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = os.WriteFile(filePath, data, 0644)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		resolve(goja.Undefined())
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) append(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		filePath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		filePath, err = fs.resolvePath(filePath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		data, err := GetByteArg(vm, call.Argument(1))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		file, err := os.OpenFile(filePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-		if err != nil {
-			reject(err)
-			return
-		}
-		defer file.Close()
-
-		if _, err := file.Write(data); err != nil {
-			reject(err)
-			return
-		}
-
-		resolve(goja.Undefined())
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) isFile(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		filePath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		filePath, err = fs.resolvePath(filePath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		info, err := os.Stat(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(vm.ToValue(false))
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		resolve(vm.ToValue(info.Mode().IsRegular()))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) isDirectory(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		dirPath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		dirPath, err = fs.resolvePath(dirPath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		info, err := os.Stat(dirPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(vm.ToValue(false))
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		resolve(vm.ToValue(info.IsDir()))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) createDirectory(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		dirPath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		dirPath, err = fs.resolvePath(dirPath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = os.MkdirAll(dirPath, 0755)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		resolve(goja.Undefined())
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) delete(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		path, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		path, err = fs.resolvePath(path)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = os.Remove(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(vm.ToValue(false))
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		resolve(vm.ToValue(true))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) deleteAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		path, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		path, err = fs.resolvePath(path)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = os.RemoveAll(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(vm.ToValue(false))
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		resolve(vm.ToValue(true))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-// type FileEntry struct {
-// 	Name        string     `json:"name"`
-// 	Path        string     `json:"path"`
-// 	ModTime     goja.Value `json:"modTime"`
-// 	Size        int64      `json:"size"`
-// 	IsDirectory bool       `json:"isDirectory"`
-// 	IsFile      bool       `json:"isFile"`
-// 	IsSymlink   bool       `json:"isSymlink"`
-// }
+// @doc
+// Reports whether a path exists (as a file, directory, or any other entry).
 //
-// func (e FileEntry) ToString() string {
-// 	obj, err := json.MarshalIndent(e, "", "  ")
-// 	if err != nil {
-// 		obj = []byte(fmt.Sprintf("export error: %v", err))
-// 	}
-// 	return fmt.Sprintf("File(%v)", string(obj))
-// }
-//
-// type IterEntry struct {
-// 	Done  bool
-// 	Value any
-// }
-
-func (fs *FsApi) list(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	dirPath, err := argMustString(call.Argument(0))
-	if err != nil {
-		panic(vm.NewTypeError("file.list", err))
-	}
-
-	absPath, err := fs.resolvePath(dirPath)
-	if err != nil {
-		panic(vm.NewTypeError("file.list", err))
-	}
-
-	files, err := os.ReadDir(absPath)
-	if err != nil {
-		panic(vm.NewTypeError("file.list", err))
-	}
-
-	// iterable := vm.NewObject()
-	// iterable.SetSymbol(goja.SymIterator, vm.ToValue(func() goja.Value {
-	// 	index := 0
-	// 	itr := vm.NewObject()
-	// 	itr.Set("next", vm.ToValue(func(call goja.FunctionCall) goja.Value {
-	// 		if index >= len(files) {
-	// 			result := IterEntry{Done: true}
-	// 			return vm.ToValue(result)
-	// 		}
-	//
-	// 		file := files[index]
-	// 		index++
-	// 		info, err := file.Info()
-	// 		if err != nil {
-	// 			panic(vm.NewTypeError("file.list", err))
-	// 		}
-	//
-	// 		time, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(info.ModTime()))
-	// 		if err != nil {
-	// 			panic(vm.NewTypeError("file.list", err))
-	// 		}
-	// 		entry := FileEntry{
-	// 			Name:        file.Name(),
-	// 			Path:        "/" + filepath.Join(dirPath, file.Name()),
-	// 			ModTime:     time,
-	// 			Size:        info.Size(),
-	// 			IsDirectory: file.IsDir(),
-	// 			IsFile:      file.Type().IsRegular(),
-	// 			IsSymlink:   file.Type()&os.ModeSymlink != 0,
-	// 		}
-	//
-	// 		result := IterEntry{Done: false, Value: entry}
-	//
-	// 		return vm.ToValue(result)
-	// 	}))
-	//
-	// 	return itr
-	// }))
-	//
-	// iterable.Set("toString", func(call goja.FunctionCall) goja.Value {
-	// 	return vm.ToValue(fmt.Sprintf("IterableObject(%v)", files))
-	// })
-
-	// return iterable
-
-	entries := make([]any, 0, len(files))
-
-	for _, file := range files {
-		info, err := file.Info()
-		if err != nil {
-			panic(vm.NewTypeError("file.list: %s", err))
-		}
-
-		time, err := vm.New(vm.Get("Date").ToObject(vm), vm.ToValue(info.ModTime()))
-		if err != nil {
-			panic(vm.NewTypeError("file.list: %s", err))
-		}
-
-		entry := map[string]any{
-			"name":        file.Name(),
-			"path":        "/" + filepath.Join(dirPath, file.Name()),
-			"modTime":     time,
-			"size":        info.Size(),
-			"isDirectory": file.IsDir(),
-			"isFile":      file.Type().IsRegular(),
-			"isSymlink":   file.Type()&os.ModeSymlink != 0,
-		}
-
-		gojaObj := vm.ToValue(entry)
-		err = gojaObj.ToObject(vm).Set("toString", func(call goja.FunctionCall) goja.Value {
-			e := call.This.ToObject(vm)
-
-			name := e.Get("name").String()
-			path := e.Get("path").String()
-			modTime := e.Get("modTime").String()
-			size := e.Get("size").ToInteger()
-			isDir := e.Get("isDirectory").ToBoolean()
-			isFile := e.Get("isFile").ToBoolean()
-			isSymlink := e.Get("isSymlink").ToBoolean()
-
-			str := fmt.Sprintf(`{
-  name: "%s",
-  path: "%s",
-  modTime: %s,
-  size: %d,
-  isDirectory: %t,
-  isFile: %t,
-  isSymlink: %t,
-}`, name, path, modTime, size, isDir, isFile, isSymlink)
-
-			return vm.ToValue(str)
-		})
-		if err != nil {
-			panic(vm.NewTypeError("file.list: %s", err))
-		}
-
-		entries = append(entries, entry)
-	}
-
-	return vm.NewArray(entries...)
+// @param path - string - Path relative to the fs root.
+// @returns boolean
+func (f *FsApi) exists(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.exists", call.Argument(0))
+	_, err := f.root.Stat(path)
+	return vm.ToValue(!isNotExist(err))
 }
 
-func (fs *FsApi) walk(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	rootPath, err := argMustString(call.Argument(0))
+// @ts function fs.isFile
+//
+// @doc
+// Reports whether the path refers to a regular file.
+// Returns false if the path does not exist or is not a file.
+//
+// @param path - string - Path relative to the fs root.
+// @returns boolean
+func (f *FsApi) isFile(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.isFile", call.Argument(0))
+	info, err := f.root.Stat(path)
+	return vm.ToValue(err == nil && info.Mode().IsRegular())
+}
+
+// @ts function fs.isDirectory
+//
+// @doc
+// Reports whether the path refers to a directory.
+// Returns false if the path does not exist or is not a directory.
+//
+// @param path - string - Path relative to the fs root.
+// @returns boolean
+func (f *FsApi) isDirectory(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.isDirectory", call.Argument(0))
+	info, err := f.root.Stat(path)
+	return vm.ToValue(err == nil && info.IsDir())
+}
+
+// @ts function fs.size
+//
+// @doc
+// Returns the size of a file in bytes.
+// Returns undefined if the file does not exist.
+// Throws an Error for all other I/O failures.
+//
+// @param path - string - Path relative to the fs root.
+// @returns number | undefined
+func (f *FsApi) size(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.size", call.Argument(0))
+	info, err := f.root.Stat(path)
+	if isNotExist(err) {
+		return goja.Undefined()
+	}
 	if err != nil {
-		panic(vm.ToValue(err))
+		panic(vm.NewGoError(fmt.Errorf("fs.size: %w", err)))
+	}
+	return vm.ToValue(info.Size())
+}
+
+// @ts function fs.lastModified
+//
+// @doc
+// Returns the last modification time of a file as a JavaScript Date object.
+// Returns undefined if the file does not exist.
+// Throws an Error for all other I/O failures.
+//
+// @param path - string - Path relative to the fs root.
+// @returns Date | undefined
+func (f *FsApi) lastModified(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.lastModified", call.Argument(0))
+	info, err := f.root.Stat(path)
+	if isNotExist(err) {
+		return goja.Undefined()
+	}
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.lastModified: %w", err)))
+	}
+	return newJSDate(vm, info.ModTime())
+}
+
+// @ts interface fs.FileEntry
+//
+// @doc
+// Represents a single filesystem entry as returned by fs.list and fs.walk.
+// The path field is always slash-separated and prefixed with /, relative to the fs root.
+//
+// @field name - string - The entry's filename without any directory component.
+// @field path - string - Full path relative to the fs root, slash-separated, with leading slash.
+// @field size - number - Size in bytes. Always 0 for directories.
+// @field modTime - Date - Last modification time as a JavaScript Date.
+// @field isFile - boolean - True if the entry is a regular file.
+// @field isDirectory - boolean - True if the entry is a directory.
+// @field isSymlink - boolean - True if the entry is a symbolic link.
+func fileEntry(vm *goja.Runtime, dir, name string, info os.FileInfo) map[string]any {
+	return map[string]any{
+		"name":        name,
+		"path":        "/" + filepath.ToSlash(filepath.Join(dir, name)),
+		"size":        info.Size(),
+		"modTime":     newJSDate(vm, info.ModTime()),
+		"isFile":      info.Mode().IsRegular(),
+		"isDirectory": info.IsDir(),
+		"isSymlink":   info.Mode()&os.ModeSymlink != 0,
+	}
+}
+
+// @ts function fs.list
+//
+// @doc
+// Returns the direct children of a directory as an array of FileEntry objects.
+// The directory itself is not included. Entries are in filesystem order (typically alphabetical).
+// Does not recurse into subdirectories — use fs.walk for recursive traversal.
+// Throws an Error if the path does not exist or is not a directory.
+//
+// @param path - string - Path relative to the fs root.
+// @returns FileEntry[]
+func (f *FsApi) list(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	path := mustStringArg(vm, "fs.list", call.Argument(0))
+
+	entries, err := fs.ReadDir(f.root.FS(), cleanPath(path))
+	if err != nil {
+		panic(vm.NewGoError(fmt.Errorf("fs.list: %w", err)))
 	}
 
-	rootPath, err = fs.resolvePath(rootPath)
-	if err != nil {
-		return vm.ToValue(err)
+	result := make([]any, 0, len(entries))
+	for _, e := range entries {
+		info, err := e.Info()
+		if err != nil {
+			continue // entry disappeared between ReadDir and Info — skip silently
+		}
+		result = append(result, fileEntry(vm, path, e.Name(), info))
 	}
+	return vm.ToValue(result)
+}
 
-	iterable := vm.NewObject()
-	iterable.Set("Symbol.asyncIterator", iterable)
+// @ts function fs.walk
+//
+// @doc
+// Recursively traverses a directory and returns all entries (files and subdirectories)
+// as a flat array of FileEntry objects. The root path itself is not included.
+// Entries are visited in lexical order. Symlinks are not followed.
+// Throws an Error if the root path does not exist or is not a directory.
+//
+// @param path - string - Path relative to the fs root.
+// @returns FileEntry[]
+func (f *FsApi) walk(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
+	root := mustStringArg(vm, "fs.walk", call.Argument(0))
+	clean := cleanPath(root)
 
-	paths := []string{}
-	err = filepath.Walk(rootPath, func(path string, info os.FileInfo, err error) error {
+	var result []any
+	err := fs.WalkDir(f.root.FS(), clean, func(path string, d fs.DirEntry, err error) error {
+		if err != nil || path == clean {
+			return nil // skip unreadable entries; skip the root itself
+		}
+		info, err := d.Info()
 		if err != nil {
 			return nil
 		}
-		paths = append(paths, path)
+		dir := filepath.ToSlash(filepath.Dir(path))
+		result = append(result, fileEntry(vm, dir, d.Name(), info))
 		return nil
 	})
 	if err != nil {
-		panic(vm.ToValue(err))
+		panic(vm.NewGoError(fmt.Errorf("fs.walk: %w", err)))
 	}
-
-	index := 0
-
-	nextFunc := func(call goja.FunctionCall) goja.Value {
-		promise, resolve, reject := vm.NewPromise()
-
-		go func() {
-			if index >= len(paths) {
-				// No more entries
-				result := vm.NewObject()
-				result.Set("done", true)
-				resolve(result)
-				return
-			}
-
-			path := paths[index]
-			index++
-
-			info, err := os.Lstat(path)
-			if err != nil {
-				reject(err)
-				return
-			}
-
-			entry := vm.NewObject()
-			relPath, _ := filepath.Rel(rootPath, path)
-			entry.Set("path", relPath)
-			entry.Set("name", info.Name())
-			entry.Set("isDirectory", info.IsDir())
-			entry.Set("isFile", info.Mode().IsRegular())
-			entry.Set("isSymlink", info.Mode()&os.ModeSymlink != 0)
-			entry.Set("depth", len(filepath.SplitList(relPath))-1)
-
-			result := vm.NewObject()
-			result.Set("value", entry)
-			result.Set("done", false)
-
-			resolve(result)
-		}()
-
-		return vm.ToValue(promise)
-	}
-
-	iterable.Set("next", nextFunc)
-	return iterable
-}
-
-func (fs *FsApi) size(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		filePath, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		filePath, err = fs.resolvePath(filePath)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		info, err := os.Stat(filePath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(goja.Undefined())
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		resolve(vm.ToValue(info.Size()))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) lastModified(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		path, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		path, err = fs.resolvePath(path)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		info, err := os.Stat(path)
-		if err != nil {
-			if os.IsNotExist(err) {
-				resolve(goja.Undefined())
-			} else {
-				reject(err)
-			}
-			return
-		}
-
-		modTime := info.ModTime()
-		resolve(vm.ToValue(modTime))
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) copy(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		source, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-		source, err = fs.resolvePath(source)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		destination, err := argMustString(call.Argument(1))
-		if err != nil {
-			reject(err)
-			return
-		}
-		destination, err = fs.resolvePath(destination)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = fs.copyFile(source, destination)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		resolve(goja.Undefined())
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) copyAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		source, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		source, err = fs.resolvePath(source)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		destination, err := argMustString(call.Argument(1))
-		if err != nil {
-			reject(err)
-			return
-		}
-		destination, err = fs.resolvePath(destination)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = fs.copyDir(source, destination)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		resolve(goja.Undefined())
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) move(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	promise, resolve, reject := vm.NewPromise()
-
-	go func() {
-		source, err := argMustString(call.Argument(0))
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		source, err = fs.resolvePath(source)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		destination, err := argMustString(call.Argument(1))
-		if err != nil {
-			reject(err)
-			return
-		}
-		destination, err = fs.resolvePath(destination)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		err = os.Rename(source, destination)
-		if err != nil {
-			reject(err)
-			return
-		}
-
-		resolve(goja.Undefined())
-	}()
-
-	return vm.ToValue(promise)
-}
-
-func (fs *FsApi) moveAll(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	// Same as move since os.Rename works for directories
-	return fs.move(call, vm)
-}
-
-func (fs *FsApi) copyFile(source, destination string) error {
-	srcFile, err := os.Open(source)
-	if err != nil {
-		return err
-	}
-	defer srcFile.Close()
-
-	info, err := srcFile.Stat()
-	if err != nil {
-		return err
-	}
-
-	dstFile, err := os.OpenFile(destination, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, info.Mode())
-	if err != nil {
-		return err
-	}
-	defer dstFile.Close()
-
-	_, err = io.Copy(dstFile, srcFile)
-	return err
-}
-
-func (fs *FsApi) copyDir(source, dest string) error {
-	entries, err := os.ReadDir(source)
-	if err != nil {
-		return err
-	}
-
-	if err = os.MkdirAll(dest, 0755); err != nil {
-		return err
-	}
-
-	for _, entry := range entries {
-		srcPath := filepath.Join(source, entry.Name())
-		destPath := filepath.Join(dest, entry.Name())
-
-		if entry.IsDir() {
-			err = fs.copyDir(srcPath, destPath)
-			if err != nil {
-				return err
-			}
-		} else {
-			err = fs.copyFile(srcPath, destPath)
-			if err != nil {
-				return err
-			}
-		}
-	}
-	return nil
+	return vm.ToValue(result)
 }

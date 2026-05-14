@@ -11,7 +11,7 @@ func normalize(input string) string {
 
 func TestTplRender(t *testing.T) {
 	jsFunction := `
-async function testTemplate() {
+function testTemplate() {
     const { render } = require("tpl");
 
 	html = ` + "`" + `<html>
@@ -30,7 +30,7 @@ async function testTemplate() {
 		names: ["john", "paul", "george", "ringo"],
 	}
 
-    return await render(html, vars);
+    return render(html, vars);
 }
     `
 

@@ -37,7 +37,7 @@ type outputWriter interface {
 }
 
 type pipelineLoader interface {
-	Get(name string) (pipeline.PipelineScript, error)
+	Get(name string) (pipeline.Pipe, error)
 }
 
 type manifestUpdater interface {

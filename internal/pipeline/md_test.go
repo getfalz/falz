@@ -6,7 +6,7 @@ import (
 
 func TestMdParse(t *testing.T) {
 	jsFunction := `
-        async function testAsyncParse() {
+        function testAsyncParse() {
     		const md = require('md');
             const options = {
                 parser: {
@@ -22,7 +22,7 @@ func TestMdParse(t *testing.T) {
 
             const parser = new md.Parser(options);
             const markdownText = "# Async Markdown\n\nThis is a test.";
-            return await parser.parse(markdownText);
+            return parser.parse(markdownText);
         }
     `
 
@@ -50,7 +50,7 @@ func TestMdParse(t *testing.T) {
 
 func TestMdException(t *testing.T) {
 	jsFunction := `
-        async function testAsyncParse() {
+        function testAsyncParse() {
     		const md = require('md');
 
     		var cfg = {};
@@ -68,7 +68,7 @@ func TestMdException(t *testing.T) {
     		})
             const markdownText = "# Async Markdown\n\nThis is a test.";
 
-            return await md.toHtml(markdownText);
+            return md.toHtml(markdownText);
         }
     `
 

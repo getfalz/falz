@@ -7,7 +7,7 @@ import (
 
 func TestFastTplRender(t *testing.T) {
 	jsFunction := `
-	       async function testTemplate() {
+	       function testTemplate() {
 	           const { Template } = require("fasttpl");
 
 	           const templateInstance = new Template({
@@ -22,7 +22,7 @@ func TestFastTplRender(t *testing.T) {
 	               time: () => new Date().toLocaleTimeString()
 	           });
 
-	           return await templateInstance.render();
+	           return templateInstance.render();
 	       }
 	   `
 
