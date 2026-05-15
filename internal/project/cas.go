@@ -67,8 +67,8 @@ func (c *CAS) Has(key string) bool {
 func (c *CAS) Store(key string, data []byte) error {
 	rel := c.keyRel(key)
 
-	if err := c.casFS.MkdirAll(filepath.Dir(rel), CacheDirPerm); err != nil {
-		return fmt.Errorf("create CAS dir for key %s: %w", key, err)
+	if c.Has(key) {
+		return nil
 	}
 
 	if err := c.casFS.WriteFile(rel, data, CacheFilePerm); err != nil {

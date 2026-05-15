@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"math/rand"
 	"os"
 	"path"
 	"path/filepath"
@@ -133,14 +134,14 @@ func (r *RootFS) FindFile(targetPath, pattern string) ([]string, error) {
 }
 
 func (r *RootFS) WriteFile(dst string, data []byte, perm fs.FileMode) error {
-	dst = filepath.Clean(filepath.ToSlash(dst))
+	dst = filepath.ToSlash(filepath.Clean(dst))
 
 	dir := filepath.Dir(dst)
 	if err := r.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("mkdir %q: %w", dir, err)
 	}
 
-	tmpDst := dst + ".tmp"
+	tmpDst := fmt.Sprintf("%s.%d.%d.tmp", dst, os.Getpid(), rand.Int63())
 
 	f, err := r.root.OpenFile(tmpDst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
 	if err != nil {
