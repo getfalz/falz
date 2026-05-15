@@ -20,22 +20,26 @@ type DebouncerConfig struct {
 }
 
 type Debouncer struct {
-	config    DebouncerConfig
-	registry  *EventRegistry
-	onRebuilt func()
-	project   *project.Project
+	config   DebouncerConfig
+	registry *EventRegistry
+	hr       reloader
+	project  *project.Project
 }
 
-func NewDebouncer(config DebouncerConfig, p *project.Project, registry *EventRegistry, onRebuilt func()) *Debouncer {
+type reloader interface {
+    ReloadPage()
+    NavigateTo(url string)
+}
+
+func NewDebouncer(config DebouncerConfig, p *project.Project, registry *EventRegistry, hr reloader) *Debouncer {
 	return &Debouncer{
-		config:    config,
-		registry:  registry,
-		onRebuilt: onRebuilt,
-		project:   p,
+		config:   config,
+		registry: registry,
+		hr:       hr,
+		project:  p,
 	}
 }
 
-// processChanges debounces changes and triggers incremental rebuilds
 func (d *Debouncer) Run(ctx context.Context, changes <-chan FileChange) {
 	const debounceWindow = 150 * time.Millisecond
 
@@ -102,6 +106,11 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	grouped := groupChanges(changes)
 
+	log.IInfo(log.Server).
+		Int("total_changes", len(changes)).
+		Int("unique_handlers", len(grouped)).
+		Msg("processing file changes")
+
 	for key, paths := range grouped {
 		if len(paths) == 0 {
 			continue
@@ -137,19 +146,56 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 	}
 
 	log.IInfo(log.Server).
-		Int("changes", len(changes)).
-		Int("dirty", len(dirty)).
 		Int64("built", stats.Completed).
 		Int64("cached", stats.CacheHits).
 		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
 		Msg("incremental rebuild")
 
-	if d.config.HotReload && stats.Completed > 0 && d.onRebuilt != nil {
-		d.onRebuilt()
+	if d.config.HotReload && stats.Completed > 0 && d.hr != nil {
+		d.notify(changes, dirty)
 	}
 
 	return nil
+}
+
+func (d *Debouncer) notify(changes []FileChange, dirty []*project.BuildEntry) {
+	for _, c := range changes {
+		switch c.Type {
+		case FileTypeLayout, FileTypeFragment, FileTypePipeline, FileTypeSchemeAsset:
+			log.DDebug(log.Server).
+				Str("reason", string(c.Type)).
+				Msg("hot-reload: full page reload (structural change)")
+			d.hr.ReloadPage()
+			return
+		}
+	}
+
+	var contentEntries []*project.BuildEntry
+	for _, e := range dirty {
+		if e.Type == project.ContentType {
+			contentEntries = append(contentEntries, e)
+		}
+	}
+
+	if len(contentEntries) == 1 {
+		entry := contentEntries[0]
+		me, ok := d.project.Manifest.Get(entry.ID)
+		if ok && me.OutputPath != "" {
+			url := "/" + me.OutputPath
+			log.DDebug(log.Server).
+				Str("entry", entry.ID).
+				Str("url", url).
+				Msg("hot-reload: navigate to rebuilt page")
+			d.hr.NavigateTo(url)
+			return
+		}
+	}
+
+	log.DDebug(log.Server).
+		Int("content_entries", len(contentEntries)).
+		Msg("hot-reload: full page reload")
+	d.hr.ReloadPage()
 }
 
 // groupChanges groups changes by file type and modification type, deduplicating paths

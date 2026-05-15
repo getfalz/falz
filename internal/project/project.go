@@ -124,8 +124,6 @@ func New(config *CraeftConfig) (*Project, error) {
 func (p *Project) Build(ctx context.Context) error {
 	log.IInfo(log.Project).Msg("starting build")
 
-	p.graph.Clear()
-
 	source := NewSourceIndex(p.Source, p.Scheme, p.Layouts, IgnoreList(p.Config.Ignore))
 
 	if err := source.Scan(ctx, p.graph); err != nil {
@@ -206,6 +204,8 @@ func (p *Project) Build(ctx context.Context) error {
 		Dur("duration", stats.Duration).
 		Msg("build complete")
 
+	p.graph.ClearDirty()
+
 	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
 	if err := p.Manifest.Save(manifestPath); err != nil {
 		return fmt.Errorf("save manifest: %w", err)
@@ -239,10 +239,58 @@ func (p *Project) IncrementalBuild(ctx context.Context) (BuildStats, error) {
 	if err != nil {
 		return stats, err
 	}
+
+	p.graph.ClearDirty()
+
 	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
 	if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
 		return stats, fmt.Errorf("save manifest: %w", saveErr)
 	}
+	return stats, nil
+}
+
+func (p *Project) ForceBuild(ctx context.Context, path string) (BuildStats, error) {
+	graph := p.Graph()
+
+	entry, ok := graph.EntryByID(path)
+	if !ok {
+		return BuildStats{}, fmt.Errorf("entry not found: %s", path)
+	}
+
+	if err := graph.MarkDirty(entry.ID); err != nil {
+		return BuildStats{}, fmt.Errorf("mark dirty: %w", err)
+	}
+
+	dirtyEntries := p.graph.DirtyEntries()
+	if len(dirtyEntries) == 0 {
+		return BuildStats{}, nil
+	}
+
+	builder := NewBuilder(
+		p.Source, p.Scheme, p.Output,
+		p.Layouts,
+		p.PipesRegistry,
+		p.Manifest,
+		p.CAS,
+		&BuilderConfig{
+			Concurrency:  p.Config.Build.Concurrency,
+			UseCAS:       p.Config.Build.UseCAS,
+			ForceRebuild: true,
+			Variables:    p.Config.Variables,
+		})
+
+	stats, err := builder.Build(ctx, dirtyEntries)
+	if err != nil {
+		return stats, err
+	}
+
+	p.graph.ClearDirty()
+
+	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
+	if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
+		return stats, fmt.Errorf("save manifest: %w", saveErr)
+	}
+
 	return stats, nil
 }
 

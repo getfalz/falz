@@ -46,15 +46,12 @@ const (
 
 	indexTS = `import { Parser } from "md"
 
-export async function transform(this: tCtx, input: string): Promise<string>{
+export function transform(this: tCtx, input: string): string {
     console.log(input)
 
     return input
 }
-
-export async function index(this: iCtx, input: string) {
-    return {}
-}`
+`
 )
 
 func AddPipe(c *cli.Context) error {

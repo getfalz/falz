@@ -20,7 +20,6 @@ type Server struct {
 }
 
 func NewServer(p *project.Project) *Server {
-
 	cfg := p.Config
 
 	registry := NewEventRegistry()
@@ -36,17 +35,12 @@ func NewServer(p *project.Project) *Server {
 
 	hr := NewHotReload(HotReloadConfig{
 		Enabled: cfg.FsWatcher.HotReload,
-	}, httpSrv.routing)
-
-	var onRebuilt func()
-	if hr != nil {
-		onRebuilt = hr.reloadPage
-	}
+	}, p, httpSrv.routing)
 
 	debouncer := NewDebouncer(
 		DebouncerConfig{
 			HotReload: cfg.FsWatcher.HotReload,
-		}, p, registry, onRebuilt)
+		}, p, registry, hr)
 
 	watcher := NewFsWatcher(WatcherConfig{
 		SourcePath: cfg.SourcePath,
