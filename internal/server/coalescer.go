@@ -6,62 +6,79 @@ import (
 )
 
 type EventCoalescer struct {
-	eventCache sync.Map // path -> *recentEvent
+	mu    sync.Mutex
+	cache map[string]*recentEvent
 }
 
 func NewEventCoalescer() *EventCoalescer {
-    return &EventCoalescer{}
+	return &EventCoalescer{
+		cache: make(map[string]*recentEvent),
+	}
 }
 
 // eventMergeWindow defines how long two events for the same file
 // are considered part of the same save operation.
-const eventMergeWindow = 300 * time.Millisecond
+const eventMergeWindow = 500 * time.Millisecond
 
 // recentEvent tracks recent modifications for a given file
 type recentEvent struct {
-	LastMod  ModType
-	LastTime time.Time
+	mod      ModType
+	lastTime time.Time
 }
 
-// coalesceFileEvents merges redundant or rapid events for the same file.
-// this can happen when editors when changing a file e.g. first save a tmp file, then create a new one, and finally rename them
-// Returns nil if the event should be suppressed.
+// Coalesce resolves the logical modification type for an incoming event
+// by combining it with any recent event for the same path within the merge
+// window.
 func (c *EventCoalescer) Coalesce(change *FileChange) *FileChange {
 	now := time.Now()
 
-	v, ok := c.eventCache.Load(change.Path)
-	if !ok {
-		c.eventCache.Store(change.Path, &recentEvent{LastMod: change.Mod, LastTime: now})
-		return change
+	c.mu.Lock()
+	prev, ok := c.cache[change.Path]
+	if ok && now.Sub(prev.lastTime) >= eventMergeWindow {
+		// Previous window expired; treat this as a fresh event.
+		ok = false
 	}
 
-	event := v.(*recentEvent)
-	if now.Sub(event.LastTime) < eventMergeWindow {
-		event.LastMod = c.resolveEventType(event.LastMod, change.Mod)
-		event.LastTime = now
-		c.eventCache.Store(change.Path, event)
+	resolvedMod := change.Mod
+	if ok {
+		resolvedMod = resolveModType(prev.mod, change.Mod)
+	}
+
+	c.cache[change.Path] = &recentEvent{mod: resolvedMod, lastTime: now}
+	c.mu.Unlock()
+
+	if ok && resolvedMod == prev.mod {
 		return nil
 	}
 
-	c.eventCache.Store(change.Path, &recentEvent{LastMod: change.Mod, LastTime: now})
-	return change
+	if resolvedMod == change.Mod {
+		return change
+	}
+	out := *change
+	out.Mod = resolvedMod
+	return &out
 }
 
-// resolveEventType fuses two modification types into one
-func (c *EventCoalescer) resolveEventType(prev, curr ModType) ModType {
+// resolveModType fuses two consecutive modification types into one logical op.
+//
+// Real-world editor save sequences on Linux (inotify → notify library):
+//   Vim/Neovim default:         write + MOVED_TO(=create)  → modified
+//   VSCode/JetBrains/Sublime:   MOVED_TO(=create) only     → handler fallback
+//   Gedit:                      write + remove + create     → modified
+//   Nano/Emacs:                 write + write               → modified
+//   Vim backupcopy=yes:         write only                  → modified
+func resolveModType(prev, curr ModType) ModType {
 	switch {
-	case prev == ModTypeDeleted && curr == ModTypeCreated:
-		return ModTypeModified // replaced
 	case prev == ModTypeCreated && curr == ModTypeModified:
-		return ModTypeCreated // still new file
+		return ModTypeCreated // new file written to — still a new file
 	case prev == ModTypeCreated && curr == ModTypeDeleted:
-		return ModTypeDeleted // short-lived file
-	case prev == ModTypeModified && curr == ModTypeModified:
-		return ModTypeModified
-	case prev == ModTypeDeleted && curr == ModTypeDeleted:
-		return ModTypeDeleted
+		return ModTypeDeleted // transient file, never existed from our perspective
+	case prev == ModTypeDeleted && curr == ModTypeCreated:
+		return ModTypeModified // deleted then recreated — net effect is a modify
+	case prev == ModTypeModified && curr == ModTypeCreated:
+		return ModTypeModified // atomic rename write (write + MOVED_TO) — still a modify
 	case curr == ModTypeDeleted:
-		return ModTypeDeleted
+		return ModTypeDeleted // deletion always wins
 	default:
 		return curr
 	}

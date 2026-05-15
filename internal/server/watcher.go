@@ -71,6 +71,12 @@ func (f *FSWatcher) Run(ctx context.Context, changes chan FileChange) error {
 			if !ok {
 				return nil
 			}
+
+			// log.TTrace(log.Server).
+			// 	Str("path", ei.Path()).
+			// 	Str("raw-event", ei.Event().String()).
+			// 	Msg("raw fs event")
+
 			change := f.classifier.Classify(ei)
 			if change == nil {
 				continue
@@ -82,9 +88,9 @@ func (f *FSWatcher) Run(ctx context.Context, changes chan FileChange) error {
 			}
 
 			log.TTrace(log.Server).
-				Str("path", change.Path).
-				Str("type", string(change.Type)).
-				Str("mod", string(change.Mod)).
+				Str("path", merged.Path).
+				Str("type", string(merged.Type)).
+				Str("event", string(merged.Mod)).
 				Msg("file event classified")
 
 			select {

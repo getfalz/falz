@@ -141,7 +141,13 @@ func (p *Project) Build(ctx context.Context) error {
 		return fmt.Errorf("hash: %w", err)
 	}
 
-	dirty := p.MarkDirty()
+	var dirty int
+	if p.Config.Build.ForceRebuild {
+		p.graph.MarkAllDirty()
+		dirty = len(entries)
+	} else {
+		dirty = p.MarkDirty()
+	}
 	log.IInfo(log.Project).
 		Int("dirty", dirty).
 		Msg("diff complete")
@@ -173,9 +179,6 @@ func (p *Project) Build(ctx context.Context) error {
 	}
 
 	dirtyEntries := p.graph.DirtyEntries()
-	if p.Config.Build.ForceRebuild {
-		dirtyEntries = entries
-	}
 
 	builder := NewBuilder(
 		p.Source, p.Scheme, p.Output,

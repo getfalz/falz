@@ -68,6 +68,7 @@ func (h *Handlers) handleContentCreated(ctx context.Context, paths []string) err
 
 	for _, path := range paths {
 		if _, ok := graph.EntryByID(path); ok {
+			h.rehashAndMark(ctx, path)
 			continue
 		}
 
@@ -109,6 +110,7 @@ func (h *Handlers) handleContentAssetCreated(ctx context.Context, paths []string
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:source:%s", path)
 		if _, ok := graph.EntryByID(id); ok {
+			h.rehashAndMark(ctx, id)
 			continue
 		}
 
@@ -227,6 +229,7 @@ func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, paths []string)
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:scheme:%s", path)
 		if _, ok := graph.EntryByID(id); ok {
+			h.rehashAndMark(ctx, path)
 			continue
 		}
 
