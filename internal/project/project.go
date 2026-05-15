@@ -91,10 +91,9 @@ func New(config *CraeftConfig) (*Project, error) {
 
 	graph := NewDependencyGraph()
 
-	manifest, err := LoadManifest(filepath.Join(config.OutputPath, manifestoFile))
+	manifest, err := OpenManifest(outputRoot, manifestoFile)
 	if err != nil {
-		log.Warn(fmt.Sprintf("failed to load manifest: %v. Creating a new one", err))
-		manifest = NewManifest()
+		return nil, fmt.Errorf("open manifest: %w", err)
 	}
 
 	var cas *CAS
@@ -206,8 +205,7 @@ func (p *Project) Build(ctx context.Context) error {
 
 	p.graph.ClearDirty()
 
-	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
-	if err := p.Manifest.Save(manifestPath); err != nil {
+	if err := p.Manifest.Save(); err != nil {
 		return fmt.Errorf("save manifest: %w", err)
 	}
 
@@ -242,8 +240,7 @@ func (p *Project) IncrementalBuild(ctx context.Context) (BuildStats, error) {
 
 	p.graph.ClearDirty()
 
-	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
-	if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
+	if saveErr := p.Manifest.Save(); saveErr != nil {
 		return stats, fmt.Errorf("save manifest: %w", saveErr)
 	}
 	return stats, nil
@@ -286,8 +283,7 @@ func (p *Project) ForceBuild(ctx context.Context, path string) (BuildStats, erro
 
 	p.graph.ClearDirty()
 
-	manifestPath := filepath.Join(p.Config.OutputPath, manifestoFile)
-	if saveErr := p.Manifest.Save(manifestPath); saveErr != nil {
+	if saveErr := p.Manifest.Save(); saveErr != nil {
 		return stats, fmt.Errorf("save manifest: %w", saveErr)
 	}
 

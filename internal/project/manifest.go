@@ -2,44 +2,39 @@ package project
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
+	"io/fs"
 	"sync"
 	"time"
 
 	"craeft/internal/log"
+	"craeft/internal/utils"
 )
 
-// Manifest tracks the state of built files
+// Manifest tracks the state of built files.
 type Manifest struct {
 	Version   string                   `json:"version"`
 	Entries   map[string]ManifestEntry `json:"entries"`
+	Updated   time.Time                `json:"updated"`
 	entriesMu sync.RWMutex
-	Updated   time.Time `json:"updated"`
+
+	root *utils.RootFS
+	name string // relative path within root, e.g. manifestoFile
 }
 
-// ManifestEntry represents a single file in the manifest
+// ManifestEntry represents a single output file tracked by the manifest.
 type ManifestEntry struct {
 	Hash       string `json:"hash"`
 	OutputPath string `json:"output"`
 }
 
-// NewManifest creates a new empty manifest
-func NewManifest() *Manifest {
-	return &Manifest{
-		Version: "1.0",
-		Entries: make(map[string]ManifestEntry),
-		Updated: time.Now(),
-	}
-}
-
-// LoadManifest loads a manifest from disk
-func LoadManifest(path string) (*Manifest, error) {
-	data, err := os.ReadFile(path)
+func OpenManifest(root *utils.RootFS, name string) (*Manifest, error) {
+	data, err := root.ReadFile(name)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return NewManifest(), nil
+		if errors.Is(err, fs.ErrNotExist) {
+			log.TTrace(log.Build).Msg("manifest not found, starting fresh")
+			return newManifest(root, name), nil
 		}
 		return nil, fmt.Errorf("read manifest: %w", err)
 	}
@@ -52,14 +47,24 @@ func LoadManifest(path string) (*Manifest, error) {
 	if m.Entries == nil {
 		m.Entries = make(map[string]ManifestEntry)
 	}
+	m.root = root
+	m.name = name
 
-	log.TTrace(log.Build).Int("entries", len(m.Entries)).Msg("Manifest loaded")
+	log.TTrace(log.Build).Int("entries", len(m.Entries)).Msg("manifest loaded")
 	return &m, nil
 }
 
-// Save saves the manifest to disk atomically
-// TODO refactor: abstract save file atomically
-func (m *Manifest) Save(path string) error {
+func newManifest(root *utils.RootFS, name string) *Manifest {
+	return &Manifest{
+		Version: "1.0",
+		Entries: make(map[string]ManifestEntry),
+		Updated: time.Now(),
+		root:    root,
+		name:    name,
+	}
+}
+
+func (m *Manifest) Save() error {
 	m.entriesMu.Lock()
 	m.Updated = time.Now()
 	data, err := json.MarshalIndent(m, "", "  ")
@@ -69,25 +74,14 @@ func (m *Manifest) Save(path string) error {
 		return fmt.Errorf("marshal manifest: %w", err)
 	}
 
-	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, OutputDirPerm); err != nil {
-		return fmt.Errorf("create manifest dir: %w", err)
-	}
-
-	tmpFile := path + ".tmp"
-	if err := os.WriteFile(tmpFile, data, OutputFilePerm); err != nil {
-		return fmt.Errorf("write temp manifest: %w", err)
-	}
-
-	if err := os.Rename(tmpFile, path); err != nil {
-		os.Remove(tmpFile)
-		return fmt.Errorf("rename manifest: %w", err)
+	if err := m.root.WriteFile(m.name, data, 0o644); err != nil {
+		return fmt.Errorf("write manifest: %w", err)
 	}
 
 	return nil
 }
 
-// Get returns the manifest entry for a given ID
+// Get returns the manifest entry for the given ID.
 func (m *Manifest) Get(id string) (ManifestEntry, bool) {
 	m.entriesMu.RLock()
 	defer m.entriesMu.RUnlock()
@@ -95,27 +89,29 @@ func (m *Manifest) Get(id string) (ManifestEntry, bool) {
 	return entry, ok
 }
 
-// Set updates or creates a manifest entry
+// Set creates or updates the manifest entry for the given ID.
 func (m *Manifest) Set(id string, entry ManifestEntry) {
 	m.entriesMu.Lock()
 	defer m.entriesMu.Unlock()
 	m.Entries[id] = entry
 }
 
-// Delete removes an entry from the manifest
+// Delete removes an entry from the manifest.
 func (m *Manifest) Delete(id string) {
 	m.entriesMu.Lock()
 	defer m.entriesMu.Unlock()
 	delete(m.Entries, id)
 }
 
-// IsDirty checks if an entry needs rebuilding
+// IsDirty reports whether the entry for id is absent or its hash differs from currentHash.
 func (m *Manifest) IsDirty(id string, currentHash string) bool {
 	entry, exists := m.Get(id)
 	return !exists || entry.Hash != currentHash
 }
 
-// CleanStale removes entries that are no longer needed
+// CleanStale removes entries whose IDs are not present in currentIDs and
+// returns the removed entries so callers can delete the corresponding output
+// files.
 func (m *Manifest) CleanStale(currentIDs map[string]struct{}) []ManifestEntry {
 	m.entriesMu.Lock()
 	defer m.entriesMu.Unlock()
