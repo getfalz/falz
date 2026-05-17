@@ -40,12 +40,12 @@ func NewServer(p *project.Project) *Server {
 	debouncer := NewDebouncer(
 		DebouncerConfig{
 			HotReload: cfg.FsWatcher.HotReload,
-		}, p, registry, hr)
+		}, p, registry, classifier, hr)
 
 	watcher := NewFsWatcher(WatcherConfig{
 		SourcePath: cfg.SourcePath,
 		Enabled:    cfg.FsWatcher.Enabled,
-	}, classifier, coalescer)
+	}, coalescer)
 
 	log.DDebug(log.Server).
 		Str("out", p.Config.OutputPath).
@@ -76,7 +76,7 @@ func RunServer(c context.Context, p *project.Project) error {
 	s := NewServer(p)
 
 	if s.watcher != nil {
-		changes := make(chan FileChange, 256)
+		changes := make(chan RawChange, 256)
 		go func() {
 			if err := s.watcher.Run(ctx, changes); err != nil && !errors.Is(err, context.Canceled) {
 				log.EError(log.Server).Err(err).Msg("file watcher exited with error")

@@ -20,108 +20,118 @@ type DebouncerConfig struct {
 }
 
 type Debouncer struct {
-	config   DebouncerConfig
-	registry *EventRegistry
-	hr       reloader
-	project  *project.Project
+	config     DebouncerConfig
+	registry   *EventRegistry
+	classifier *FileClassifier
+	hr         reloader
+	project    *project.Project
 }
 
 type reloader interface {
-    ReloadPage()
-    NavigateTo(url string)
+	ReloadPage()
+	NavigateTo(url string)
 }
 
-func NewDebouncer(config DebouncerConfig, p *project.Project, registry *EventRegistry, hr reloader) *Debouncer {
+func NewDebouncer(config DebouncerConfig, p *project.Project, registry *EventRegistry, classifier *FileClassifier, hr reloader) *Debouncer {
 	return &Debouncer{
-		config:   config,
-		registry: registry,
-		hr:       hr,
-		project:  p,
+		config:     config,
+		registry:   registry,
+		hr:         hr,
+		classifier: classifier,
+		project:    p,
 	}
 }
 
-func (d *Debouncer) Run(ctx context.Context, changes <-chan FileChange) {
+func (d *Debouncer) Run(ctx context.Context, changes <-chan RawChange) {
 	const debounceWindow = 150 * time.Millisecond
 
+	workCh := make(chan []RawChange, 1)
+
+	// Worker
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case batch := <-workCh:
+				if err := d.handleBatch(ctx, batch); err != nil &&
+					!errors.Is(err, context.Canceled) {
+					log.EError(log.Server).Err(err).Msg("rebuild failed")
+				}
+			}
+		}
+	}()
+
 	var (
-		mu             sync.Mutex
-		pendingChanges []FileChange
-		timer          *time.Timer
-		rebuilding     bool
+		mu      sync.Mutex
+		pending []RawChange
+		timer   *time.Timer
 	)
 
-	var triggerRebuild func()
-	triggerRebuild = func() {
+	flush := func() {
 		mu.Lock()
-		if rebuilding {
-			timer = time.AfterFunc(debounceWindow, triggerRebuild)
-			mu.Unlock()
+		defer mu.Unlock()
+
+		if len(pending) == 0 {
 			return
 		}
 
-		rebuilding = true
-		batch := pendingChanges
-		pendingChanges = nil
-		mu.Unlock()
+		batch := pending
+		pending = nil
 
-		if len(batch) > 0 {
-			log.DDebug(log.Server).
-				Int("changes", len(batch)).
-				Msg("processing change batch")
-
-			if err := d.handleBatch(ctx, batch); err != nil && !errors.Is(err, context.Canceled) {
-				log.EError(log.Server).Err(err).Msg("rebuild failed")
-			}
+		select {
+		case workCh <- batch:
+		default:
+			waiting := <-workCh
+			workCh <- append(waiting, batch...)
 		}
-
-		mu.Lock()
-		rebuilding = false
-		mu.Unlock()
 	}
 
 	for {
 		select {
 		case <-ctx.Done():
 			return
-		case change, ok := <-changes:
+		case raw, ok := <-changes:
 			if !ok {
 				return
 			}
-
 			mu.Lock()
-			pendingChanges = append(pendingChanges, change)
-
+			pending = append(pending, raw)
 			if timer != nil {
 				timer.Stop()
 			}
-			timer = time.AfterFunc(debounceWindow, triggerRebuild)
+			timer = time.AfterFunc(debounceWindow, flush)
 			mu.Unlock()
 		}
 	}
 }
 
 // handleBatch processes a batch of file changes using the event registry
-func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error {
+func (d *Debouncer) handleBatch(ctx context.Context, raws []RawChange) error {
 	start := time.Now()
 
-	grouped := groupChanges(changes)
-
-	log.IInfo(log.Server).
-		Int("total_changes", len(changes)).
-		Int("unique_handlers", len(grouped)).
-		Msg("processing file changes")
-
-	for key, paths := range grouped {
-		if len(paths) == 0 {
+	classified := make([]FileChange, 0, len(raws))
+	for _, raw := range raws {
+		fc := d.classifier.Classify(ctx, raw)
+		if fc == nil {
 			continue
 		}
+		classified = append(classified, *fc)
+	}
 
-		log.TTrace(log.Server).
-			Str("type", string(key.fileType)).
-			Str("mod", string(key.modType)).
-			Int("count", len(paths)).
-			Msg("dispatching to handler")
+	if len(classified) == 0 {
+		return nil
+	}
 
+	grouped := groupByHandler(classified)
+
+	log.IInfo(log.Server).
+		Int("raw_changes", len(raws)).
+		Int("classified", len(classified)).
+		Int("unique_handlers", len(grouped)).
+		Msg("processing change batch")
+
+	for key, paths := range grouped {
 		if err := d.registry.Dispatch(ctx, key.fileType, key.modType, paths); err != nil {
 			log.EError(log.Server).
 				Err(err).
@@ -134,11 +144,15 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	dirty := d.project.Graph().DirtyEntries()
 	if len(dirty) == 0 {
-		log.TTrace(log.Server).
-			Int("changes", len(changes)).
+		log.DDebug(log.Server).
+			Int("classified", len(classified)).
 			Msg("no dirty entries after dispatch, skipping rebuild")
 		return nil
 	}
+
+	log.IInfo(log.Server).
+		Int("dirty", len(dirty)).
+		Msg("starting incremental rebuild")
 
 	stats, err := d.project.IncrementalBuild(ctx)
 	if err != nil && !errors.Is(err, context.Canceled) {
@@ -147,16 +161,25 @@ func (d *Debouncer) handleBatch(ctx context.Context, changes []FileChange) error
 
 	log.IInfo(log.Server).
 		Int64("built", stats.Completed).
-		Int64("cached", stats.CacheHits).
+		Int64("cache", stats.CacheHits).
 		Int64("errors", int64(len(stats.Errors))).
 		Dur("duration", time.Since(start)).
-		Msg("incremental rebuild")
+		Msg("rebuild completed")
 
 	if d.config.HotReload && stats.Completed > 0 && d.hr != nil {
-		d.notify(changes, dirty)
+		d.notify(classified, dirty)
 	}
 
 	return nil
+}
+
+func groupByHandler(changes []FileChange) map[changeKey][]string {
+	grouped := make(map[changeKey][]string, len(changes))
+	for _, change := range changes {
+		key := changeKey{change.Type, change.Mod}
+		grouped[key] = append(grouped[key], change.Path)
+	}
+	return grouped
 }
 
 func (d *Debouncer) notify(changes []FileChange, dirty []*project.BuildEntry) {
@@ -196,28 +219,4 @@ func (d *Debouncer) notify(changes []FileChange, dirty []*project.BuildEntry) {
 		Int("content_entries", len(contentEntries)).
 		Msg("hot-reload: full page reload")
 	d.hr.ReloadPage()
-}
-
-// groupChanges groups changes by file type and modification type, deduplicating paths
-func groupChanges(changes []FileChange) map[changeKey][]string {
-	grouped := make(map[changeKey][]string)
-	seen := make(map[changeKey]map[string]bool)
-
-	for _, change := range changes {
-		key := changeKey{
-			fileType: change.Type,
-			modType:  change.Mod,
-		}
-
-		if seen[key] == nil {
-			seen[key] = make(map[string]bool)
-		}
-
-		if !seen[key][change.Path] {
-			seen[key][change.Path] = true
-			grouped[key] = append(grouped[key], change.Path)
-		}
-	}
-
-	return grouped
 }

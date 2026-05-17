@@ -6,7 +6,6 @@ import (
 	"craeft/internal/project"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/rjeczalik/notify"
 )
@@ -43,13 +42,8 @@ func NewFileClassifier(p *project.Project, sourcePath, schemePath, pipesPath, ou
 }
 
 // Classify determines the file type and modification type for a given path and event
-func (fc *FileClassifier) Classify(event notify.EventInfo) *FileChange {
-
-	absPath := event.Path()
-
-	if strings.HasPrefix(absPath, fc.outputPath) {
-		return nil
-	}
+func (fc *FileClassifier) Classify(ctx context.Context, raw RawChange) *FileChange {
+	absPath := raw.Path
 
 	relPath, root := fc.resolveRoot(absPath)
 	if root == "" {
@@ -62,8 +56,7 @@ func (fc *FileClassifier) Classify(event notify.EventInfo) *FileChange {
 		return nil
 	}
 
-	fileType, err := fc.classifyPath(relPath, root)
-	// TODO ignore error?
+	fileType, err := fc.classifyPath(ctx, relPath, root)
 	if fileType == FileTypeUnknown || err != nil {
 		return nil
 	}
@@ -71,8 +64,8 @@ func (fc *FileClassifier) Classify(event notify.EventInfo) *FileChange {
 	return &FileChange{
 		Path: relPath,
 		Type: fileType,
-		Mod:  resolveMod(event.Event()),
-		Time: time.Now(),
+		Mod:  raw.Mod,
+		Time: raw.Time,
 	}
 }
 
@@ -92,12 +85,12 @@ func (fc *FileClassifier) resolveRoot(absPath string) (relPath, root string) {
 	}
 }
 
-func (fc *FileClassifier) classifyPath(relPath, root string) (FileType, error) {
+func (fc *FileClassifier) classifyPath(ctx context.Context, relPath, root string) (FileType, error) {
 	switch root {
 	case "source":
-		return fc.classifySourceFile(relPath)
+		return fc.classifySourceFile(ctx, relPath)
 	case "scheme":
-		return fc.classifySchemeFile(relPath)
+		return fc.classifySchemeFile(ctx, relPath)
 	case "pipes":
 		return FileTypePipeline, nil
 	default:
@@ -117,11 +110,9 @@ func resolveMod(event notify.Event) ModType {
 }
 
 // classifySourceFile determines if a source file is content or asset
-func (fc *FileClassifier) classifySourceFile(path string) (FileType, error) {
+func (fc *FileClassifier) classifySourceFile(ctx context.Context, path string) (FileType, error) {
 	dir := filepath.Dir(path)
 
-	// TODO use real context in server
-	ctx := context.Background()
 	keys, err := fc.project.Layouts.LayoutsForDir(ctx, dir)
 	if err != nil {
 		return FileTypeUnknown, err
@@ -155,15 +146,13 @@ func (fc *FileClassifier) classifySourceFile(path string) (FileType, error) {
 }
 
 // classifySchemeFile determines if a scheme file is layout, fragment, or asset
-func (fc *FileClassifier) classifySchemeFile(path string) (FileType, error) {
+func (fc *FileClassifier) classifySchemeFile(ctx context.Context, path string) (FileType, error) {
 	if ok, err := filepath.Match(fc.project.Config.Layout, path); err == nil && ok {
 		return FileTypeLayout, nil
 	}
 
 	dir := filepath.Dir(path)
 
-	// TODO use real context in server
-	ctx := context.Background()
 	keys, err := fc.project.Layouts.LayoutsForDir(ctx, dir)
 	if err != nil {
 		return FileTypeUnknown, err
@@ -177,21 +166,15 @@ func (fc *FileClassifier) classifySchemeFile(path string) (FileType, error) {
 		}
 
 		for _, f := range lyt.Layout().Fragments() {
-			// TODO: DEBUG
-			// fmt.Printf("===Fragments: %s = %s\n", path, f.Source)
 			if path == f.Source {
-				// fmt.Printf("===Matched Fragment: %s\n", path)
 				return FileTypeFragment, nil
 			}
 		}
 
 		for _, a := range lyt.Layout().Assets() {
 			glob := filepath.ToSlash(filepath.Join(dir, a.Source))
-			// TODO: DEBUG
-			// fmt.Printf("===Asset: glob %q, path %q\n", glob, path)
 			matched, err := filepath.Match(glob, path)
 			if err == nil && matched {
-				// fmt.Printf("===Matched Asset: %s\n", path)
 				return FileTypeSchemeAsset, nil
 			}
 		}

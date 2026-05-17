@@ -29,7 +29,7 @@ type recentEvent struct {
 // Coalesce resolves the logical modification type for an incoming event
 // by combining it with any recent event for the same path within the merge
 // window.
-func (c *EventCoalescer) Coalesce(change *FileChange) *FileChange {
+func (c *EventCoalescer) Coalesce(change *RawChange) *RawChange {
 	now := time.Now()
 
 	c.mu.Lock()

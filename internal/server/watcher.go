@@ -12,7 +12,14 @@ import (
 	"github.com/rjeczalik/notify"
 )
 
-// FileChange represents a file system change event
+type RawChange struct {
+	Path string
+	Mod  ModType
+	Time time.Time
+}
+
+// FileChange is the fully classified event that handlers receive.
+// It is produced by the debouncer worker after coalescing and batching.
 type FileChange struct {
 	Path string
 	Type FileType
@@ -26,21 +33,18 @@ type WatcherConfig struct {
 }
 
 type FSWatcher struct {
-	config     WatcherConfig
-	classifier *FileClassifier
-	coalescer  *EventCoalescer
+	config    WatcherConfig
+	coalescer *EventCoalescer
 }
 
-func NewFsWatcher(config WatcherConfig, classifier *FileClassifier, coalescer *EventCoalescer) *FSWatcher {
+func NewFsWatcher(config WatcherConfig, coalescer *EventCoalescer) *FSWatcher {
 	return &FSWatcher{
-		config:     config,
-		classifier: classifier,
-		coalescer:  coalescer,
+		config:    config,
+		coalescer: coalescer,
 	}
 }
 
-// Watch watches all relevant directories with a unified debounced rebuild
-func (f *FSWatcher) Run(ctx context.Context, changes chan FileChange) error {
+func (f *FSWatcher) Run(ctx context.Context, changes chan RawChange) error {
 	events := make(chan notify.EventInfo, 256)
 
 	absProjectRoot, err := filepath.Abs(f.config.SourcePath)
@@ -72,26 +76,21 @@ func (f *FSWatcher) Run(ctx context.Context, changes chan FileChange) error {
 				return nil
 			}
 
-			// log.TTrace(log.Server).
-			// 	Str("path", ei.Path()).
-			// 	Str("raw-event", ei.Event().String()).
-			// 	Msg("raw fs event")
-
-			change := f.classifier.Classify(ei)
-			if change == nil {
-				continue
+			raw := &RawChange{
+				Path: ei.Path(),
+				Mod:  resolveMod(ei.Event()),
+				Time: time.Now(),
 			}
 
-			merged := f.coalescer.Coalesce(change)
+			merged := f.coalescer.Coalesce(raw)
 			if merged == nil {
 				continue
 			}
 
 			log.TTrace(log.Server).
 				Str("path", merged.Path).
-				Str("type", string(merged.Type)).
-				Str("event", string(merged.Mod)).
-				Msg("file event classified")
+				Str("mod", string(merged.Mod)).
+				Msg("file event coalesced")
 
 			select {
 			case changes <- *merged:
