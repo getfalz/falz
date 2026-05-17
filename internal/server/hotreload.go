@@ -92,7 +92,7 @@ const (
 func (h *HotReload) wsHandler(w http.ResponseWriter, r *http.Request) {
 	conn, err := h.upgrader.Upgrade(w, r, nil)
 	if err != nil {
-		log.DDebug(log.Server).Err(err).Msg("websocket upgrade failed")
+		log.DDebug(log.HotReload).Err(err).Msg("websocket upgrade failed")
 		return
 	}
 
@@ -103,7 +103,7 @@ func (h *HotReload) wsHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	h.register(c)
-	log.IInfo(log.Server).Str("remote", r.RemoteAddr).Msg("websocket connected")
+	log.IInfo(log.HotReload).Str("remote", r.RemoteAddr).Msg("websocket connected")
 
 	go h.writeLoop(c)
 	h.readLoop(r.Context(), c)
@@ -116,7 +116,7 @@ func (h *HotReload) readLoop(ctx context.Context, c *wsClient) {
 		h.unregister(c)
 		close(c.closed)
 		c.conn.Close()
-		log.DDebug(log.Server).Msg("websocket disconnected")
+		log.DDebug(log.HotReload).Msg("websocket disconnected")
 	}()
 
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongTimeout))
@@ -136,7 +136,7 @@ func (h *HotReload) readLoop(ctx context.Context, c *wsClient) {
 				websocket.CloseNormalClosure,
 				websocket.CloseNoStatusReceived,
 			) {
-				log.DDebug(log.Server).Err(err).Msg("websocket read error")
+				log.DDebug(log.HotReload).Err(err).Msg("websocket read error")
 			}
 			return
 		}
@@ -146,7 +146,7 @@ func (h *HotReload) readLoop(ctx context.Context, c *wsClient) {
 
 		var msg clientMsg
 		if err := json.Unmarshal(raw, &msg); err != nil {
-			log.DDebug(log.Server).Err(err).Msg("websocket bad message; ignoring")
+			log.DDebug(log.HotReload).Err(err).Msg("websocket bad message; ignoring")
 			continue
 		}
 
@@ -154,7 +154,7 @@ func (h *HotReload) readLoop(ctx context.Context, c *wsClient) {
 		case MsgTypeBuild:
 			go h.handleForceBuild(ctx, c, msg.Path)
 		default:
-			log.DDebug(log.Server).Str("type", string(msg.Type)).Msg("websocket unknown message type")
+			log.DDebug(log.HotReload).Str("type", string(msg.Type)).Msg("websocket unknown message type")
 		}
 	}
 }
@@ -175,7 +175,7 @@ func (h *HotReload) writeLoop(c *wsClient) {
 			}
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := c.conn.WriteJSON(msg); err != nil {
-				log.DDebug(log.Server).Err(err).Msg("websocket write failed")
+				log.TTrace(log.HotReload).Err(err).Msg("websocket write failed")
 				c.conn.Close()
 				return
 			}
@@ -183,11 +183,10 @@ func (h *HotReload) writeLoop(c *wsClient) {
 		case <-ticker.C:
 			_ = c.conn.SetWriteDeadline(time.Now().Add(writeTimeout))
 			if err := c.conn.WriteControl(websocket.PingMessage, nil, time.Now().Add(writeTimeout)); err != nil {
-				log.DDebug(log.Server).Err(err).Msg("websocket ping failed")
+				log.TTrace(log.HotReload).Err(err).Msg("websocket ping failed")
 				c.conn.Close()
 				return
 			}
-			log.TTrace(log.Server).Msg("websocket ping sent")
 		}
 	}
 }
@@ -220,7 +219,7 @@ func (h *HotReload) snapshot() []*wsClient {
 func (h *HotReload) broadcast(msg ServerMsg) {
 	clients := h.snapshot()
 
-	log.DDebug(log.Server).
+	log.DDebug(log.HotReload).
 		Int("clients", len(clients)).
 		Str("type", string(msg.Type)).
 		Msg("broadcast")
@@ -230,7 +229,7 @@ func (h *HotReload) broadcast(msg ServerMsg) {
 		case c.send <- msg:
 		default:
 			// buffer full – close the slow client
-			log.WWarn(log.Server).Msg("websocket send buffer full; dropping client")
+			log.WWarn(log.HotReload).Msg("websocket send buffer full; dropping client")
 			c.conn.Close()
 			h.unregister(c)
 		}
@@ -263,11 +262,11 @@ func (h *HotReload) handleForceBuild(ctx context.Context, requester *wsClient, s
 		return
 	}
 
-	log.IInfo(log.Server).Str("path", sourcePath).Msg("force build requested via websocket")
+	log.IInfo(log.HotReload).Str("path", sourcePath).Msg("force build requested via websocket")
 
 	stats, err := h.project.ForceBuild(ctx, sourcePath)
 	if err != nil {
-		log.EError(log.Server).Err(err).Str("path", sourcePath).Msg("force build failed")
+		log.EError(log.HotReload).Err(err).Str("path", sourcePath).Msg("force build failed")
 		h.sendTo(requester, ServerMsg{
 			Type:    MsgTypeError,
 			Path:    sourcePath,
@@ -276,7 +275,7 @@ func (h *HotReload) handleForceBuild(ctx context.Context, requester *wsClient, s
 		return
 	}
 
-	log.IInfo(log.Server).
+	log.IInfo(log.HotReload).
 		Str("path", sourcePath).
 		Int64("written", stats.Written).
 		Msg("force build done")
@@ -310,6 +309,6 @@ func (h *HotReload) Shutdown(_ context.Context) error {
 		_ = c.conn.Close()
 	}
 
-	log.IInfo(log.Server).Int("closed", len(clients)).Msg("hot-reload shutdown complete")
+	log.IInfo(log.HotReload).Int("closed", len(clients)).Msg("hot-reload shutdown complete")
 	return nil
 }

@@ -64,6 +64,7 @@ const (
 	IO
 	Plan
 	Server
+	HotReload
 	Handler
 	CAS
 	DEPRECATE
