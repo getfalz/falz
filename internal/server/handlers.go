@@ -54,6 +54,8 @@ func (h *Handlers) RegisterAll(r *EventRegistry) {
 	r.Register(FileTypePipeline, ModTypeModified, HandlerFunc(h.handlePipelineModified))
 	r.Register(FileTypePipeline, ModTypeCreated, HandlerFunc(h.handlePipelineModified))
 	r.Register(FileTypePipeline, ModTypeDeleted, HandlerFunc(h.handlePipelineModified))
+
+	r.Register(FileTypeConfig, ModTypeModified, HandlerFunc(h.handleConfigModified))
 }
 
 func (h *Handlers) handleContentModified(ctx context.Context, paths []string) error {
@@ -402,4 +404,35 @@ func (h *Handlers) invalidateAndRehash(ctx context.Context, path string, fromFra
 			}
 		}
 	}
+}
+
+func (h *Handlers) handleConfigModified(ctx context.Context, paths []string) error {
+    cfg, err := project.LoadConfig(h.project.Config.SourcePath)
+    if err != nil {
+        log.EError(log.Handler).Err(err).Msg("failed to reload config")
+        return err
+    }
+    // Propagate fields that can change at runtime without restart
+    // TODO also add ignores from startup:
+	// outputBase := filepath.Base(outAbs)
+	// config.Ignore = append(config.Ignore,
+	// 	filepath.ToSlash(filepath.Join(outputBase, "**")),
+	// )
+	// config.Ignore = append(config.Ignore, blackList...)
+	// better: abstract this to IgnoreList
+	//
+    // h.project.Config.Ignore = cfg.Ignore
+    h.project.Config.Layout = cfg.Layout
+    h.project.Config.Variables = cfg.Variables
+    // TODO reload pipes
+    h.project.Config.Pipes = cfg.Pipes
+    // Mark all graph entries dirty to force rebuild with new config
+    for _, entry := range h.project.Graph().AllEntries() {
+        _ = h.project.Graph().UpdateEntry(entry.ID, func(e *project.BuildEntry) error {
+            e.Dirty = true
+            return nil
+        })
+    }
+    log.IInfo(log.Handler).Msg("config reloaded; full rebuild scheduled")
+    return nil
 }

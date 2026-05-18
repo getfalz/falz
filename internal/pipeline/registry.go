@@ -14,6 +14,8 @@ import (
 	"craeft/internal/utils"
 )
 
+var ErrPipelineNotFound = errors.New("pipeline not found")
+
 type Pipe interface {
 	// Index(ctx context.Context, input []byte, vars Vars) error
 	Transform(ctx context.Context, input []byte, vars Vars) (string, error)
@@ -96,7 +98,7 @@ func (r *Registry) load(name string) error {
 func (r *Registry) Reload(name string) error {
 	v, ok := r.jsPipes.Load(name)
 	if !ok {
-		return nil
+        return fmt.Errorf("pipeline %q is not loaded (not activated in config)", name)
 	}
 	return v.(*JSPipe).Reload()
 }
@@ -110,7 +112,8 @@ func (r *Registry) Get(name string) (Pipe, error) {
 	if p, ok := r.builtins[name]; ok {
 		return p, nil
 	}
-	return nil, fmt.Errorf("pipe %q not found", name)
+	return nil, fmt.Errorf("pipe %q: %w", name, ErrPipelineNotFound)
+
 }
 
 // Close releases all JS pipe resources (esbuild contexts).

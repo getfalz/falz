@@ -16,6 +16,7 @@ const (
 	FileTypePipeline       FileType = "pipeline"
 	FileTypeUnknown        FileType = "unknown"
 	FileTypeLayoutTemplate FileType = "layout-template"
+	FileTypeConfig         FileType = "config"
 )
 
 // ModType represents the modification type

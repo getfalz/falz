@@ -20,6 +20,7 @@ const xdgConfigFolder = "craeft"
 const configSchemesFolder = "schemes"
 const configPipesFolder = "pipes"
 const projectRootFolder = ".craeft"
+const configFilePath = "config.yaml"
 const manifestoFile = ".manifest.json"
 
 type ServerConfig struct {
@@ -64,10 +65,11 @@ type CraeftConfig struct {
 	Pipes          []string       `yaml:"pipes,omitempty" default:"[\"md\"]"` // List of enabled pipes
 	TemplateConfig TemplateConfig `yaml:"template_config,omitempty"`
 
-	SourcePath string `yaml:"-"`
-	ConfigPath string `yaml:"-"`
-	SchemePath string `yaml:"-"`
-	PipesPath  string `yaml:"-"`
+	SourcePath   string `yaml:"-"`
+	ConfigFile   string `yaml:"-"`
+	ConfigFolder string `yaml:"-"`
+	SchemePath   string `yaml:"-"`
+	PipesPath    string `yaml:"-"`
 
 	Server    ServerConfig    `yaml:"server,omitempty"`
 	FsWatcher FsWatcherConfig `yaml:"file_watcher,omitempty"`
@@ -81,13 +83,13 @@ type CraeftConfig struct {
 func LoadConfig(base string) (*CraeftConfig, error) {
 	config := &CraeftConfig{}
 
-	config.ConfigPath = filepath.Join(base, projectRootFolder)
+	config.ConfigFolder = filepath.Join(base, projectRootFolder)
 
 	if err := defaults.Set(config); err != nil {
 		return nil, err
 	}
 
-	configFile := filepath.Join(config.ConfigPath, "config.yaml")
+	configFile := filepath.Join(config.ConfigFolder, configFilePath)
 
 	file, err := os.Open(configFile)
 	if err == nil {
@@ -104,10 +106,11 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 	}
 	defer file.Close()
 
+	config.ConfigFile = configFile
 	config.OutputPath = filepath.Join(base, config.OutputPath)
 	config.SourcePath = base
-	config.PipesPath = filepath.Join(config.ConfigPath, configPipesFolder)
-	config.SchemePath = filepath.Join(config.ConfigPath, configSchemesFolder)
+	config.PipesPath = filepath.Join(config.ConfigFolder, configPipesFolder)
+	config.SchemePath = filepath.Join(config.ConfigFolder, configSchemesFolder)
 	config.Variables = resolveEnvVars(config.Variables).(map[string]any)
 
 	if config.Build.Concurrency <= 0 {

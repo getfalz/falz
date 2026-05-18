@@ -109,7 +109,7 @@ func (b *builder) Build(ctx context.Context, entries []*BuildEntry) (BuildStats,
 		Int64("built", stats.Completed).
 		Int64("cache_hits", stats.CacheHits).
 		Int("errors", len(stats.Errors)).
-        Dur("duration", stats.Duration).
+		Dur("duration", stats.Duration).
 		Msg("build completed")
 
 	if len(stats.Errors) > 0 {
@@ -126,6 +126,7 @@ type buildArtifact struct {
 	Data       []byte
 	Cached     bool
 	Error      error
+	Skipped    bool
 }
 
 func (b *builder) runBuild(
@@ -248,6 +249,12 @@ func (b *builder) buildStage(
 				}
 
 				artifact := b.buildEntry(ctx, entry)
+
+				if artifact.Skipped {
+					metrics.skipped.Add(1)
+					return
+				}
+
 				metrics.built.Add(1)
 
 				if artifact.Error != nil {
@@ -302,6 +309,15 @@ func (b *builder) buildEntry(
 
 	pl, err := b.pipes.Get(entry.Pipeline)
 	if err != nil {
+		if errors.Is(err, pipeline.ErrPipelineNotFound) {
+			log.WWarn(log.Build).
+				Str("pipe", entry.Pipeline).
+				Str("source", entry.SourcePath).
+				Err(err).
+				Msg("pipeline not found, skipping entry")
+			artifact.Skipped = true
+			return artifact
+		}
 		artifact.Error = fmt.Errorf("get pipeline %s: %w", entry.Pipeline, err)
 		return artifact
 	}

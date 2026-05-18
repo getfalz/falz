@@ -71,6 +71,9 @@ func (fc *FileClassifier) Classify(ctx context.Context, raw RawChange) *FileChan
 
 func (fc *FileClassifier) resolveRoot(absPath string) (relPath, root string) {
 	switch {
+    case strings.HasPrefix(absPath, fc.project.Config.ConfigFile):
+        rel, _ := filepath.Rel(fc.project.Config.ConfigFile, absPath)
+        return rel, "config"
 	case strings.HasPrefix(absPath, fc.schemePath):
 		rel, _ := filepath.Rel(fc.schemePath, absPath)
 		return rel, "scheme"
@@ -93,6 +96,8 @@ func (fc *FileClassifier) classifyPath(ctx context.Context, relPath, root string
 		return fc.classifySchemeFile(ctx, relPath)
 	case "pipes":
 		return FileTypePipeline, nil
+	case "config":
+		return FileTypeConfig, nil
 	default:
 		return FileTypeUnknown, nil
 	}
