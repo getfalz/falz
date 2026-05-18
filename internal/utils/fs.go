@@ -42,6 +42,7 @@ func NormalizePath(basePath string, path string) (string, error) {
 	return "/" + filepath.ToSlash(rel), nil
 }
 
+// TODO deprecate
 func StopComponent(ctx context.Context, name string, stop func(context.Context) error) error {
 	var lg = log.Logger().With().Str("phase", "shutdown").Str("component", name).Logger()
 

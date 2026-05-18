@@ -116,7 +116,8 @@ func (h *HotReload) readLoop(ctx context.Context, c *wsClient) {
 		h.unregister(c)
 		close(c.closed)
 		c.conn.Close()
-		log.DDebug(log.HotReload).Msg("websocket disconnected")
+		log.DDebug(log.HotReload).
+			Msg("websocket disconnected")
 	}()
 
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongTimeout))
@@ -286,10 +287,6 @@ func (h *HotReload) handleForceBuild(ctx context.Context, requester *wsClient, s
 	})
 }
 
-// ---------------------------------------------------------------------------
-// Shutdown
-// ---------------------------------------------------------------------------
-
 // Shutdown closes all WebSocket connections gracefully.
 func (h *HotReload) Shutdown(_ context.Context) error {
 	h.mu.Lock()
@@ -308,7 +305,5 @@ func (h *HotReload) Shutdown(_ context.Context) error {
 		)
 		_ = c.conn.Close()
 	}
-
-	log.IInfo(log.HotReload).Int("closed", len(clients)).Msg("hot-reload shutdown complete")
 	return nil
 }

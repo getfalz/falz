@@ -54,9 +54,11 @@ func (d *Debouncer) Run(ctx context.Context, changes <-chan RawChange) {
 			case <-ctx.Done():
 				return
 			case batch := <-workCh:
-				if err := d.handleBatch(ctx, batch); err != nil &&
-					!errors.Is(err, context.Canceled) {
-					log.EError(log.Server).Err(err).Msg("rebuild failed")
+				if err := d.handleBatch(ctx, batch); err != nil && !errors.Is(err, context.Canceled) {
+					log.EError(log.Server).
+						Err(err).
+						Int("batch_size", len(batch)).
+						Msg("rebuild failed")
 				}
 			}
 		}
@@ -84,6 +86,10 @@ func (d *Debouncer) Run(ctx context.Context, changes <-chan RawChange) {
 		default:
 			waiting := <-workCh
 			workCh <- append(waiting, batch...)
+			log.DDebug(log.Server).
+				Int("new_batch", len(batch)).
+				Int("already_waiting", len(waiting)).
+				Msg("worker busy, changes queued into waiting batch")
 		}
 	}
 
@@ -120,18 +126,28 @@ func (d *Debouncer) handleBatch(ctx context.Context, raws []RawChange) error {
 	}
 
 	if len(classified) == 0 {
+		log.DDebug(log.Server).
+			Int("raw_changes", len(raws)).
+			Msg("batch fully filtered after classification, skipping rebuild")
 		return nil
 	}
 
 	grouped := groupByHandler(classified)
 
-	log.IInfo(log.Server).
-		Int("raw_changes", len(raws)).
+	log.DDebug(log.Server).
+		Int("raw", len(raws)).
 		Int("classified", len(classified)).
-		Int("unique_handlers", len(grouped)).
-		Msg("processing change batch")
+		Int("filtered", len(raws)-len(classified)).
+		Int("handlers", len(grouped)).
+		Msg("dispatching change batch")
 
 	for key, paths := range grouped {
+		log.TTrace(log.Server).
+			Str("type", string(key.fileType)).
+			Str("mod", string(key.modType)).
+			Strs("paths", paths).
+			Msg("dispatching to handler")
+
 		if err := d.registry.Dispatch(ctx, key.fileType, key.modType, paths); err != nil {
 			log.EError(log.Server).
 				Err(err).
@@ -146,6 +162,7 @@ func (d *Debouncer) handleBatch(ctx context.Context, raws []RawChange) error {
 	if len(dirty) == 0 {
 		log.DDebug(log.Server).
 			Int("classified", len(classified)).
+			Strs("paths", pathsFromChanges(classified)).
 			Msg("no dirty entries after dispatch, skipping rebuild")
 		return nil
 	}
@@ -180,6 +197,14 @@ func groupByHandler(changes []FileChange) map[changeKey][]string {
 		grouped[key] = append(grouped[key], change.Path)
 	}
 	return grouped
+}
+
+func pathsFromChanges(changes []FileChange) []string {
+	paths := make([]string, len(changes))
+	for i, c := range changes {
+		paths[i] = c.Path
+	}
+	return paths
 }
 
 func (d *Debouncer) notify(changes []FileChange, dirty []*project.BuildEntry) {

@@ -229,7 +229,7 @@ func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, paths []string)
 	for _, path := range paths {
 		id := fmt.Sprintf("asset:scheme:%s", path)
 		if _, ok := graph.EntryByID(id); ok {
-			h.rehashAndMark(ctx, path)
+			h.rehashAndMark(ctx, id)
 			continue
 		}
 
@@ -291,7 +291,9 @@ func (h *Handlers) rehashAndMark(ctx context.Context, id string) {
 
 	entry, ok := graph.EntryByID(id)
 	if !ok {
-		log.DDebug(log.Handler).Str("id", id).Msg("modified entry not in graph, skipping")
+		log.DDebug(log.Handler).
+			Str("id", id).
+			Msg("entry not in graph, skipping rehash — possibly a new file or editor temp")
 		return
 	}
 
@@ -305,13 +307,18 @@ func (h *Handlers) rehashAndMark(ctx context.Context, id string) {
 		return
 	}
 
+	oldHash := entry.Hash
 	_ = graph.UpdateEntry(id, func(e *project.BuildEntry) error {
 		e.Hash = newHash
 		e.Dirty = true
 		return nil
 	})
 
-	log.DDebug(log.Handler).Str("id", id).Msg("entry changed, marked for rebuild")
+	log.DDebug(log.Handler).
+		Str("id", id).
+		Str("old_hash", oldHash[:8]).
+		Str("new_hash", newHash[:8]).
+		Msg("entry changed, marked dirty")
 }
 
 // removeEntry removes an entry from the graph and clears it from the manifest.

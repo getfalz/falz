@@ -87,11 +87,6 @@ func (f *FSWatcher) Run(ctx context.Context, changes chan RawChange) error {
 				continue
 			}
 
-			log.TTrace(log.Server).
-				Str("path", merged.Path).
-				Str("mod", string(merged.Mod)).
-				Msg("file event coalesced")
-
 			select {
 			case changes <- *merged:
 			case <-ctx.Done():

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"craeft/internal/log"
 	"sync"
 	"time"
 )
@@ -47,26 +48,52 @@ func (c *EventCoalescer) Coalesce(change *RawChange) *RawChange {
 	c.cache[change.Path] = &recentEvent{mod: resolvedMod, lastTime: now}
 	c.mu.Unlock()
 
+	// supress the event if it resolves to the same modification type as the previous one
 	if ok && resolvedMod == prev.mod {
+		log.TTrace(log.Server).
+			Str("path", change.Path).
+			Str("mod", string(change.Mod)).
+			Str("prev_mod", string(prev.mod)).
+			Str("cached_mod", string(resolvedMod)).
+			Bool("forwarded", false).
+			Msg("file event")
 		return nil
 	}
 
-	if resolvedMod == change.Mod {
-		return change
+	// forward the event with the resolved modification type if it differs from the previous one
+	if resolvedMod != change.Mod {
+		log.TTrace(log.Server).
+			Str("path", change.Path).
+			Str("event", string(change.Mod)).
+			Str("last_event", string(prev.mod)).
+			Str("resolved_event", string(resolvedMod)).
+			Bool("forwarded", true).
+			Msg("file event")
+		out := *change
+		out.Mod = resolvedMod
+		return &out
 	}
-	out := *change
-	out.Mod = resolvedMod
-	return &out
+
+	// no prior event or same modification type, forward as is
+	log.TTrace(log.Server).
+		Str("path", change.Path).
+		Str("event", string(change.Mod)).
+		Str("resolved_event", string(resolvedMod)).
+		Bool("forwarded", true).
+		Msg("file event")
+
+	return change
 }
 
 // resolveModType fuses two consecutive modification types into one logical op.
 //
 // Real-world editor save sequences on Linux (inotify → notify library):
-//   Vim/Neovim default:         write + MOVED_TO(=create)  → modified
-//   VSCode/JetBrains/Sublime:   MOVED_TO(=create) only     → handler fallback
-//   Gedit:                      write + remove + create     → modified
-//   Nano/Emacs:                 write + write               → modified
-//   Vim backupcopy=yes:         write only                  → modified
+//
+//	Vim/Neovim default:         write + MOVED_TO(=create)  → modified
+//	VSCode/JetBrains/Sublime:   MOVED_TO(=create) only     → handler fallback
+//	Gedit:                      write + remove + create     → modified
+//	Nano/Emacs:                 write + write               → modified
+//	Vim backupcopy=yes:         write only                  → modified
 func resolveModType(prev, curr ModType) ModType {
 	switch {
 	case prev == ModTypeCreated && curr == ModTypeModified:
