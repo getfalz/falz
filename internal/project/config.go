@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
 
 	"craeft/internal/log"
 
@@ -49,7 +48,7 @@ type BuildConfig struct {
 	ForceRebuild bool   `yaml:"force,omitempty" default:"false"`    // Ignore cache, rebuild everything
 	Concurrency  int    `yaml:"concurrency,omitempty"`              // Number of CPUs. It defaults to the number of logical CPUs
 	UseCAS       bool   `yaml:"use_cas,omitempty" default:"true"`   // Use content-addressable storage
-	CASPath      string `yaml:"cas_path,omitempty"`                 // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
+	CASPath      string `yaml:"-,"`                                 // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
 	CleanStale   bool   `yaml:"clean,omitempty" default:"false"`    // Remove outputs for deleted sources
 	PipeTimeout  int    `yaml:"pipe_timeout,omitempty" default:"3"` // Timeout for each pipe in seconds
 }
@@ -118,7 +117,7 @@ func LoadConfig(base string) (*CraeftConfig, error) {
 	}
 
 	if config.Build.UseCAS {
-		config.SetCasPath(config.Build.CASPath)
+		config.Build.CASPath = resolveCASPath(config.SourcePath)
 	}
 
 	return config, nil
@@ -162,30 +161,12 @@ func resolveEnvVars(vars any) any {
 	return vars
 }
 
-func (c *CraeftConfig) SetCasPath(path string) bool {
-
-	path = strings.TrimSpace(path)
-	if path == "" {
-		base, err := os.UserCacheDir()
-		if err != nil || base == "" {
-			return false
-		}
-		sum := sha1.Sum([]byte(filepath.Clean(c.SourcePath)))
-		projectID := hex.EncodeToString(sum[:8])
-		path = filepath.Join(base, xdgConfigFolder, projectID)
+func resolveCASPath(sourcePath string) string {
+	base, err := os.UserCacheDir()
+	if err != nil || base == "" {
+		return ""
 	}
-
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(c.SourcePath, path)
-	}
-
-	if rel, err := filepath.Rel(c.SourcePath, path); err == nil {
-		if rel != "." && rel != ".." && !strings.HasPrefix(rel, ".."+(string(filepath.Separator))) {
-			subdir := filepath.ToSlash(strings.TrimPrefix(rel, c.SourcePath+string(filepath.Separator)))
-			c.Ignore = append(c.Ignore, subdir+"/**")
-		}
-	}
-	c.Build.CASPath = path
-
-	return true
+	sum := sha1.Sum([]byte(filepath.Clean(sourcePath)))
+	projectID := hex.EncodeToString(sum[:8])
+	return filepath.Join(base, xdgConfigFolder, projectID)
 }

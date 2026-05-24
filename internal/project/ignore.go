@@ -5,14 +5,35 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"sync"
 )
 
-type IgnoreList []string
+type IgnoreList struct {
+	mu   sync.RWMutex
+	base []string
+	user []string
+}
 
-func (il IgnoreList) Match(name string) bool {
+func NewIgnoreList(base, user []string) *IgnoreList {
+	return &IgnoreList{base: base, user: user}
+}
+
+func (il *IgnoreList) Match(name string) bool {
+	il.mu.RLock()
+	defer il.mu.RUnlock()
+	return il.match(name, il.base) || il.match(name, il.user)
+}
+
+func (il *IgnoreList) Reload(user []string) {
+	il.mu.Lock()
+	defer il.mu.Unlock()
+	il.user = user
+}
+
+func (il *IgnoreList) match(name string, patterns []string) bool {
 	name = filepath.ToSlash(filepath.Clean(name))
 
-	for _, raw := range il {
+	for _, raw := range patterns {
 		pat := filepath.ToSlash(strings.TrimSpace(raw))
 		if pat == "" {
 			continue

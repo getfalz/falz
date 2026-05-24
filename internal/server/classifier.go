@@ -20,7 +20,7 @@ type FileClassification struct {
 // FileClassifier determines the type of a file based on its path and project structure
 type FileClassifier struct {
 	project *project.Project
-	ignore  project.IgnoreList
+	ignore  *project.IgnoreList
 
 	sourcePath string
 	schemePath string
@@ -29,7 +29,7 @@ type FileClassifier struct {
 }
 
 // NewFileClassifier creates a new file classifier
-func NewFileClassifier(p *project.Project, sourcePath, schemePath, pipesPath, outputPath string, ignore project.IgnoreList) *FileClassifier {
+func NewFileClassifier(p *project.Project, sourcePath, schemePath, pipesPath, outputPath string, ignore *project.IgnoreList) *FileClassifier {
 	// TODO do we need each path separately?
 	return &FileClassifier{
 		project:    p,

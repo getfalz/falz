@@ -140,6 +140,12 @@ func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern stri
 	}
 }
 
+func (lc *LayoutCache) SetNamePattern(pattern string) {
+    lc.mu.Lock()
+    defer lc.mu.Unlock()
+    lc.namePattern = pattern
+}
+
 func (lc *LayoutCache) Get(
 	ctx context.Context,
 	key LayoutKey,
@@ -355,4 +361,11 @@ func (lc *LayoutCache) Invalidate(key LayoutKey) {
 		Str("rel_layout", key.CtxPath).
 		Str("base_dir", key.LayoutPath).
 		Msg("layout key invalidated")
+}
+
+func (lc *LayoutCache) InvalidateAll() {
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.data = make(map[LayoutKey]*LayoutCacheEntry)
+	log.DDebug(log.Layout).Msg("layout cache cleared")
 }

@@ -19,7 +19,7 @@ type Handlers struct {
 func NewHandlers(p *project.Project) *Handlers {
 	return &Handlers{
 		project: p,
-		source:  project.NewSourceIndex(p.Source, p.Scheme, p.Layouts, project.IgnoreList(p.Config.Ignore)),
+		source:  project.NewSourceIndex(p.Source, p.Scheme, p.Layouts, p.Ignore),
 		hasher:  project.NewHashIndex(p.Source, p.Scheme, p.Layouts, p.PipesRegistry),
 	}
 }
@@ -407,32 +407,59 @@ func (h *Handlers) invalidateAndRehash(ctx context.Context, path string, fromFra
 }
 
 func (h *Handlers) handleConfigModified(ctx context.Context, paths []string) error {
-    cfg, err := project.LoadConfig(h.project.Config.SourcePath)
-    if err != nil {
-        log.EError(log.Handler).Err(err).Msg("failed to reload config")
-        return err
-    }
-    // Propagate fields that can change at runtime without restart
-    // TODO also add ignores from startup:
-	// outputBase := filepath.Base(outAbs)
-	// config.Ignore = append(config.Ignore,
-	// 	filepath.ToSlash(filepath.Join(outputBase, "**")),
-	// )
-	// config.Ignore = append(config.Ignore, blackList...)
-	// better: abstract this to IgnoreList
-	//
-    // h.project.Config.Ignore = cfg.Ignore
-    h.project.Config.Layout = cfg.Layout
-    h.project.Config.Variables = cfg.Variables
-    // TODO reload pipes
-    h.project.Config.Pipes = cfg.Pipes
-    // Mark all graph entries dirty to force rebuild with new config
-    for _, entry := range h.project.Graph().AllEntries() {
-        _ = h.project.Graph().UpdateEntry(entry.ID, func(e *project.BuildEntry) error {
-            e.Dirty = true
-            return nil
-        })
-    }
-    log.IInfo(log.Handler).Msg("config reloaded; full rebuild scheduled")
-    return nil
+	cfg, err := project.LoadConfig(h.project.Config.SourcePath)
+	if err != nil {
+		log.EError(log.Handler).Err(err).Msg("failed to reload config")
+		return err
+	}
+
+	h.project.Ignore.Reload(cfg.Ignore)
+
+	h.project.PipesRegistry.UnloadAll()
+	for _, name := range cfg.Pipes {
+		if err := h.project.PipesRegistry.Load(name); err != nil {
+			log.WWarn(log.Handler).Err(err).Str("pipe", name).Msg("pipe reload failed")
+		}
+	}
+	h.project.Config.Pipes = cfg.Pipes
+
+	for _, entry := range h.project.Graph().AllEntries() {
+		_ = h.project.Graph().UpdateEntry(entry.ID, func(e *project.BuildEntry) error {
+			e.Dirty = true
+			return nil
+		})
+	}
+
+	if cfg.Layout != h.project.Config.Layout {
+		log.IInfo(log.Handler).
+			Str("old", h.project.Config.Layout).
+			Str("new", cfg.Layout).
+			Msg("layout glob changed, invalidating cache and rescanning")
+		h.project.Layouts.InvalidateAll()
+		h.project.Layouts.SetNamePattern(cfg.Layout)
+		h.project.Config.Layout = cfg.Layout
+		h.project.Graph().Clear()
+		if err := h.source.Scan(ctx, h.project.Graph()); err != nil {
+			log.EError(log.Handler).Err(err).Msg("rescan after layout glob change failed")
+		} else {
+			h.hashNewEntries(ctx)
+		}
+	}
+
+	h.project.Config.Variables = cfg.Variables
+	h.project.Config.Build = cfg.Build
+
+	log.DDebug(log.Handler).
+		Interface("cfg.Server", cfg.Server).
+		Interface("cur.Server", h.project.Config.Server).
+		Interface("cfg.FsWatcher", cfg.FsWatcher).
+		Interface("cur.FsWatcher", h.project.Config.FsWatcher).
+		Msg("config comparison")
+
+	if cfg.Server != h.project.Config.Server || cfg.FsWatcher != h.project.Config.FsWatcher {
+		log.WWarn(log.Handler).Msg("server/watcher config changed; restart required")
+	}
+
+	log.IInfo(log.Handler).Msg("config reloaded")
+	return nil
 }

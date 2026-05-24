@@ -25,6 +25,7 @@ type Project struct {
 	Source *utils.RootFS
 	Scheme *utils.RootFS
 	Output *utils.RootFS
+	Ignore *IgnoreList
 
 	Layouts *LayoutCache
 
@@ -64,16 +65,13 @@ func New(config *CraeftConfig) (*Project, error) {
 		return nil, fmt.Errorf("output root fs: %w", err)
 	}
 
-	// TODO do we need absolute paths here?
 	outAbs, _ := filepath.Abs(config.OutputPath)
-	srcAbs, _ := filepath.Abs(config.SourcePath)
 
-	fmt.Printf("output abs: %s, srcAbs: %s\n", outAbs, srcAbs)
 	outputBase := filepath.Base(outAbs)
-	config.Ignore = append(config.Ignore,
+	ignoreBase := []string{
 		filepath.ToSlash(filepath.Join(outputBase, "**")),
-	)
-	config.Ignore = append(config.Ignore, blackList...)
+	}
+	ignoreBase = append(ignoreBase, blackList...)
 
 	pipes := pipeline.NewRegistry(&pipeline.RegistryConfig{
 		Pipes:      config.Pipes,
@@ -104,6 +102,8 @@ func New(config *CraeftConfig) (*Project, error) {
 		}
 	}
 
+	ignore := NewIgnoreList(ignoreBase, config.Ignore)
+
 	return &Project{
 		Config:        config,
 		PipesRegistry: pipes,
@@ -112,6 +112,8 @@ func New(config *CraeftConfig) (*Project, error) {
 		Scheme: schemeRoot,
 		Source: sourceRoot,
 		Output: outputRoot,
+
+		Ignore: ignore,
 
 		graph: graph,
 
@@ -123,7 +125,7 @@ func New(config *CraeftConfig) (*Project, error) {
 func (p *Project) Build(ctx context.Context) error {
 	log.IInfo(log.Project).Msg("starting build")
 
-	source := NewSourceIndex(p.Source, p.Scheme, p.Layouts, IgnoreList(p.Config.Ignore))
+	source := NewSourceIndex(p.Source, p.Scheme, p.Layouts, p.Ignore)
 
 	if err := source.Scan(ctx, p.graph); err != nil {
 		return fmt.Errorf("scan: %w", err)

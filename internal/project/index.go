@@ -37,10 +37,10 @@ type SourceIndex struct {
 
 	layouts layoutFinder
 
-	ignore IgnoreList
+	ignore *IgnoreList
 }
 
-func NewSourceIndex(sourceFs sourceTree, schemeFS schemeTree, lc layoutFinder, ignore IgnoreList) *SourceIndex {
+func NewSourceIndex(sourceFs sourceTree, schemeFS schemeTree, lc layoutFinder, ignore *IgnoreList) *SourceIndex {
 	return &SourceIndex{
 		sourceFS: sourceFs,
 		schemeFS: schemeFS,

@@ -23,7 +23,7 @@ func NewServer(p *project.Project) *Server {
 	cfg := p.Config
 
 	registry := NewEventRegistry()
-	classifier := NewFileClassifier(p, cfg.SourcePath, cfg.SchemePath, cfg.PipesPath, cfg.OutputPath, project.IgnoreList(cfg.Ignore))
+	classifier := NewFileClassifier(p, cfg.SourcePath, cfg.SchemePath, cfg.PipesPath, cfg.OutputPath, p.Ignore)
 	coalescer := NewEventCoalescer()
 	handlers := NewHandlers(p)
 	handlers.RegisterAll(registry)

@@ -54,7 +54,7 @@ func (r *Registry) LoadAll() error {
 	var names []string
 
 	for _, name := range r.cfg.Pipes {
-		if err := r.load(name); err != nil {
+		if err := r.Load(name); err != nil {
 			errs = append(errs, fmt.Errorf("pipe %q: %w", name, err))
 			continue
 		}
@@ -71,7 +71,7 @@ func (r *Registry) LoadAll() error {
 
 // load creates a new JSPipe for the named pipe and stores it.
 // If a pipe with that name already exists it is replaced and closed.
-func (r *Registry) load(name string) error {
+func (r *Registry) Load(name string) error {
 	path := filepath.Join(r.cfg.PipesPath, name)
 	info, err := os.Stat(path)
 
@@ -98,7 +98,7 @@ func (r *Registry) load(name string) error {
 func (r *Registry) Reload(name string) error {
 	v, ok := r.jsPipes.Load(name)
 	if !ok {
-        return fmt.Errorf("pipeline %q is not loaded (not activated in config)", name)
+		return fmt.Errorf("pipeline %q is not loaded (not activated in config)", name)
 	}
 	return v.(*JSPipe).Reload()
 }
@@ -114,6 +114,14 @@ func (r *Registry) Get(name string) (Pipe, error) {
 	}
 	return nil, fmt.Errorf("pipe %q: %w", name, ErrPipelineNotFound)
 
+}
+
+func (r *Registry) UnloadAll() {
+	r.jsPipes.Range(func(key, value any) bool {
+		value.(*JSPipe).Close()
+		r.jsPipes.Delete(key)
+		return true
+	})
 }
 
 // Close releases all JS pipe resources (esbuild contexts).
