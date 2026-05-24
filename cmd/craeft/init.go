@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,7 +9,7 @@ import (
 
 	"craeft/internal/project"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
 
@@ -26,71 +27,77 @@ const (
 </Layout>`
 )
 
-func Init(c *cli.Context) error {
-	if _, err := os.Stat(craeftDir); !os.IsNotExist(err) {
-		return fmt.Errorf("directory .craeft already exists")
-	}
+var initCommand = &cli.Command{
+	Name:  "init",
+	Usage: "Generate a default config and initialize the project",
+	Flags: []cli.Flag{
+		&cli.StringFlag{
+			Name:  "output",
+			Usage: "Output directory",
+			Value: "dist",
+		},
+		&cli.StringFlag{
+			Name:  "activate",
+			Usage: `Which default pipes to activate? Comma-separated list of "md", "tpl"`,
+			Value: "md",
+		},
+	},
+	Action: func(ctx context.Context, c *cli.Command) error {
+		if _, err := os.Stat(craeftDir); !os.IsNotExist(err) {
+			return fmt.Errorf("directory .craeft already exists")
+		}
 
-	if err := os.MkdirAll(filepath.Join(craeftDir, schemeDir), 0755); err != nil {
-		return fmt.Errorf("failed to create .craeft directory: %w", err)
-	}
-	if err := os.MkdirAll(filepath.Join(craeftDir, pipesDir), 0755); err != nil {
-		return fmt.Errorf("failed to create .craeft directory: %w", err)
-	}
+		if err := os.MkdirAll(filepath.Join(craeftDir, schemeDir), 0755); err != nil {
+			return fmt.Errorf("failed to create schemes directory: %w", err)
+		}
+		if err := os.MkdirAll(filepath.Join(craeftDir, pipesDir), 0755); err != nil {
+			return fmt.Errorf("failed to create pipes directory: %w", err)
+		}
 
-	// config := &project.CraeftConfig{}
+		output := c.String("output")
+		if output == "" {
+			return fmt.Errorf("output directory cannot be empty")
+		}
+		if err := os.MkdirAll(output, 0755); err != nil {
+			return fmt.Errorf("failed to create output directory %q: %w", output, err)
+		}
 
-	// if err := defaults.Set(config); err != nil {
-	// 	panic(err)
-	// }
+		pipes := parsePipes(c.String("activate"))
+		config := &project.CraeftConfig{
+			OutputPath: output,
+			Pipes:      pipes,
+		}
 
-	config, err := buildProjectConfig(c)
-	if err != nil {
-		return fmt.Errorf("failed to build config: %w", err)
-	}
-	out, err := yaml.Marshal(config)
-	if err != nil {
-		panic(err)
-	}
+		out, err := yaml.Marshal(config)
+		if err != nil {
+			return fmt.Errorf("marshal config: %w", err)
+		}
 
-	if err := os.WriteFile(filepath.Join(craeftDir, configFile), out, 0644); err != nil {
-		return fmt.Errorf("failed to write config file: %w", err)
-	}
+		if err := os.WriteFile(filepath.Join(craeftDir, configFile), out, 0644); err != nil {
+			return fmt.Errorf("write config: %w", err)
+		}
 
-	if err := os.WriteFile(filepath.Join(craeftDir, schemeDir, layoutFile), []byte(layoutTpl), 0644); err != nil {
-		return fmt.Errorf("failed to write layout file: %w", err)
-	}
+		if err := os.WriteFile(filepath.Join(craeftDir, schemeDir, layoutFile), []byte(layoutTpl), 0644); err != nil {
+			return fmt.Errorf("write layout: %w", err)
+		}
 
-	return nil
+		return nil
+	},
 }
 
-func buildProjectConfig(c *cli.Context) (*project.CraeftConfig, error) {
-	output := c.String("output")
-	if output == "" {
-		return nil, fmt.Errorf("output directory cannot be empty")
+func parsePipes(raw string) []string {
+	if raw == "" {
+		return nil
 	}
-	if err := os.MkdirAll(output, 0755); err != nil {
-		return nil, fmt.Errorf("failed to create output directory %q: %w", output, err)
-	}
-
-	raw := c.String("activate")
+	valid := map[string]bool{"md": true, "tpl": true}
 	var selected []string
-	if raw != "" {
-		opts := strings.Split(raw, ",")
-		valid := map[string]bool{"md": true, "tpl": true}
-		for _, r := range opts {
-			name := strings.TrimSpace(r)
-			if valid[name] {
-				selected = append(selected, name)
-			} else {
-				// Warn but continue
-				fmt.Fprintf(os.Stderr, "Warning: %q is not a known default pipe, skipping.\n", name)
-			}
+	for _, r := range strings.Split(raw, ",") {
+		name := strings.TrimSpace(r)
+		if valid[name] {
+			selected = append(selected, name)
+		} else {
+			fmt.Fprintf(os.Stderr, "warning: %q is not a known default pipe, skipping\n", name)
 		}
 	}
-
-	return &project.CraeftConfig{
-		OutputPath: output,
-		Pipes:      selected,
-	}, nil
+	return selected
 }

@@ -14,7 +14,7 @@ import (
 	"craeft/internal/project"
 
 	"github.com/rs/zerolog"
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
 var (
@@ -24,14 +24,13 @@ var (
 )
 
 func main() {
-	var verbosity int
 	cli.VersionFlag = &cli.BoolFlag{
 		Name:    "version",
 		Aliases: []string{"V"},
 		Usage:   "print only the version",
 	}
 
-	app := &cli.App{
+	app := &cli.Command{
 		Name:                   Name,
 		Usage:                  Description,
 		Version:                Version,
@@ -41,11 +40,10 @@ func main() {
 				Name:  "output",
 				Usage: "Build path of the project",
 			},
-			&cli.BoolFlag{
+			&cli.IntFlag{
 				Name:    "verbose",
-				Usage:   "verbose logging",
 				Aliases: []string{"v"},
-				Count:   &verbosity,
+				Usage:   "verbose logging",
 			},
 			&cli.BoolFlag{
 				Name:  "disable-cas",
@@ -59,175 +57,45 @@ func main() {
 				Value: false,
 			},
 		},
-		Metadata: make(map[string]any),
-		Before: func(c *cli.Context) error {
-			setLogLevel(verbosity, c.Bool("silence"))
-
-			return nil
+		Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
+			setLogLevel(int(c.Int("verbose")), c.Bool("silence"))
+			return ctx, nil
 		},
 		Commands: []*cli.Command{
-			{
-				Name:   "server",
-				Usage:  "Manage the server",
-				Action: Server,
-				Flags: []cli.Flag{
-					&cli.IntFlag{
-						Name:  "port",
-						Usage: "Port for the server",
-					},
-					&cli.BoolFlag{
-						Name:  "watch",
-						Usage: "Enable file watcher",
-						Value: true,
-					},
-					&cli.BoolFlag{
-						Name:  "hot-reload",
-						Usage: "Enable hot-reload. Only works if watch-content or watch-theme is enabled",
-						Value: false,
-					},
-				},
-				Before: func(c *cli.Context) error {
-					initialize(c, true)
-					p, ok := c.App.Metadata["project"].(*project.Project)
-					if !ok {
-						log.Fatal("Project not found in context.")
-					}
-
-					if c.Int("port") != 0 {
-						p.Config.Server.Port = c.Int("port")
-					}
-					p.Config.FsWatcher.Enabled = c.Bool("watch")
-					p.Config.FsWatcher.HotReload = c.Bool("watch") && c.Bool("hot-reload")
-
-					return nil
-				},
-			},
-			{
-				Name:   "build",
-				Usage:  "Build commands",
-				Action: Build,
-				Flags: []cli.Flag{
-					&cli.BoolFlag{
-						Name:  "debug",
-						Usage: "Save in-between files",
-					},
-				},
-				Before: func(c *cli.Context) error {
-					initialize(c, true)
-
-					p, ok := c.App.Metadata["project"].(*project.Project)
-					if !ok {
-						log.Fatal("Project not found in context.")
-					}
-
-					p.Config.Debug = c.Bool("debug")
-
-					return nil
-				},
-			},
-			{
-				Name:   "config",
-				Usage:  "Generate a default config",
-				Action: Config,
-			},
-			{
-				Name:  "init",
-				Usage: "Generate a default config and initialize the project",
-				Flags: []cli.Flag{
-					&cli.StringFlag{
-						Name:  "output",
-						Usage: "Output directory",
-						Value: "dist",
-					},
-					&cli.StringFlag{
-						Name:  "activate",
-						Usage: `Which default pipes to activate? Comma-separated list of "md", "tpl"`,
-						Value: "md",
-					},
-				},
-				Action: Init,
-			},
-			{
-				Name: "add",
-				Subcommands: []*cli.Command{
-					{
-						Name:  "pipe",
-						Usage: "Add a new pipe to the project",
-						Flags: []cli.Flag{
-							&cli.StringFlag{
-								Name:  "entrypoint",
-								Usage: "Entry point TS file (must end in .ts)",
-								Value: "index.ts",
-							},
-							// &cli.StringFlag{
-							// 	Name:     "source",
-							// 	Usage:    "Source file suffix (e.g. md, yaml) — no leading dot",
-							// 	Required: false,
-							// },
-							// &cli.StringFlag{
-							// 	Name:     "target",
-							// 	Usage:    "Target file suffix (e.g. html, txt) — no leading dot",
-							// 	Required: true,
-							// },
-						},
-						Action: AddPipe,
-					},
-				},
-			},
-			{
-				Name:  "graph",
-				Usage: "Scan the project and emit the dependency graph as Graphviz DOT",
-				Before: func(c *cli.Context) error {
-					initialize(c, false)
-					return nil
-				},
-				Action: Graph,
-			},
+			serverCommand,
+			buildCommand,
+			graphCommand,
+			configCommand,
+			initCommand,
+			addCommand,
 		},
 	}
 
-	if err := app.Run(os.Args); err != nil {
+	if err := app.Run(context.Background(), os.Args); err != nil {
 		log.Fatal(err.Error())
 	}
 }
-func initialize(c *cli.Context, showWelcome bool) {
-	// TODO starting point is the current dir. craeft could search for the root folder
+
+func loadConfig(c *cli.Command) *project.CraeftConfig {
 	currentPath, err := os.Getwd()
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Error getting current path: %v", err))
+		log.Fatal(fmt.Sprintf("error getting current path: %v", err))
 	}
-
-	config, err := project.LoadConfig(currentPath)
+	cfg, err := project.LoadConfig(currentPath)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("Error loading config: %v", err))
+		log.Fatal(fmt.Sprintf("error loading config: %v", err))
 	}
-
 	if c.String("output") != "" {
-		config.OutputPath = c.String("output")
+		cfg.OutputPath = c.String("output")
 	}
-
-	config.Build.UseCAS = !c.Bool("disable-cas")
-
-	if showWelcome {
-		printWelcome(c, config.SourcePath, config.OutputPath)
-	}
-
-	p, err := project.New(config)
-	if err != nil {
-		log.Fatal(fmt.Sprintf("Failed initializing the project: %v", err))
-	}
-
-	c.App.Metadata["project"] = p
+	cfg.Build.UseCAS = !c.Bool("disable-cas")
+	return cfg
 }
 
-func printWelcome(cli *cli.Context, base, target string) {
-	log.Print("⚒ %s %s\n", cli.App.Name, cli.App.Version)
-	log.Print("➤ Building folder %q -> %q\n", base, target)
+func printWelcome(c *cli.Command, source, output string) {
+	log.Print("⚒ %s %s\n", c.Root().Name, c.Root().Version)
+	log.Print("➤ Building folder %q -> %q\n", source, output)
 	log.Print("")
-	if cli.Int("port") != 0 {
-		log.Print("Server running on port: %d\n", cli.Int("port"))
-		log.Print("")
-	}
 	log.Print("──────────────────────────────\n")
 }
 

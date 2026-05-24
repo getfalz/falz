@@ -9,36 +9,49 @@ import (
 	"craeft/internal/log"
 	"craeft/internal/project"
 
-	"github.com/urfave/cli/v2"
+	"github.com/urfave/cli/v3"
 )
 
-func Build(c *cli.Context) error {
-	p, ok := c.App.Metadata["project"].(*project.Project)
-	if !ok || p == nil {
-		log.Error(errors.New("can't get project from context"))
-	}
+var buildCommand = &cli.Command{
+	Name:  "build",
+	Usage: "Build the project",
+	Flags: []cli.Flag{
+		&cli.BoolFlag{
+			Name:  "debug",
+			Usage: "Save in-between files",
+		},
+	},
+	Action: func(ctx context.Context, c *cli.Command) error {
+		config := loadConfig(c)
+		config.Debug = c.Bool("debug")
 
-	defer p.Close()
+		p, err := project.New(config)
+		if err != nil {
+			log.Fatal(fmt.Sprintf("Failed initializing the project: %v", err))
+		}
+		defer p.Close()
 
-	ctx, stop := setupSignalHandler()
-	defer stop()
+		printWelcome(c, config.SourcePath, config.OutputPath)
 
-	start := time.Now()
+		ctx, stop := setupSignalHandler()
+		defer stop()
 
-	err := p.Build(ctx)
-	dur := time.Since(start)
+		start := time.Now()
+		err = p.Build(ctx)
+		dur := time.Since(start)
 
-	switch {
-	case err == nil:
-		log.Print("Build OK in %s\n", dur)
-		return nil
+		switch {
+		case err == nil:
+			log.Print("Build OK in %s\n", dur)
+			return nil
 
-	case errors.Is(err, context.Canceled):
-		log.Print("Build canceled after %s\n", dur)
-		return nil
+		case errors.Is(err, context.Canceled):
+			log.Print("Build canceled after %s\n", dur)
+			return nil
 
-	default:
-		log.Error(fmt.Errorf("build failed after %s:\n%v", dur, err))
-		return err
-	}
+		default:
+			log.Error(fmt.Errorf("build failed after %s:\n%v", dur, err))
+			return err
+		}
+	},
 }

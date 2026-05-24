@@ -3,7 +3,6 @@ module craeft
 go 1.24.1
 
 require (
-	github.com/adrg/frontmatter v0.2.0
 	github.com/creasty/defaults v1.8.0
 	github.com/dop251/goja v0.0.0-20240927123429-241b342198c2
 	github.com/evanw/esbuild v0.24.0
@@ -13,19 +12,18 @@ require (
 	github.com/mattn/go-zglob v0.0.6
 	github.com/rjeczalik/notify v0.9.3
 	github.com/rs/zerolog v1.33.0
-	github.com/sanity-io/litter v1.5.8
 	github.com/urfave/cli/v2 v2.27.4
+	github.com/urfave/cli/v3 v3.9.0
 	github.com/valyala/fasttemplate v1.2.2
 	go.etcd.io/bbolt v1.3.11
 	golang.org/x/sync v0.12.0
 	golang.org/x/term v0.30.0
 	golang.org/x/tools v0.31.0
 	gopkg.in/yaml.v3 v3.0.1
+	lukechampine.com/blake3 v1.4.1
 )
 
 require (
-	github.com/BurntSushi/toml v1.3.2 // indirect
-	github.com/adrg/xdg v0.5.3 // indirect
 	github.com/aymerick/douceur v0.2.0 // indirect
 	github.com/cpuguy83/go-md2man/v2 v2.0.4 // indirect
 	github.com/dlclark/regexp2 v1.11.4 // indirect
@@ -51,13 +49,10 @@ require (
 	github.com/sergi/go-diff v1.3.1 // indirect
 	github.com/sourcegraph/annotate v0.0.0-20160123013949-f4cad6c6324d // indirect
 	github.com/sourcegraph/syntaxhighlight v0.0.0-20170531221838-bd320f5d308e // indirect
-	github.com/stretchr/testify v1.9.0 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
 	golang.org/x/mod v0.24.0 // indirect
 	golang.org/x/net v0.37.0 // indirect
 	golang.org/x/sys v0.31.0 // indirect
 	golang.org/x/text v0.23.0 // indirect
-	gopkg.in/yaml.v2 v2.4.0 // indirect
-	lukechampine.com/blake3 v1.4.1 // indirect
 )
