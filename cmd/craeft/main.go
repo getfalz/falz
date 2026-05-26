@@ -30,6 +30,8 @@ func main() {
 		Usage:   "print only the version",
 	}
 
+	var verbosity int
+
 	app := &cli.Command{
 		Name:                   Name,
 		Usage:                  Description,
@@ -40,10 +42,11 @@ func main() {
 				Name:  "output",
 				Usage: "Build path of the project",
 			},
-			&cli.IntFlag{
+			&cli.BoolFlag{
 				Name:    "verbose",
 				Aliases: []string{"v"},
 				Usage:   "verbose logging",
+				Config:  cli.BoolConfig{Count: &verbosity},
 			},
 			&cli.BoolFlag{
 				Name:  "disable-cas",
@@ -58,7 +61,7 @@ func main() {
 			},
 		},
 		Before: func(ctx context.Context, c *cli.Command) (context.Context, error) {
-			setLogLevel(int(c.Int("verbose")), c.Bool("silence"))
+			setLogLevel(int(c.Count("verbose")), c.Bool("silence"))
 			return ctx, nil
 		},
 		Commands: []*cli.Command{

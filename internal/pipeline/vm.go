@@ -68,8 +68,12 @@ func newVMWorker(cfg vmConfig, prg *goja.Program) (*vmWorker, error) {
 		return nil, fmt.Errorf("run bundle: %w", err)
 	}
 
-	v := vm.Get("transform")
-	if v == nil {
+	pipe := vm.Get(pipeGlobalName)
+	if pipe == nil || goja.IsUndefined(pipe) || goja.IsNull(pipe) {
+		return nil, fmt.Errorf("pipe %q: bundle did not set global %q", cfg.name, pipeGlobalName)
+	}
+	v := pipe.ToObject(vm).Get("transform")
+	if v == nil || goja.IsUndefined(v) {
 		return nil, fmt.Errorf("pipe %q: bundle does not export a transform function", cfg.name)
 	}
 	fn, ok := goja.AssertFunction(v)
@@ -187,7 +191,7 @@ func setupVM(vm *goja.Runtime, cfg vmConfig, l zerolog.Logger) {
 	vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
 	setupConsole(vm, cfg.name, l)
 	setupRequire(vm, cfg)
-	setupCommonJS(vm)
+	// setupCommonJS(vm)
 }
 
 func setupCommonJS(vm *goja.Runtime) {

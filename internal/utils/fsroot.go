@@ -44,6 +44,23 @@ func NewRootFs(path string) (*RootFS, error) {
 	}, nil
 }
 
+func OpenRootFs(path string) (*RootFS, error) {
+	absPath, err := filepath.Abs(path)
+	if err != nil {
+		return nil, fmt.Errorf("rootfs abs: %w", err)
+	}
+
+	root, err := os.OpenRoot(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("open root: %w", err)
+	}
+
+	return &RootFS{
+		root: root,
+		hash: NewHashCache(),
+	}, nil
+}
+
 func (r *RootFS) FS() fs.FS {
 	return r.root.FS()
 }

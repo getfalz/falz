@@ -12,9 +12,10 @@ import (
 )
 
 type JSPipe struct {
-	cfg    vmConfig
-	config PipelineConfig
-	bundle *bundle
+	cfg      vmConfig
+	config   PipelineConfig
+	bundle   *bundle
+	pipeRoot *utils.RootFS
 
 	prg        *goja.Program
 	bundleHash string
@@ -27,20 +28,27 @@ func NewJSPipe(path string, srcRoot *utils.RootFS) (*JSPipe, error) {
 		return nil, fmt.Errorf("load config: %w", err)
 	}
 
-	b, err := newBundle(pcfg.EntryPoint, path, pcfg.Debug)
+	pipeRoot, err := utils.OpenRootFs(path)
 	if err != nil {
+		return nil, fmt.Errorf("pipe rootfs: %w", err)
+	}
+	b, err := newBundle(pcfg.EntryPoint, pipeRoot, pcfg.Debug)
+	if err != nil {
+		_ = pipeRoot.Close()
 		return nil, fmt.Errorf("new bundle: %w", err)
 	}
 
 	src, err := b.build(pcfg.Debug)
 	if err != nil {
 		b.close()
+		_ = pipeRoot.Close()
 		return nil, fmt.Errorf("initial build: %w", err)
 	}
 
 	prg, err := compileBundle(pcfg.PipelineName, src)
 	if err != nil {
 		b.close()
+		_ = pipeRoot.Close()
 		return nil, fmt.Errorf("compile: %w", err)
 	}
 
@@ -54,6 +62,7 @@ func NewJSPipe(path string, srcRoot *utils.RootFS) (*JSPipe, error) {
 		cfg:        jsCfg,
 		config:     *pcfg,
 		bundle:     b,
+		pipeRoot:   pipeRoot,
 		prg:        prg,
 		bundleHash: utils.HashString(src),
 	}, nil
@@ -107,5 +116,5 @@ func (p *JSPipe) Transform(ctx context.Context, input []byte, vars Vars) (string
 
 func (p *JSPipe) Close() error {
 	p.bundle.close()
-	return nil
+	return p.pipeRoot.Close()
 }
