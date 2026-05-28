@@ -15,6 +15,8 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
+	"github.com/dop251/goja_nodejs/buffer"
+	"github.com/dop251/goja_nodejs/url"
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
 )
@@ -187,11 +189,27 @@ func newConsoleLogger(pipeName string) zerolog.Logger {
 	return zerolog.New(writer).With().Timestamp().Str("pipe", pipeName).Logger()
 }
 
+func setupGlobals(vm *goja.Runtime) {
+	bufMod := vm.NewObject()
+	_ = bufMod.Set("exports", vm.NewObject())
+	buffer.Require(vm, bufMod)
+	bufExports := bufMod.Get("exports").ToObject(vm)
+	vm.Set("Buffer", bufExports.Get("Buffer"))
+
+	urlMod := vm.NewObject()
+	_ = urlMod.Set("exports", vm.NewObject())
+	url.Require(vm, urlMod)
+	urlExports := urlMod.Get("exports").ToObject(vm)
+	vm.Set("URL", urlExports.Get("URL"))
+	vm.Set("URLSearchParams", urlExports.Get("URLSearchParams"))
+}
+
 func setupVM(vm *goja.Runtime, cfg vmConfig, l zerolog.Logger) {
 	vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
 	setupConsole(vm, cfg.name, l)
 	setupRequire(vm, cfg)
 	// setupCommonJS(vm)
+	setupGlobals(vm)
 }
 
 func setupCommonJS(vm *goja.Runtime) {

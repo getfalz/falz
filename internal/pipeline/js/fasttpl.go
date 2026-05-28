@@ -30,7 +30,7 @@ func GetFastTplModule(vm *goja.Runtime) *goja.Object {
 //
 // @param template  - string              - Template string, e.g. "Hello {{name}}!"
 // @param params    - Record<string, string | (() => string)> - Substitution values.
-// @param config?   - fasttpl.Config      - Optional tag delimiters.
+// @param config?   - Config      - Optional tag delimiters.
 // @returns string  - The rendered string.
 func fastCompile(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
 	tpl, err := argMustString(call.Argument(0))
