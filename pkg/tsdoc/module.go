@@ -34,6 +34,8 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 	}
 
 	var namespaces []*Namespace
+	nsByName := make(map[string]*Namespace)
+
 	for _, pkg := range pkgs {
 		for _, file := range pkg.Syntax {
 			var comments []*ast.Comment
@@ -71,7 +73,14 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 				}
 			}
 
-			namespaces = append(namespaces, localNs...)
+			for _, ns := range localNs {
+				if existing, ok := nsByName[ns.Name]; ok {
+					mergeNamespace(existing, ns)
+				} else {
+					nsByName[ns.Name] = ns
+					namespaces = append(namespaces, ns)
+				}
+			}
 
 			if printDebug {
 				debug(localNs)
@@ -81,16 +90,41 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 	return namespaces, nil
 }
 
+func mergeNamespace(dst, src *Namespace) {
+	if len(dst.DocLines) == 0 {
+		dst.DocLines = src.DocLines
+	}
+	dst.Entries = append(dst.Entries, src.Entries...)
+	dst.Classes = append(dst.Classes, src.Classes...)
+	dst.Interfaces = append(dst.Interfaces, src.Interfaces...)
+	dst.Types = append(dst.Types, src.Types...)
+	dst.Reexports = append(dst.Reexports, src.Reexports...)
+}
+
 func WriteDTS(ns []*Namespace, inc map[string]bool) string {
 	var out strings.Builder
 
 	for _, n := range ns {
-		if include, ok := inc[n.Name]; ok && include {
-			n.Render(&out, "")
+		if include, ok := inc[n.Name]; !ok || !include {
+			continue
 		}
+		// skip namespaces that have no declarations of their own. The
+		if n.isEmpty() {
+			continue
+		}
+		n.Render(&out, "")
 	}
 
 	return out.String()
+}
+
+// isEmpty reports whether the namespace contains anything renderable.
+func (ns *Namespace) isEmpty() bool {
+	return len(ns.Entries) == 0 &&
+		len(ns.Classes) == 0 &&
+		len(ns.Interfaces) == 0 &&
+		len(ns.Types) == 0 &&
+		len(ns.Reexports) == 0
 }
 
 func debug(ns []*Namespace) {
@@ -223,6 +257,14 @@ type Namespace struct {
 	Classes    []*TsClass
 	Interfaces []*TsInterface
 	Types      []*TsType
+
+	// Reexports is a list of bare symbol names to re-export from this
+	// namespace, populated from `@export <Name>` lines inside an
+	// `@ts namespace <name>` block. Each entry renders as
+	// `export { Name };` and is intended for module namespaces that just
+	// republish symbols whose actual type definitions live elsewhere
+	// (typically in `global`).
+	Reexports []string
 }
 
 // @param markdown - string - The Markdown content.
@@ -249,17 +291,20 @@ type ReturnType struct {
 // @ts var global.console
 // @ts const md.commonOptions
 // @ts method md.Parser.render
+// @ts field md.Parser.poolSize
 type TsEntry struct {
-	Kind       string // constructor, function, method
+	Kind       string // constructor, function, method, field, var, let, const
 	Header     string // the header e.g. @ts function tpl
 	RawContent []string
 	DocLines   []string
 
-	IsDefault bool
-	Params    []ParamType
-	Returns   *ReturnType
-	Example   string
-	Signature string
+	IsDefault  bool
+	IsStatic   bool // emit `static ` prefix; only meaningful on class methods/fields
+	IsReadonly bool // emit `readonly ` prefix; only meaningful on class/interface fields
+	Params     []ParamType
+	Returns    *ReturnType
+	Example    string
+	Signature  string
 }
 
 // @ts interface md.ParserOptions
@@ -345,7 +390,9 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 
 		switch tagType {
 		case "namespace":
-			ns.DocLines = block.Content
+			doc, exports := parseNamespaceBlock(block.Content)
+			ns.DocLines = append(ns.DocLines, doc...)
+			ns.Reexports = append(ns.Reexports, exports...)
 
 		case "interface":
 			inter := &TsInterface{
@@ -361,22 +408,11 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 				Methods:    []TsEntry{},
 			}
 			ns.Classes = append(ns.Classes, class)
-		case "method":
+		case "method", "constructor", "field":
 			for _, cls := range ns.Classes {
 				if cls.Name == id.Class {
 					cls.Methods = append(cls.Methods, TsEntry{
-						Kind:       "method",
-						Header:     block.TagLine,
-						RawContent: block.Content,
-					})
-					break
-				}
-			}
-		case "constructor":
-			for _, cls := range ns.Classes {
-				if cls.Name == id.Class {
-					cls.Methods = append(cls.Methods, TsEntry{
-						Kind:       "constructor",
+						Kind:       tagType,
 						Header:     block.TagLine,
 						RawContent: block.Content,
 					})
@@ -426,10 +462,18 @@ func parseEntry(entry *TsEntry) {
 				// constructor or method can't be default
 				entry.IsDefault = true
 			}
+		case "@static":
+			entry.IsStatic = true
+		case "@readonly":
+			entry.IsReadonly = true
 		case "@type":
-			if entry.Kind == "var" || entry.Kind == "let" || entry.Kind == "const" {
-				t := strings.Join(buffer, " ")
-				entry.Signature = fmt.Sprintf("%s %s: %s", entry.Kind, getNameFromHeader(entry.Header), t)
+			t := strings.Join(buffer, " ")
+			name := getNameFromHeader(entry.Header)
+			switch entry.Kind {
+			case "var", "let", "const":
+				entry.Signature = fmt.Sprintf("%s %s: %s", entry.Kind, name, t)
+			case "field":
+				entry.Signature = fmt.Sprintf("%s: %s", name, t)
 			}
 		}
 		buffer = nil
@@ -454,6 +498,53 @@ func parseEntry(entry *TsEntry) {
 	if entry.Returns == nil {
 		entry.Returns = parseReturnLine("")
 	}
+}
+
+// parseNamespaceBlock walks the raw content of an `@ts namespace X` block and
+// extracts the prose (`@doc`) and the list of bare symbols to re-export
+// (`@export Foo`). Lines without a recognised tag are inherited by the most
+// recent tag, mirroring the behaviour of parseInterface / parseClass.
+//
+// Example block:
+//
+//	@ts namespace buffer
+//	@doc The node:buffer module re-exports Buffer from the global scope.
+//	@export Buffer
+//	@export BufferEncoding
+func parseNamespaceBlock(content []string) (doc, exports []string) {
+	var currentTag string
+	var buffer []string
+
+	flush := func() {
+		switch currentTag {
+		case "@doc":
+			doc = append(doc, buffer...)
+		case "@export":
+			for _, raw := range buffer {
+				for _, tok := range strings.FieldsFunc(raw, func(r rune) bool {
+					return r == ',' || r == ' ' || r == '\t'
+				}) {
+					if tok != "" {
+						exports = append(exports, tok)
+					}
+				}
+			}
+		}
+		buffer = nil
+	}
+
+	for _, line := range content {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "@") {
+			flush()
+			currentTag = firstWord(line)
+			buffer = []string{strings.TrimSpace(line[len(currentTag):])}
+		} else if currentTag != "" {
+			buffer = append(buffer, line)
+		}
+	}
+	flush()
+	return doc, exports
 }
 
 func parseClass(cls *TsClass) {
@@ -593,41 +684,117 @@ func trimExportKeyword(sig string) string {
 	return sig
 }
 
-// @method log(...data: any[]): void; - Logs the provided arguments to the console with info level.
-func parseFieldLine(line string) FieldType {
-	parts := strings.SplitN(line, "-", 2)
-	sigPart := strings.TrimSpace(parts[0])
+// dashSep is the separator between a signature/type and its trailing
+// description in @field, @param and @returns lines.
+const dashSep = " - "
 
+// splitSignatureDoc splits "signature - description" once on the first " - ".
+// Both parts are trimmed. Either part may be empty.
+func splitSignatureDoc(line string) (sig, desc string) {
+	line = strings.TrimSpace(line)
+	if i := strings.Index(line, dashSep); i >= 0 {
+		return strings.TrimSpace(line[:i]), strings.TrimSpace(line[i+len(dashSep):])
+	}
+	return line, ""
+}
+
+// splitDashFields splits line on " - " into at most n trimmed fields.
+func splitDashFields(line string, n int) []string {
+	parts := strings.SplitN(strings.TrimSpace(line), dashSep, n)
+	for i, p := range parts {
+		parts[i] = strings.TrimSpace(p)
+	}
+	return parts
+}
+
+// parseFieldLine parses a single @field line into a TypeScript member
+// signature and an optional description. Two authoring forms are supported:
+//
+//  1. Full-signature form — the part before the first " - " is already a
+//     complete TS member signature:
+//
+//	@field log(...data: any[]): void - Logs the provided arguments.
+//	@field compare(a: Uint8Array, b: Uint8Array): -1 | 0 | 1 - Compares a to b.
+//	@field poolSize: number - Pool size in bytes.
+//
+//  2. Name/type/desc form — like @param, three " - "-separated fields. The
+//     middle field is the type; we synthesise `name: type`:
+//
+//	@field parser? - ParserOptions - Controls parser extensions.
+//	   -> parser?: ParserOptions
+func parseFieldLine(line string) FieldType {
+	parts := splitDashFields(line, 3)
+
+	lead := ""
+	if len(parts) > 0 {
+		lead = parts[0]
+	}
+
+	// Form (1):
+	if strings.ContainsAny(lead, ":(") {
+		desc := ""
+		if i := strings.Index(line, dashSep); i >= 0 {
+			desc = strings.TrimSpace(line[i+len(dashSep):])
+		}
+		return FieldType{Signature: lead, Desc: desc}
+	}
+
+	// Form (2):
+	name := lead
+	typ := "any"
 	desc := ""
-	if len(parts) == 2 {
-		desc = strings.TrimSpace(parts[1])
+	if len(parts) < 3 {
+		typ = parts[1]
+	else {
+		typ = parts[1]
+		desc = parts[2]
 	}
 
 	return FieldType{
-		Signature: sigPart,
+		Signature: buildFieldSignature(name, typ),
 		Desc:      desc,
 	}
 }
 
-// @param markdown - string - The Markdown content.
-func parseParamLine(line string) ParamType {
-	parts := strings.SplitN(line, "-", 3)
+// buildFieldSignature turns a bare name (optionally ending in '?') and a type
+// into a `name: type` / `name?: type` member signature.
+func buildFieldSignature(name, typ string) string {
+	name = strings.TrimSpace(name)
+	typ = strings.TrimSpace(typ)
+	if typ == "" {
+		typ = "any"
+	}
+	return name + ": " + typ
+}
 
-	if len(parts) < 2 {
+// parseParamLine parses a single @param line into name/type/description, e.g.
+//
+//	@param markdown - string - The Markdown content.
+//
+// Like parseFieldLine, the separator is " - " (space-dash-space) so the type
+// portion can safely contain bare dashes (`-1`, `() => Foo<-T>` etc.).
+// Accepted forms:
+//
+//	@param name                       -> name="name", type="any",     desc=""
+//	@param name - desc                -> name="name", type="any",     desc="desc"
+//	@param name - type - desc         -> name="name", type="type",    desc="desc"
+func parseParamLine(line string) ParamType {
+	parts := splitDashFields(line, 3)
+
+	if len(parts) == 0 || parts[0] == "" {
 		fmt.Printf("Warning: param line malformed: %q\n", line)
 		return ParamType{}
 	}
 
-	name := strings.TrimSpace(parts[0])
-	name = strings.Trim(name, `"`)
+	name := strings.Trim(parts[0], `"`)
 	typ := "any"
 	desc := ""
 
-	if len(parts) == 2 {
-		desc = strings.TrimSpace(parts[1])
+	if len(parts) < 3 {
+		desc = parts[1]
 	} else {
-		typ = strings.TrimSpace(parts[1])
-		desc = strings.TrimSpace(parts[2])
+		typ = strings.Trim(parts[1], `"`)
+		desc = parts[2]
 	}
 
 	return ParamType{
@@ -637,8 +804,11 @@ func parseParamLine(line string) ParamType {
 	}
 }
 
-// similar to parseParamLine, but return values have no name
-// @returns Promise<string> - The rendered HTML string.
+// parseReturnLine parses an @returns line into a type and optional description.
+//
+//	@returns void
+//	@returns Promise<string> - The rendered HTML string.
+//	@returns -1 | 0 | 1 - Sign of the comparison.
 func parseReturnLine(line string) *ReturnType {
 	if line == "" {
 		return &ReturnType{
@@ -647,20 +817,10 @@ func parseReturnLine(line string) *ReturnType {
 		}
 	}
 
-	parts := strings.SplitN(line, "-", 2)
-
-	if len(parts) < 1 {
-		fmt.Printf("Warning: return line malformed: %q\n", line)
-		return nil
-	}
-
-	typ := "any"
-	desc := ""
-	if len(parts) == 1 {
-		desc = strings.TrimSpace(parts[0])
-	} else {
-		typ = strings.Trim(strings.TrimSpace(parts[0]), `"`)
-		desc = strings.TrimSpace(parts[1])
+	typ, desc := splitSignatureDoc(line)
+	typ = strings.Trim(typ, `"`)
+	if typ == "" {
+		typ = "any"
 	}
 
 	return &ReturnType{
@@ -724,7 +884,7 @@ func (ns *Namespace) Render(out *strings.Builder, indent string) {
 	}
 
 	for _, entry := range ns.Entries {
-		entry.Render(out, indent+"  ")
+		entry.render(out, indent+"  ", ns.Name)
 	}
 
 	for _, cls := range ns.Classes {
@@ -734,33 +894,62 @@ func (ns *Namespace) Render(out *strings.Builder, indent string) {
 		t.Render(out, indent+"  ")
 	}
 
+	for _, name := range ns.Reexports {
+		fmt.Fprintf(out, "%s  export { %s };\n", indent, name)
+	}
+
 	fmt.Fprintf(out, "%s}\n", indent)
 
 }
 
 func (e *TsEntry) Render(out *strings.Builder, indent string) {
+	e.render(out, indent, "")
+}
+
+func (e *TsEntry) render(out *strings.Builder, indent, nsName string) {
 	writeDoc(out, indent, e.DocLines, e.Params, e.Returns, e.Example)
 
-	if e.Signature != "" {
-		if e.IsDefault {
-			out.WriteString(indent + "export default " + trimExportKeyword(e.Signature) + "\n")
-		} else {
-			if e.Kind == "constructor" || e.Kind == "method" || e.Kind == "field" {
-				out.WriteString(indent + trimExportKeyword(e.Signature) + "\n")
-			} else {
-				out.WriteString(indent + "export " + trimExportKeyword(e.Signature) + "\n")
-			}
+	if e.Signature == "" {
+		return
+	}
+
+	sig := trimExportKeyword(e.Signature)
+
+	var modifiers string
+	if isMember(e.Kind) {
+		if e.IsStatic && e.Kind != "constructor" {
+			modifiers += "static "
+		}
+		if e.IsReadonly && (e.Kind == "field") {
+			modifiers += "readonly "
 		}
 	}
+
+	switch {
+	case e.IsDefault:
+		out.WriteString(indent + "export default " + sig + "\n")
+	case isMember(e.Kind):
+		out.WriteString(indent + modifiers + sig + "\n")
+	case nsName == "global":
+		out.WriteString(indent + sig + "\n")
+	default:
+		out.WriteString(indent + "export " + sig + "\n")
+	}
+}
+
+// isMember reports whether the entry kind names a class/interface member as
+// opposed to a top-level declaration.
+func isMember(kind string) bool {
+	return kind == "constructor" || kind == "method" || kind == "field"
 }
 
 func (cls *TsClass) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, cls.DocLines, nil, nil, "")
 
 	if cls.IsDefault {
-		fmt.Fprintf(out, "%sexport default class %s{\n", indent, cls.Name)
+		fmt.Fprintf(out, "%sexport default class %s {\n", indent, cls.Name)
 	} else {
-		fmt.Fprintf(out, "%sexport class %s{\n", indent, cls.Name)
+		fmt.Fprintf(out, "%sexport class %s {\n", indent, cls.Name)
 	}
 
 	for _, method := range cls.Methods {
@@ -774,7 +963,7 @@ func (int *TsInterface) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, int.DocLines, nil, nil, "")
 
 	if int.Extends != "" {
-		fmt.Fprintf(out, "%s interface %s extends %s", indent, int.Name, int.Extends)
+		fmt.Fprintf(out, "%sinterface %s extends %s", indent, int.Name, int.Extends)
 	} else {
 		fmt.Fprintf(out, "%sinterface %s", indent, int.Name)
 	}
