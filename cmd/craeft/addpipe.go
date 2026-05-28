@@ -122,13 +122,13 @@ var addCommand = &cli.Command{
 					path    string
 					content string
 				}{
-					{filepath.Join(pipeDir, configFile), string(out)},
+					{filepath.Join(currPipeDir, configFile), string(out)},
 					{filepath.Join(typesDir, "craeft.d.ts"), tsDoc},
 					{filepath.Join(typesDir, "global.d.ts"), globalDoc},
 					{filepath.Join(typesDir, "env.d.ts"), envDoc},
-					{filepath.Join(pipeDir, "tsconfig.json"), tsconfig},
-					{filepath.Join(pipeDir, "index.ts"), indexTS},
-					{filepath.Join(pipeDir, "package.json"), `{"name":"` + name + `","type":"module","dependencies":{}}`},
+					{filepath.Join(currPipeDir, "tsconfig.json"), tsconfig},
+					{filepath.Join(currPipeDir, "index.ts"), indexTS},
+					{filepath.Join(currPipeDir, "package.json"), `{"name":"` + name + `","type":"module","dependencies":{}}`},
 				} {
 					if err := os.WriteFile(f.path, []byte(f.content), 0644); err != nil {
 						return fmt.Errorf("write %s: %w", f.path, err)
