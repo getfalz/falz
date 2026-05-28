@@ -1,19 +1,18 @@
 /**
  * 
- * @doc
  * Synchronous template rendering with support for string and function-valued parameters.
  *
  */
 declare module "fasttpl" {
   interface Config {
     /**
-     * string - Opening delimiter. Default: "{{"
+     * Opening delimiter. Default: "{{"
      */
-    startTag?
+    startTag?: string
     /**
-     * string - Closing delimiter. Default: "}}"
+     * Closing delimiter. Default: "}}"
      */
-    endTag?
+    endTag?: string
   }
   /**
    * 
@@ -27,11 +26,10 @@ declare module "fasttpl" {
    * @returns The rendered string.
    *
    */
-  export function compile (template: string, params: Record<string, string | (() => string)>, config?: fasttpl.Config): string
+  export function compile (template: string, params: Record<string, string | (() => string)>, config?: Config): string
 }
 /**
  * 
- * @doc
  * File system utilities.
  *
  */
@@ -45,33 +43,33 @@ declare module "fs" {
    */
   interface FileEntry {
     /**
-     * string - The entry's filename without any directory component.
+     * The entry's filename without any directory component.
      */
-    name
+    name: string
     /**
-     * string - Full path relative to the fs root, slash-separated, with leading slash.
+     * Full path relative to the fs root, slash-separated, with leading slash.
      */
-    path
+    path: string
     /**
-     * number - Size in bytes. Always 0 for directories.
+     * Size in bytes. Always 0 for directories.
      */
-    size
+    size: number
     /**
-     * Date - Last modification time as a JavaScript Date.
+     * Last modification time as a JavaScript Date.
      */
-    modTime
+    modTime: Date
     /**
-     * boolean - True if the entry is a regular file.
+     * True if the entry is a regular file.
      */
-    isFile
+    isFile: boolean
     /**
-     * boolean - True if the entry is a directory.
+     * True if the entry is a directory.
      */
-    isDirectory
+    isDirectory: boolean
     /**
-     * boolean - True if the entry is a symbolic link.
+     * True if the entry is a symbolic link.
      */
-    isSymlink
+    isSymlink: boolean
   }
   /**
    * 
@@ -80,10 +78,9 @@ declare module "fs" {
    * Throws an Error for all other I/O failures.
    * 
    * @param path Path relative to the fs root.
-   * @returns Uint8Array | undefined
    *
    */
-  export function bytes (path: string): any
+  export function bytes (path: string): Uint8Array | undefined
   /**
    * 
    * Reads a file and returns its contents as a UTF-8 string.
@@ -91,10 +88,9 @@ declare module "fs" {
    * Throws an Error for all other I/O failures.
    * 
    * @param path Path relative to the fs root.
-   * @returns string | undefined
    *
    */
-  export function text (path: string): any
+  export function text (path: string): string | undefined
   /**
    * 
    * Reads and parses a JSON file, returning the parsed value.
@@ -103,39 +99,35 @@ declare module "fs" {
    * Throws an Error for all other I/O failures.
    * 
    * @param path Path relative to the fs root.
-   * @returns any | undefined
    *
    */
-  export function json (path: string): any
+  export function json (path: string): any | undefined
   /**
    * 
    * Reports whether a path exists (as a file, directory, or any other entry).
    * 
    * @param path Path relative to the fs root.
-   * @returns boolean
    *
    */
-  export function exists (path: string): any
+  export function exists (path: string): boolean
   /**
    * 
    * Reports whether the path refers to a regular file.
    * Returns false if the path does not exist or is not a file.
    * 
    * @param path Path relative to the fs root.
-   * @returns boolean
    *
    */
-  export function isFile (path: string): any
+  export function isFile (path: string): boolean
   /**
    * 
    * Reports whether the path refers to a directory.
    * Returns false if the path does not exist or is not a directory.
    * 
    * @param path Path relative to the fs root.
-   * @returns boolean
    *
    */
-  export function isDirectory (path: string): any
+  export function isDirectory (path: string): boolean
   /**
    * 
    * Returns the size of a file in bytes.
@@ -143,10 +135,9 @@ declare module "fs" {
    * Throws an Error for all other I/O failures.
    * 
    * @param path Path relative to the fs root.
-   * @returns number | undefined
    *
    */
-  export function size (path: string): any
+  export function size (path: string): number | undefined
   /**
    * 
    * Returns the last modification time of a file as a JavaScript Date object.
@@ -154,10 +145,9 @@ declare module "fs" {
    * Throws an Error for all other I/O failures.
    * 
    * @param path Path relative to the fs root.
-   * @returns Date | undefined
    *
    */
-  export function lastModified (path: string): any
+  export function lastModified (path: string): Date | undefined
   /**
    * 
    * Returns the direct children of a directory as an array of FileEntry objects.
@@ -166,10 +156,9 @@ declare module "fs" {
    * Throws an Error if the path does not exist or is not a directory.
    * 
    * @param path Path relative to the fs root.
-   * @returns FileEntry[]
    *
    */
-  export function list (path: string): any
+  export function list (path: string): FileEntry[]
   /**
    * 
    * Recursively traverses a directory and returns all entries (files and subdirectories)
@@ -178,14 +167,12 @@ declare module "fs" {
    * Throws an Error if the root path does not exist or is not a directory.
    * 
    * @param path Path relative to the fs root.
-   * @returns FileEntry[]
    *
    */
-  export function walk (path: string): any
+  export function walk (path: string): FileEntry[]
 }
 /**
  * 
- * @doc
  *
  */
 declare module "md" {
@@ -389,13 +376,13 @@ declare module "md" {
    */
   interface Config {
     /**
-     * ParserOptions - Controls which markdown extensions the parser recognises.
+     * Controls which markdown extensions the parser recognises.
      */
-    parser?
+    parser?: ParserOptions
     /**
-     * RendererOptions - Controls HTML output flags.
+     * Controls HTML output flags.
      */
-    renderer?
+    renderer?: RendererOptions
   }
   /**
    * 
@@ -423,7 +410,6 @@ declare module "md" {
 }
 /**
  * 
- * @doc
  * A utility module for rendering and manipulating templates using the Plush system.
  * 
  * This module provides various functions that support rendering templates,

@@ -1,5 +1,5 @@
 //go:generate go run ../gendoc -e global -o craeft.d.ts craeft/internal/pipeline/js
-//go:generate go run ../gendoc -i global -o global.d.ts craeft/internal/pipeline/js
+//go:generate go run ../gendoc -i global -o global.d.ts craeft/internal/pipeline
 //go:generate go run ../gendoc -o env.d.ts craeft/internal/content
 package main
 
