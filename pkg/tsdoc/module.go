@@ -67,6 +67,9 @@ func Load(name string, printDebug bool) ([]*Namespace, error) {
 				}
 				for _, inter := range ns.Interfaces {
 					parseInterface(inter)
+					for i := range inter.Methods {
+						parseEntry(&inter.Methods[i])
+					}
 				}
 				for _, ty := range ns.Types {
 					parseType(ty)
@@ -315,6 +318,7 @@ type TsInterface struct {
 
 	Extends string
 	Fields  []FieldType
+	Methods []TsEntry
 }
 
 // @ts class md.Parser
@@ -323,8 +327,9 @@ type TsClass struct {
 	RawContent []string
 	DocLines   []string
 
-	Methods   []TsEntry
-	IsDefault bool
+	Methods    []TsEntry
+	IsDefault  bool
+	Implements []string
 }
 
 // @ts type global.IndexContext
@@ -412,6 +417,16 @@ func groupNamespaces(blocks []CommentBlock) []*Namespace {
 			for _, cls := range ns.Classes {
 				if cls.Name == id.Class {
 					cls.Methods = append(cls.Methods, TsEntry{
+						Kind:       tagType,
+						Header:     block.TagLine,
+						RawContent: block.Content,
+					})
+					break
+				}
+			}
+			for _, inter := range ns.Interfaces {
+				if inter.Name == id.Class {
+					inter.Methods = append(inter.Methods, TsEntry{
 						Kind:       tagType,
 						Header:     block.TagLine,
 						RawContent: block.Content,
@@ -557,6 +572,8 @@ func parseClass(cls *TsClass) {
 			cls.IsDefault = true
 		case "@doc":
 			cls.DocLines = append(cls.DocLines, buffer...)
+		case "@implements":
+			cls.Implements = append(cls.Implements, strings.Join(buffer, " "))
 		}
 		buffer = nil
 	}
@@ -946,11 +963,15 @@ func isMember(kind string) bool {
 func (cls *TsClass) Render(out *strings.Builder, indent string) {
 	writeDoc(out, indent, cls.DocLines, nil, nil, "")
 
+	keyword := "export class"
 	if cls.IsDefault {
-		fmt.Fprintf(out, "%sexport default class %s {\n", indent, cls.Name)
-	} else {
-		fmt.Fprintf(out, "%sexport class %s {\n", indent, cls.Name)
+		keyword = "export default class"
 	}
+	implements := ""
+	if len(cls.Implements) > 0 {
+		implements = " implements " + strings.Join(cls.Implements, ", ")
+	}
+	fmt.Fprintf(out, "%s%s %s%s {\n", indent, keyword, cls.Name, implements)
 
 	for _, method := range cls.Methods {
 		method.Render(out, indent+"  ")
@@ -968,9 +989,13 @@ func (int *TsInterface) Render(out *strings.Builder, indent string) {
 		fmt.Fprintf(out, "%sinterface %s", indent, int.Name)
 	}
 
-	if len(int.Fields) > 0 {
+	if len(int.Fields) > 0 || len(int.Methods) > 0 {
 		fmt.Fprintf(out, " {\n")
 		for _, method := range int.Fields {
+			method.Render(out, indent+"  ")
+		}
+
+		for _, method := range int.Methods {
 			method.Render(out, indent+"  ")
 		}
 
