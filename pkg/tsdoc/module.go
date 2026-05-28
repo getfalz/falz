@@ -713,15 +713,15 @@ func splitDashFields(line string, n int) []string {
 //  1. Full-signature form — the part before the first " - " is already a
 //     complete TS member signature:
 //
-//	@field log(...data: any[]): void - Logs the provided arguments.
-//	@field compare(a: Uint8Array, b: Uint8Array): -1 | 0 | 1 - Compares a to b.
-//	@field poolSize: number - Pool size in bytes.
+//     @field log(...data: any[]): void - Logs the provided arguments.
+//     @field compare(a: Uint8Array, b: Uint8Array): -1 | 0 | 1 - Compares a to b.
+//     @field poolSize: number - Pool size in bytes.
 //
 //  2. Name/type/desc form — like @param, three " - "-separated fields. The
 //     middle field is the type; we synthesise `name: type`:
 //
-//	@field parser? - ParserOptions - Controls parser extensions.
-//	   -> parser?: ParserOptions
+//     @field parser? - ParserOptions - Controls parser extensions.
+//     -> parser?: ParserOptions
 func parseFieldLine(line string) FieldType {
 	parts := splitDashFields(line, 3)
 
@@ -745,7 +745,7 @@ func parseFieldLine(line string) FieldType {
 	desc := ""
 	if len(parts) < 3 {
 		typ = parts[1]
-	else {
+	} else {
 		typ = parts[1]
 		desc = parts[2]
 	}
@@ -831,7 +831,7 @@ func parseReturnLine(line string) *ReturnType {
 
 func writeDoc(out *strings.Builder, indent string, docLines []string, params []ParamType, returns *ReturnType, example string) {
 	hasDoc := len(docLines) > 0 || example != "" || len(params) > 0 || (returns != nil && returns.Desc != "")
-	
+
 	if hasDoc {
 		out.WriteString(indent + "/**\n")
 	}
