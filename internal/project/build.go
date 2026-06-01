@@ -352,10 +352,9 @@ func (b *builder) buildEntry(
 	if entry.Type == ContentType && lyt != nil {
 		vars.Set(entry.TagName, transformed)
 
-		output := lyt.ExecuteString(vars)
-		artifact.Data = []byte(output)
+		artifact.Data = lyt.ExecuteBytes(vars)
 	} else {
-		artifact.Data = []byte(transformed)
+		artifact.Data = transformed
 	}
 
 	elapsed := time.Since(start)

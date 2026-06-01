@@ -29,13 +29,13 @@ func GetMdModule(vm *goja.Runtime) *goja.Object {
 // @doc
 // Parses markdown to HTML.
 //
-// @param markdown - string - The Markdown content.
+// @param markdown - string | Buffer - The Markdown content as a UTF-8 string or Buffer/Uint8Array.
 // @param options? - Config - Configuration object for the parser and renderer.
 // @returns string - The rendered HTML string.
 func mdToHtml(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
-	src, err := argMustString(call.Argument(0))
+	src, err := argBytes(vm, call.Argument(0))
 	if err != nil {
-		panic(vm.NewTypeError("md.toHtml: first argument must be a string: %v", err))
+		panic(vm.NewTypeError("md.toHtml: first argument must be a string or Buffer: %v", err))
 	}
 
 	var parserExt parser.Extensions
@@ -58,7 +58,7 @@ func mdToHtml(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 
 	pa := parser.NewWithExtensions(parserExt)
 	ren := html.NewRenderer(html.RendererOptions{Flags: renderFlags})
-	out := markdown.Render(pa.Parse([]byte(src)), ren)
+	out := markdown.Render(pa.Parse(src), ren)
 
 	return vm.ToValue(string(out))
 }

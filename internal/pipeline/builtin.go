@@ -29,8 +29,8 @@ func (d *NopPipe) Config() PipelineConfig {
 func (d *NopPipe) Index(ctx context.Context, input []byte, vars Vars) error {
 	return nil
 }
-func (d *NopPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
-	return string(input), nil
+func (d *NopPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error) {
+	return input, nil
 }
 
 func (d *NopPipe) Hash() string {
@@ -56,7 +56,7 @@ func (m *MdPipe) Config() PipelineConfig {
 func (m *MdPipe) Index(ctx context.Context, input []byte, vars Vars) error {
 	return nil
 }
-func (m *MdPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
+func (m *MdPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error) {
 
 	extensions := parser.CommonExtensions | parser.AutoHeadingIDs | parser.NoEmptyLineBeforeBlock
 	p := parser.NewWithExtensions(extensions)
@@ -67,7 +67,7 @@ func (m *MdPipe) Transform(ctx context.Context, input []byte, vars Vars) (string
 
 	result := markdown.ToHTML(input, p, renderer)
 
-	return string(result), nil
+	return result, nil
 }
 
 func (m *MdPipe) Hash() string {
@@ -94,14 +94,14 @@ func (t TplPipe) Config() PipelineConfig {
 func (t TplPipe) Index(ctx context.Context, input []byte, vars Vars) error {
 	return nil
 }
-func (t TplPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
+func (t TplPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error) {
 	pctx := plush.NewContextWith(vars)
 	result, err := plush.Render(string(input), pctx)
 	if err != nil {
-		return string(input), fmt.Errorf("tpl pipe: %w", err)
+		return input, fmt.Errorf("tpl pipe: %w", err)
 	}
 
-	return result, nil
+	return []byte(result), nil
 }
 
 func (t *TplPipe) Hash() string {

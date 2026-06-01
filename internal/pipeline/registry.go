@@ -18,7 +18,7 @@ var ErrPipelineNotFound = errors.New("pipeline not found")
 
 type Pipe interface {
 	// Index(ctx context.Context, input []byte, vars Vars) error
-	Transform(ctx context.Context, input []byte, vars Vars) (string, error)
+	Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error)
 	Config() PipelineConfig
 	Hash() string
 }

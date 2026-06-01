@@ -10,10 +10,11 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja_nodejs/buffer"
 )
 
 func argMustString(arg goja.Value) (string, error) {
-	if arg == nil || goja.IsUndefined(arg) {
+	if arg == nil || goja.IsUndefined(arg) || goja.IsNull(arg) {
 		return "", fmt.Errorf("argument is nil or undefined")
 	}
 	if str, ok := arg.Export().(string); ok {
@@ -30,6 +31,13 @@ func argMustObject(arg goja.Value) (*goja.Object, error) {
 		return o, nil
 	}
 	return nil, fmt.Errorf("argument must be an object")
+}
+
+func argBytes(vm *goja.Runtime, val goja.Value) ([]byte, error) {
+	if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
+		return nil, fmt.Errorf("expected string or Buffer, got %v", val)
+	}
+	return buffer.Bytes(vm, val), nil
 }
 
 // mustStringArg extracts a string from a goja.Value, throwing a JS TypeError if it fails.
@@ -69,12 +77,6 @@ func newJSDate(vm *goja.Runtime, t time.Time) goja.Value {
 	return date
 }
 
-func HasArg(vm *goja.Runtime, arg goja.Value) bool {
-	if arg == nil || goja.IsUndefined(arg) || goja.IsNull(arg) {
-		return false
-	}
-	return true
-}
 func GetSafe(vm *goja.Runtime, obj *goja.Object, key string) (goja.Value, *goja.Exception) {
 	var val goja.Value
 	exception := vm.Try(func() {

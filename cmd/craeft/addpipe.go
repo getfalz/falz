@@ -45,12 +45,13 @@ const (
     ]
 }`
 
-	indexTS = `import { Parser } from "md"
+	indexTS = `import { toHtml } from "md"
 
-export function transform(this: tCtx, input: string): string {
-    console.log(input)
+export function transform(this: tCtx, input: Buffer): string | Buffer {
+    const text = input.toString('utf8')
+    console.log(text)
 
-    return input
+    return toHtml(text)
 }
 `
 )

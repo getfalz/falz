@@ -33,10 +33,7 @@ func GetFastTplModule(vm *goja.Runtime) *goja.Object {
 // @param config?   - Config      - Optional tag delimiters.
 // @returns string  - The rendered string.
 func fastCompile(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	tpl, err := argMustString(call.Argument(0))
-	if err != nil {
-		panic(vm.NewTypeError("fasttpl.compile: first argument must be a string: %v", err))
-	}
+	tpl := mustStringArg(vm, "fasttpl.compile", call.Argument(0))
 
 	params, ok := call.Argument(1).(*goja.Object)
 	if !ok {
@@ -142,17 +139,4 @@ func parseFtplConfig(vm *goja.Runtime, val goja.Value) fastTplConfig {
 	}
 
 	return cfg
-}
-
-// argString extracts a string from a goja.Value.
-// Accepts JS string primitives and String objects.
-func argString(vm *goja.Runtime, val goja.Value) (string, error) {
-	if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
-		return "", fmt.Errorf("argument is %v", val)
-	}
-	s, ok := val.Export().(string)
-	if !ok {
-		return "", fmt.Errorf("expected string, got %T", val.Export())
-	}
-	return s, nil
 }

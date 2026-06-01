@@ -388,12 +388,12 @@ declare module "md" {
    * 
    * Parses markdown to HTML.
    * 
-   * @param markdown The Markdown content.
+   * @param markdown The Markdown content as a UTF-8 string or Buffer/Uint8Array.
    * @param options? Configuration object for the parser and renderer.
    * @returns The rendered HTML string.
    *
    */
-  export function toHtml (markdown: string, options?: Config): string
+  export function toHtml (markdown: string | Buffer, options?: Config): string
   /**
    * 
    * A ready-to-use Config value enabling the most commonly needed parser extensions
@@ -432,10 +432,10 @@ declare module "tpl" {
    * Throws a TypeError if arguments have the wrong type.
    * Throws an Error if template rendering fails (syntax error, undefined variable, etc.).
    * 
-   * @param template A template string with embedded dynamic content (e.g., "<%= name %>").
+   * @param template A template  with embedded dynamic content (e.g., "<%= name %>").
    * @param variables An object (map) containing key-value pairs to replace placeholders in the template.
    * @returns A promise that resolves to the rendered string with variables replaced.
    *
    */
-  export function render (template: string, variables: Record<string, any>): string
+  export function render (template: string | Buffer, variables: Record<string, any>): string
 }

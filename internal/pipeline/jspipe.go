@@ -100,14 +100,14 @@ func (p *JSPipe) Hash() string {
 	return p.bundleHash
 }
 
-func (p *JSPipe) Transform(ctx context.Context, input []byte, vars Vars) (string, error) {
+func (p *JSPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error) {
 	p.bundleMu.RLock()
 	prg := p.prg
 	p.bundleMu.RUnlock()
 
 	vm, err := newVMWorker(p.cfg, prg)
 	if err != nil {
-		return "", fmt.Errorf("create vm: %w", err)
+		return nil, fmt.Errorf("create vm: %w", err)
 	}
 	defer vm.close()
 

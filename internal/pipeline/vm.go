@@ -86,27 +86,32 @@ func newVMWorker(cfg vmConfig, prg *goja.Program) (*vmWorker, error) {
 	return &vmWorker{vm: vm, fn: fn, cfg: cfg, logger: l}, nil
 }
 
-func (w *vmWorker) transform(ctx context.Context, input []byte, vars map[string]any) (string, error) {
+func (w *vmWorker) transform(ctx context.Context, input []byte, vars map[string]any) ([]byte, error) {
 	stop := w.watchContext(ctx)
 	defer stop()
 
 	jsVars := w.vm.ToValue(vars)
-	jsInput := w.vm.ToValue(string(input))
+	jsInput := buffer.WrapBytes(w.vm, input)
 
 	result, err := w.fn(jsVars, jsInput)
 	if err != nil {
 		var ie *goja.InterruptedError
 		if errors.As(err, &ie) && ctx.Err() != nil {
-			return "", ctx.Err()
+			return nil, ctx.Err()
 		}
-		return "", fmt.Errorf("pipe %q: transform: %w", w.cfg.name, err)
+		return nil, fmt.Errorf("pipe %q: transform: %w", w.cfg.name, err)
 	}
 
-	str, ok := result.Export().(string)
-	if !ok {
-		return "", fmt.Errorf("pipe %q: transform must return string, got %T", w.cfg.name, result.Export())
+	switch v := result.Export().(type) {
+	case string:
+		return []byte(v), nil
+	case []byte:
+		return v, nil
+	case nil:
+		return nil, fmt.Errorf("pipe %q: transform returned null/undefined", w.cfg.name)
+	default:
+		return []byte(result.String()), nil
 	}
-	return str, nil
 }
 
 // watchContext spawns a goroutine that interrupts the VM if ctx is cancelled.

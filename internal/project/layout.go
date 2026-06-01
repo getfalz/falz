@@ -1,6 +1,7 @@
 package project
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
@@ -37,15 +38,30 @@ type LayoutCacheEntry struct {
 	tags    map[string]struct{} // a list of all tags used in the layout template
 }
 
-func (lc *LayoutCacheEntry) ExecuteString(vars map[string]interface{}) string {
+// warnUnknownTags emits a warning for any key in vars that is not a known
+// template placeholder. "target" and "vars" are special and always skipped.
+func (lc *LayoutCacheEntry) warnUnknownTags(vars map[string]interface{}) {
 	for k := range vars {
-		if !(k == "target" || k == "vars") {
-			if _, exists := lc.tags[k]; !exists {
-				log.WWarn(log.Layout).Str("tag", k).Msg("variable provided but not found in template")
-			}
+		if k == "target" || k == "vars" {
+			continue
+		}
+		if _, exists := lc.tags[k]; !exists {
+			log.WWarn(log.Layout).Str("tag", k).Msg("variable provided but not found in template")
 		}
 	}
-	return lc.layoutTpl.ExecuteString(vars)
+}
+
+// Execute writes the rendered layout to w.
+func (lc *LayoutCacheEntry) Execute(w io.Writer, vars map[string]any) (int64, error) {
+	lc.warnUnknownTags(vars)
+	return lc.layoutTpl.Execute(w, vars)
+}
+
+func (lc *LayoutCacheEntry) ExecuteBytes(vars map[string]any) []byte {
+	lc.warnUnknownTags(vars)
+	var buf bytes.Buffer
+	lc.layoutTpl.Execute(&buf, vars)
+	return buf.Bytes()
 }
 
 func (lc *LayoutCacheEntry) GetDeps() []string {
@@ -141,9 +157,9 @@ func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern stri
 }
 
 func (lc *LayoutCache) SetNamePattern(pattern string) {
-    lc.mu.Lock()
-    defer lc.mu.Unlock()
-    lc.namePattern = pattern
+	lc.mu.Lock()
+	defer lc.mu.Unlock()
+	lc.namePattern = pattern
 }
 
 func (lc *LayoutCache) Get(
@@ -216,7 +232,7 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		return nil, err
 	}
 
-	tpl, err := fasttemplate.NewTemplate(str, "{{", "}}")
+	tpl, err := fasttemplate.NewTemplate(string(str), "{{", "}}")
 	if err != nil {
 		return nil, err
 	}

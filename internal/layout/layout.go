@@ -1,6 +1,7 @@
 package layout
 
 import (
+	"bytes"
 	"context"
 	"encoding/xml"
 	"errors"
@@ -23,30 +24,30 @@ type RenderCtx struct {
 	FS        *utils.RootFS
 }
 
-func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) (string, string, error) {
+func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) ([]byte, string, error) {
 	files, err := rctx.FS.FindFile(f.base, f.Source)
 	if err != nil {
-		return "", "", err
+		return nil, "", err
 	}
 
 	fragmentPath := filepath.ToSlash(files[0])
 
 	content, err := fs.ReadFile(rctx.FS.FS(), fragmentPath)
 	if err != nil {
-		return "", "", fmt.Errorf("fragment %q: can't read file %q: %w", f.Name, fragmentPath, err)
+		return nil, "", fmt.Errorf("fragment %q: can't read file %q: %w", f.Name, fragmentPath, err)
 	}
 
 	vars := pipeline.Vars{}
 	pipe, err := rctx.Pipelines.Get(f.Pipe)
 	if err != nil {
-		return "", "", fmt.Errorf("fragment %q: pipe %q not found: %w", f.Name, pipe.Config().PipelineName, err)
+		return nil, "", fmt.Errorf("fragment %q: pipe %q not found: %w", f.Name, pipe.Config().PipelineName, err)
 	}
 	// TODO set vars
 	// vars.Set("vars", t.P.Config.Variables)
 	// vars.Set("assets", f.)
 	result, err := pipe.Transform(ctx, content, vars)
 	if err != nil {
-		return "", "", fmt.Errorf("fragment %q: pipe %q couldn't transform: %w", f.Name, pipe.Config().PipelineName, err)
+		return nil, "", fmt.Errorf("fragment %q: pipe %q couldn't transform: %w", f.Name, pipe.Config().PipelineName, err)
 	}
 
 	log.TTrace(log.Layout).
@@ -63,11 +64,11 @@ func (c Content) Render(ctx context.Context) string {
 }
 
 // Render layout. The fragments will be searched first in the given base path
-func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rendered string, deps []string, err error) {
+func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rendered []byte, deps []string, err error) {
 
 	if cerr := ctx.Err(); cerr != nil {
 		log.EError(log.Layout).Err(cerr).Str("layout_rel", l.path).Msg("render canceled (pre)")
-		return "", nil, cerr
+		return nil, nil, cerr
 	}
 
 	var tmpl []byte
@@ -76,13 +77,13 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 	} else {
 		tplPaths, err := rctx.FS.FindFile(base, l.TplPath)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: find template with base %q and path %q: %w", l.path, base, l.TplPath, err)
+			return nil, nil, fmt.Errorf("layout %q: find template with base %q and path %q: %w", l.path, base, l.TplPath, err)
 		}
 
 		tplPath := filepath.ToSlash(tplPaths[0])
 		tplFile, err := fs.ReadFile(rctx.FS.FS(), tplPath)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: read template file %q: %w", l.path, tplPath, err)
+			return nil, nil, fmt.Errorf("layout %q: read template file %q: %w", l.path, tplPath, err)
 		}
 		tmpl = tplFile
 		deps = append(deps, tplPath)
@@ -97,18 +98,22 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 	for _, f := range l.fragments {
 		output, fragmentPath, err := f.Render(ctx, rctx)
 		if err != nil {
-			return "", nil, fmt.Errorf("layout %q: render fragment %q with src %q: %w", l.path, f.Name, f.Source, err)
+			return nil, nil, fmt.Errorf("layout %q: render fragment %q with src %q: %w", l.path, f.Name, f.Source, err)
 		}
 		tplVariables[f.Name] = output
 		deps = append(deps, fragmentPath)
 	}
 
-	// builds layout and repace placeholders for fragments
+	// builds layout and replaces placeholders for fragments
 	t, err := fasttemplate.NewTemplate(string(tmpl), "{{", "}}")
 	if err != nil {
-		return "", nil, fmt.Errorf("layout %q: parse template: %w", l.path, err)
+		return nil, nil, fmt.Errorf("layout %q: parse template: %w", l.path, err)
 	}
-	result := t.ExecuteString(tplVariables)
+
+	var buf bytes.Buffer
+	if _, err = t.Execute(&buf, tplVariables); err != nil {
+		return nil, nil, fmt.Errorf("layout %q: execute template: %w", l.path, err)
+	}
 
 	lo := log.TTrace(log.Layout).
 		Str("layout_rel", l.path).
@@ -124,7 +129,7 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 		Int("fragments", len(l.fragments)).
 		Msg("layout template rendered")
 
-	return result, deps, nil
+	return buf.Bytes(), deps, nil
 }
 
 func (l Layout) Validate() error {

@@ -36,13 +36,13 @@ func GetTplModule(vm *goja.Runtime) *goja.Object {
 // Throws a TypeError if arguments have the wrong type.
 // Throws an Error if template rendering fails (syntax error, undefined variable, etc.).
 //
-// @param template - string - A template string with embedded dynamic content (e.g., "<%= name %>").
+// @param template - string | Buffer - A template  with embedded dynamic content (e.g., "<%= name %>").
 // @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
 // @returns string - A promise that resolves to the rendered string with variables replaced.
 func tplRender(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
-	tpl, err := argMustString(call.Argument(0))
+	b, err := argBytes(vm, call.Argument(0))
 	if err != nil {
-		panic(vm.NewTypeError("tpl.render: first argument must be a string: %v", err))
+		panic(vm.NewTypeError("tpl.render: first argument must be a string or Buffer: %v", err))
 	}
 
 	var vars map[string]any
@@ -50,7 +50,7 @@ func tplRender(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 		panic(vm.NewTypeError("tpl.render: second argument must be an object: %v", err))
 	}
 
-	result, err := plush.Render(tpl, plush.NewContextWith(vars))
+	result, err := plush.Render(string(b), plush.NewContextWith(vars))
 	if err != nil {
 		panic(vm.NewGoError(fmt.Errorf("tpl.render: %w", err)))
 	}
