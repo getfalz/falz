@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"strings"
 
@@ -48,6 +49,9 @@ type vmConfig struct {
 	name   string
 	root   *utils.RootFS
 	dbPath string
+
+	httpPolicy    js.HTTPPolicy
+	httpTransport *http.Transport
 }
 
 // vmWorker is a single-use goja runtime.
@@ -56,15 +60,17 @@ type vmWorker struct {
 	fn     goja.Callable
 	cfg    vmConfig
 	logger zerolog.Logger
+	ctx    context.Context
 }
 
 // newVMWorker creates a fresh goja runtime, runs the pre-compiled program,
 // The caller must call close() when done.
-func newVMWorker(cfg vmConfig, prg *goja.Program) (*vmWorker, error) {
+func newVMWorker(ctx context.Context, cfg vmConfig, prg *goja.Program) (*vmWorker, error) {
 	vm := goja.New()
 	l := newConsoleLogger(cfg.name)
+	worker := &vmWorker{vm: vm, cfg: cfg, logger: l, ctx: ctx}
 
-	setupVM(vm, cfg, l)
+	setupVM(worker)
 
 	if _, err := vm.RunProgram(prg); err != nil {
 		return nil, fmt.Errorf("run bundle: %w", err)
@@ -82,8 +88,9 @@ func newVMWorker(cfg vmConfig, prg *goja.Program) (*vmWorker, error) {
 	if !ok {
 		return nil, fmt.Errorf("pipe %q: transform is not a function", cfg.name)
 	}
+	worker.fn = fn
 
-	return &vmWorker{vm: vm, fn: fn, cfg: cfg, logger: l}, nil
+	return worker, nil
 }
 
 func (w *vmWorker) transform(ctx context.Context, input []byte, vars map[string]any) ([]byte, error) {
@@ -138,16 +145,6 @@ func (w *vmWorker) close() {
 	w.fn = nil
 }
 
-// @ts interface global.Console
-// @field log(...data: any[]): void - Logs the provided arguments to the console with info level.
-// @field info(...data: any[]): void - Logs the provided arguments to the console with info level.
-// @field warn(...data: any[]): void - Logs the provided arguments to the console with warn level.
-// @field error(...data: any[]): void - Logs the provided arguments to the console with error level.
-// @field dump(...data: any[]): void - Dumps the provided arguments to the console with error level.
-
-// @ts var global.console
-// @type Console
-// @doc Console provides a simple logging interface for JavaScript pipelines.
 func newConsoleLogger(pipeName string) zerolog.Logger {
 	var writer io.Writer = &log.LevelWriter{Writer: os.Stdout, ErrorWriter: os.Stderr}
 
@@ -209,12 +206,12 @@ func setupGlobals(vm *goja.Runtime) {
 	vm.Set("URLSearchParams", urlExports.Get("URLSearchParams"))
 }
 
-func setupVM(vm *goja.Runtime, cfg vmConfig, l zerolog.Logger) {
-	vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
-	setupConsole(vm, cfg.name, l)
-	setupRequire(vm, cfg)
+func setupVM(w *vmWorker) {
+	w.vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
+	setupConsole(w.vm, w.cfg.name, w.logger)
+	setupRequire(w)
 	// setupCommonJS(vm)
-	setupGlobals(vm)
+	setupGlobals(w.vm)
 }
 
 func setupCommonJS(vm *goja.Runtime) {
@@ -225,8 +222,8 @@ func setupCommonJS(vm *goja.Runtime) {
 	vm.Set("module", module)
 }
 
-func setupRequire(vm *goja.Runtime, cfg vmConfig) {
-	vm.Set("require", func(call goja.FunctionCall) goja.Value {
+func setupRequire(w *vmWorker) {
+	w.vm.Set("require", func(call goja.FunctionCall) goja.Value {
 		name := call.Argument(0).String()
 		switch name {
 		// case "kv":
@@ -236,20 +233,20 @@ func setupRequire(vm *goja.Runtime, cfg vmConfig) {
 		// 	}
 		// 	return kvAPI.GetModule(vm)
 		case "fs":
-			fsAPI := js.NewFsApi(cfg.root)
-			return fsAPI.GetModule(vm)
-		// case "http":
-		// 	return GetFetchModule(vm)
+			fsAPI := js.NewFsApi(w.cfg.root)
+			return fsAPI.GetModule(w.vm)
+		case "http":
+			return js.GetHTTPModule(w.vm, w.ctx, w.cfg.httpPolicy, w.cfg.httpTransport)
 		case "md":
-			return js.GetMdModule(vm)
+			return js.GetMdModule(w.vm)
 		case "fasttpl":
-			return js.GetFastTplModule(vm)
+			return js.GetFastTplModule(w.vm)
 		case "tpl":
-			return js.GetTplModule(vm)
+			return js.GetTplModule(w.vm)
 		}
 		// Unknown module — esbuild should have bundled it.
 		// Returning undefined lets scripts fail naturally with a clear JS error.
-		l := log.Logger().With().Str("pipe", cfg.name).Logger()
+		l := log.Logger().With().Str("pipe", w.cfg.name).Logger()
 		l.Warn().Str("module", name).Msg("require: unknown module")
 		return goja.Undefined()
 	})

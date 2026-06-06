@@ -1,154 +1,103 @@
 package js
 
 import (
+	"slices"
 	"encoding/json"
-	"net/http"
+	"fmt"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja_nodejs/buffer"
 )
 
+// @ts class http.Response
+//
+// @doc
+// The response returned by every `http.*` method.
+//
+// @field status: number
+// @field statusText: string
+// @field ok: boolean
+// @field redirected: boolean
+// @field url: string
+// @field headers: Headers
+// @field text(): string
+// @field json(): any
+// @field bytes(): Buffer
+// @field arrayBuffer(): ArrayBuffer
 type Response struct {
-	Status     int
-	StatusText string
-	Headers    *Headers
-	_headers   *goja.Object
-	Body       []byte
-	URL        string
-	Type       string
+	status     int
+	statusText string
+	headers    *Headers
+	body       []byte
+	url        string
+	redirected bool
 	vm         *goja.Runtime
+}
+
+var responsePropertyNames = []string{
+	"status", "statusText", "ok", "redirected", "url",
+	"headers", "text", "json", "bytes", "arrayBuffer",
 }
 
 func (r *Response) Get(key string) goja.Value {
 	switch key {
 	case "status":
-		return r.vm.ToValue(r.Status)
+		return r.vm.ToValue(r.status)
 	case "statusText":
-		return r.vm.ToValue(r.StatusText)
-	case "headers":
-		return r._headers
-	case "url":
-		return r.vm.ToValue(r.URL)
-	case "type":
-		return r.vm.ToValue(r.Type)
+		return r.vm.ToValue(r.statusText)
 	case "ok":
-		return r.vm.ToValue(r.Status >= 200 && r.Status < 300)
+		return r.vm.ToValue(r.status >= 200 && r.status < 300)
 	case "redirected":
-		return r.vm.ToValue(false)
-	// TODO remove this
-	case "bodyUsed":
-		return r.vm.ToValue(false)
-	case "clone":
-		return r.vm.ToValue(r.Clone)
+		return r.vm.ToValue(r.redirected)
+	case "url":
+		return r.vm.ToValue(r.url)
+	case "headers":
+		return newHeadersObject(r.vm, r.headers)
 	case "text":
-		return r.vm.ToValue(r.Text)
+		return r.vm.ToValue(r.jsText)
 	case "json":
-		return r.vm.ToValue(r.Json)
+		return r.vm.ToValue(r.jsJSON)
+	case "bytes":
+		return r.vm.ToValue(r.jsBytes)
+	case "arrayBuffer":
+		return r.vm.ToValue(r.jsArrayBuffer)
 	default:
 		return goja.Undefined()
 	}
 }
 
-func (r *Response) Set(key string, val goja.Value) bool {
-	return false
-}
+func (r *Response) Set(string, goja.Value) bool { return false }
 
 func (r *Response) Has(key string) bool {
-	switch key {
-	case "status", "statusText", "headers", "url", "type", "ok", "redirected", "bodyUsed", "clone", "text", "json":
-		return true
-	default:
-		return false
+	return slices.Contains(responsePropertyNames, key)
+}
+
+func (r *Response) Delete(string) bool { return false }
+func (r *Response) Keys() []string     { return responsePropertyNames }
+
+func (r *Response) jsText(_ goja.FunctionCall) goja.Value {
+	return r.vm.ToValue(string(r.body))
+}
+
+func (r *Response) jsJSON(_ goja.FunctionCall) goja.Value {
+	if len(r.body) == 0 {
+		panic(r.vm.NewGoError(fmt.Errorf("Response.json: body is empty")))
 	}
-}
-
-func (r *Response) Delete(key string) bool {
-	return false
-}
-
-func (r *Response) Keys() []string {
-	return []string{"status", "statusText", "headers", "url", "type", "ok", "redirected", "bodyUsed", "clone", "text", "json"}
-}
-
-func (r *Response) getResponse(call goja.FunctionCall) *Response {
-	if obj, ok := call.This.Export().(*Response); ok {
-		return obj
+	var result any
+	if err := json.Unmarshal(r.body, &result); err != nil {
+		panic(r.vm.NewGoError(fmt.Errorf("Response.json: %w", err)))
 	}
-	panic(r.vm.NewTypeError("Method called on incompatible receiver"))
+	return r.vm.ToValue(result)
 }
 
-func (r *Response) Clone(call goja.FunctionCall) goja.Value {
-	r = r.getResponse(call)
-	clonedResponse := &Response{
-		Status:     r.Status,
-		StatusText: r.StatusText,
-		Headers: &Headers{
-			header: r.Headers.header.Clone(),
-			vm:     r.vm,
-		},
-		Body: r.Body,
-		URL:  r.URL,
-		Type: r.Type,
-		vm:   r.vm,
-	}
-	obj := r.vm.NewDynamicObject(clonedResponse)
-	return obj
+func (r *Response) jsBytes(_ goja.FunctionCall) goja.Value {
+	return buffer.WrapBytes(r.vm, r.body)
 }
 
-func (r *Response) Text(call goja.FunctionCall) goja.Value {
-	r = r.getResponse(call)
-	promise, resolve, _ := r.vm.NewPromise()
-	go func() {
-		resolve(r.vm.ToValue(string(r.Body)))
-	}()
-	return r.vm.ToValue(promise)
+func (r *Response) jsArrayBuffer(_ goja.FunctionCall) goja.Value {
+	return r.vm.ToValue(r.vm.NewArrayBuffer(r.body))
 }
 
-func (r *Response) Json(call goja.FunctionCall) goja.Value {
-	r = r.getResponse(call)
-	promise, resolve, reject := r.vm.NewPromise()
-	go func() {
-		var result interface{}
-		err := json.Unmarshal(r.Body, &result)
-		if err != nil {
-			reject(r.vm.ToValue(err.Error()))
-		} else {
-			resolve(r.vm.ToValue(result))
-		}
-	}()
-	return r.vm.ToValue(promise)
-}
-
-func NewResponseConstructor(vm *goja.Runtime) func(call goja.ConstructorCall) *goja.Object {
-	return func(call goja.ConstructorCall) *goja.Object {
-		var body []byte
-		if len(call.Arguments) > 0 {
-			arg := call.Argument(0).Export()
-			switch v := arg.(type) {
-			case string:
-				body = []byte(v)
-			case []byte:
-				body = v
-			default:
-				panic(vm.NewTypeError("Invalid body type"))
-			}
-		}
-
-		headers := &Headers{
-			header: http.Header{},
-			vm:     vm,
-		}
-		headersObj := vm.NewDynamicObject(headers)
-		res := &Response{
-			Status:     200,
-			StatusText: "OK",
-			Headers:    headers,
-			_headers:   headersObj,
-			Body:       body,
-			Type:       "default",
-			vm:         vm,
-		}
-
-		obj := vm.NewDynamicObject(res)
-		return obj
-	}
+func newResponseObject(vm *goja.Runtime, r *Response) *goja.Object {
+	return vm.NewDynamicObject(r)
 }

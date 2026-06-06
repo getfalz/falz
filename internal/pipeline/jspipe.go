@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"craeft/internal/pipeline/js"
 	"craeft/internal/utils"
 
 	"github.com/dop251/goja"
@@ -56,6 +57,9 @@ func NewJSPipe(path string, srcRoot *utils.RootFS) (*JSPipe, error) {
 		name:   pcfg.PipelineName,
 		root:   srcRoot,
 		dbPath: "",
+
+		httpPolicy:    pcfg.Fetch.Policy(),
+		httpTransport: js.NewSharedTransport(pcfg.Fetch.MaxConnsPerHost),
 	}
 
 	return &JSPipe{
@@ -105,7 +109,7 @@ func (p *JSPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte
 	prg := p.prg
 	p.bundleMu.RUnlock()
 
-	vm, err := newVMWorker(p.cfg, prg)
+	vm, err := newVMWorker(ctx, p.cfg, prg)
 	if err != nil {
 		return nil, fmt.Errorf("create vm: %w", err)
 	}

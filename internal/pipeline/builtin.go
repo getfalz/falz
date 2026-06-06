@@ -3,7 +3,6 @@ package pipeline
 import (
 	"context"
 	"fmt"
-	"regexp"
 
 	"craeft/internal/utils"
 
@@ -17,13 +16,9 @@ type NopPipe struct {
 }
 
 func (d *NopPipe) Config() PipelineConfig {
-	re := regexp.MustCompile(fmt.Sprintf(`\.(%s)\b`, ""))
 	return PipelineConfig{
-		PipelineName:   "default",
-		EntryPoint:     "",
-		SourceSuffix:   "",
-		SourceSuffixRe: re,
-		TargetSuffix:   "",
+		PipelineName: "default",
+		EntryPoint:   "",
 	}
 }
 func (d *NopPipe) Index(ctx context.Context, input []byte, vars Vars) error {
@@ -35,22 +30,16 @@ func (d *NopPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byt
 
 func (d *NopPipe) Hash() string {
 	config := d.Config()
-	return utils.HashString(config.PipelineName + config.SourceSuffix + config.TargetSuffix)
+	return utils.HashString(config.PipelineName)
 }
 
 type MdPipe struct {
 }
 
 func (m *MdPipe) Config() PipelineConfig {
-	pattern := "md|markdown|mkd|mkdn|mdown"
-
-	re := regexp.MustCompile(fmt.Sprintf(`\.(%s)\b`, pattern))
 	return PipelineConfig{
-		PipelineName:   "md",
-		EntryPoint:     "",
-		SourceSuffix:   pattern,
-		TargetSuffix:   "html",
-		SourceSuffixRe: re,
+		PipelineName: "md",
+		EntryPoint:   "",
 	}
 }
 func (m *MdPipe) Index(ctx context.Context, input []byte, vars Vars) error {
@@ -72,23 +61,16 @@ func (m *MdPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte
 
 func (m *MdPipe) Hash() string {
 	config := m.Config()
-	return utils.HashString(config.PipelineName + config.SourceSuffix + config.TargetSuffix)
+	return utils.HashString(config.PipelineName)
 }
 
 type TplPipe struct {
 }
 
 func (t TplPipe) Config() PipelineConfig {
-	pattern := "tpl|tmpl"
-
-	re := regexp.MustCompile(fmt.Sprintf(`\.(%s)\b`, pattern))
-
 	return PipelineConfig{
-		PipelineName:   "default",
-		EntryPoint:     "",
-		SourceSuffix:   pattern,
-		TargetSuffix:   "html",
-		SourceSuffixRe: re,
+		PipelineName: "default",
+		EntryPoint:   "",
 	}
 }
 func (t TplPipe) Index(ctx context.Context, input []byte, vars Vars) error {
@@ -106,5 +88,5 @@ func (t TplPipe) Transform(ctx context.Context, input []byte, vars Vars) ([]byte
 
 func (t *TplPipe) Hash() string {
 	config := t.Config()
-	return utils.HashString(config.PipelineName + config.SourceSuffix + config.TargetSuffix)
+	return utils.HashString(config.PipelineName)
 }

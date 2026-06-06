@@ -30,6 +30,98 @@ declare module "fasttpl" {
 }
 /**
  * 
+ * Synchronous HTTP client for pipeline scripts.
+ * 
+ * Every method executes the request synchronously and returns a `Response`
+ * directly. Requests are cancelled automatically when
+ * the pipeline context times out or is cancelled.
+ * 
+ * All methods throw on non-2xx responses. The thrown error has two extra
+ * properties:
+ * - `status`   — the HTTP status code (number)
+ * - `response` — the full `Response` object so you can inspect headers and
+ * body on error
+ * 
+ * Body encoding for POST / PUT / PATCH / DELETE:
+ * - `string`           → text/plain;charset=UTF-8
+ * - `Buffer`           → application/octet-stream
+ * - `Uint8Array`       → application/octet-stream
+ * - `ArrayBuffer`      → application/octet-stream
+ * - plain object/array → application/json;charset=UTF-8 (auto-encoded)
+ * 
+ *
+ */
+declare module "http" {
+  /**
+   * Issue a GET request. Throws on non-2xx.
+   * @param url The resource to request.
+   * @param headers? Request headers.
+   *
+   */
+  export function get (url: string | URL, headers?: Headers | Record<string,string> | [string,string][]): Response
+  /**
+   * Issue a POST request. Throws on non-2xx.
+   * @param url The resource to request.
+   * @param body? Request body.
+   * @param headers? Request headers.
+   *
+   */
+  export function post (url: string | URL, body?: string | Buffer | Uint8Array | ArrayBuffer | object, headers?: Headers | Record<string,string> | [string,string][]): Response
+  /**
+   * Issue a PUT request. Throws on non-2xx.
+   * @param url The resource to request.
+   * @param body? Request body.
+   * @param headers? Request headers.
+   *
+   */
+  export function put (url: string | URL, body?: string | Buffer | Uint8Array | ArrayBuffer | object, headers?: Headers | Record<string,string> | [string,string][]): Response
+  /**
+   * Issue a PATCH request. Throws on non-2xx.
+   * @param url The resource to request.
+   * @param body? Request body.
+   * @param headers? Request headers.
+   *
+   */
+  export function patch (url: string | URL, body?: string | Buffer | Uint8Array | ArrayBuffer | object, headers?: Headers | Record<string,string> | [string,string][]): Response
+  /**
+   * Issue a DELETE request. Throws on non-2xx. Named `del` because `delete` is a JS keyword.
+   * @param url The resource to request.
+   * @param body? Optional body.
+   * @param headers? Request headers.
+   *
+   */
+  export function del (url: string | URL, body?: string | Buffer | Uint8Array | ArrayBuffer | object, headers?: Headers | Record<string,string> | [string,string][]): Response
+  /**
+   * Issue a HEAD request. Throws on non-2xx. Response body is always empty.
+   * @param url The resource to request.
+   * @param headers? Request headers.
+   *
+   */
+  export function head (url: string | URL, headers?: Headers | Record<string,string> | [string,string][]): Response
+  /**
+   * 
+   * 
+   * Constructed via `new Headers(init?)` where `init` may be:
+   * - omitted — empty Headers
+   * - another `Headers` instance — shallow copy
+   * - a plain object `{ "name": "value", ... }` — one value per name
+   * - an array of pairs `[["name", "value"], ...]` — supports multi-values
+   * 
+   *
+   */
+  export class Headers {
+  }
+  /**
+   * 
+   * The response returned by every `http.*` method.
+   * 
+   *
+   */
+  export class Response {
+  }
+}
+/**
+ * 
  * File system utilities.
  *
  */
@@ -438,4 +530,52 @@ declare module "tpl" {
    *
    */
   export function render (template: string | Buffer, variables: Record<string, any>): string
+}
+/**
+ * 
+ * Parse and serialise YAML documents
+ *
+ */
+declare module "yaml" {
+  /**
+   * 
+   * Formatting options for yaml.stringify.
+   * 
+   *
+   */
+  interface StringifyOptions {
+    /**
+     * Number of spaces per indentation level. Defaults to 2.
+     */
+    indent?: number
+  }
+  /**
+   * 
+   * Parses a YAML string and returns the JavaScript value it represents.
+   * 
+   * Throws a TypeError when the first argument is not a string.
+   * Throws an Error when the YAML input is malformed.
+   * 
+   * @param src A YAML-encoded string.
+   * @returns The decoded JavaScript value
+   *
+   */
+  export function parse (src: string | Buffer): any
+  /**
+   * 
+   * Serialises a JavaScript value to a YAML string.
+   * 
+   * Function-valued properties and Symbol-keyed properties are silently omitted.
+   * 
+   * The returned string always ends with a newline character.
+   * 
+   * Throws a TypeError when options has the wrong type.
+   * Throws an Error when serialisation fails.
+   * 
+   * @param value The JavaScript value to serialise.
+   * @param options? Optional formatting options.
+   * @returns YAML-encoded string with a trailing newline.
+   *
+   */
+  export function stringify (value: any, options?: StringifyOptions): string
 }

@@ -589,28 +589,6 @@ declare global {
      */
     dump(...data: any[]): void
   }
-  interface Console {
-    /**
-     * Logs the provided arguments to the console with info level.
-     */
-    log(...data: any[]): void
-    /**
-     * Logs the provided arguments to the console with info level.
-     */
-    info(...data: any[]): void
-    /**
-     * Logs the provided arguments to the console with warn level.
-     */
-    warn(...data: any[]): void
-    /**
-     * Logs the provided arguments to the console with error level.
-     */
-    error(...data: any[]): void
-    /**
-     * Dumps the provided arguments to the console with error level.
-     */
-    dump(...data: any[]): void
-  }
   /**
    * 
    * The global Buffer constructor. Use Buffer.from(), Buffer.alloc(), or
@@ -639,11 +617,6 @@ declare global {
    *
    */
   function domainToUnicode (domain: string): string
-  /**
-   * Console provides a simple logging interface for JavaScript pipelines.
-   *
-   */
-  var console: Console
   /**
    * Console provides a simple logging interface for JavaScript pipelines.
    *
