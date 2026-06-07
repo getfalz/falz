@@ -30,10 +30,22 @@ const (
 )
 
 type EntryType int
+
 const (
 	ContentType EntryType = iota
 	AssetType
 )
+
+func (t EntryType) String() string {
+	switch t {
+	case ContentType:
+		return "content"
+	case AssetType:
+		return "asset"
+	default:
+		return "unknown"
+	}
+}
 
 type BuildEntry struct {
 	ID string // Unique identifier: "content/about.md" or "assets/style.css"
@@ -44,9 +56,9 @@ type BuildEntry struct {
 
 	// Build information
 	LayoutKey LayoutKey
-	Pipeline  string    // Pipeline name
-	TagName   string    // Content slot name (empty for assets)
-	BaseDir   string    // Base directory
+	Pipeline  string // Pipeline name
+	TagName   string // Content slot name (empty for assets)
+	BaseDir   string // Base directory
 
 	// State
 	Hash  string

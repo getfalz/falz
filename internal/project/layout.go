@@ -38,11 +38,17 @@ type LayoutCacheEntry struct {
 	tags    map[string]struct{} // a list of all tags used in the layout template
 }
 
+var systemVars = map[string]struct{}{
+	"target": {},
+	"vars":   {},
+	"file":   {},
+}
+
 // warnUnknownTags emits a warning for any key in vars that is not a known
 // template placeholder. "target" and "vars" are special and always skipped.
 func (lc *LayoutCacheEntry) warnUnknownTags(vars map[string]interface{}) {
 	for k := range vars {
-		if k == "target" || k == "vars" {
+		if _, isSystem := systemVars[k]; isSystem {
 			continue
 		}
 		if _, exists := lc.tags[k]; !exists {

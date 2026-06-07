@@ -339,7 +339,10 @@ func (b *builder) buildEntry(
 	// TODO define "default" vars keys somewhere, so that ExecuteString can ignore them
 	vars := pipeline.Vars{
 		"target": outputPath,
+		"file":   pipeline.NewFileInfo(entry.SourcePath, entry.BaseDir),
 		"vars":   b.config.Variables,
+		"type":   entry.Type.String(),
+		"tag":   entry.TagName,
 	}
 
 	transformed, err := pl.Transform(ctx, data, vars)

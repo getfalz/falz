@@ -49,7 +49,9 @@ const (
 
 export function transform(this: tCtx, input: Buffer): string | Buffer {
     const text = input.toString('utf8')
-    console.log(text)
+
+    const { file, target, vars } = this
+    console.log(`+"`"+`[${file.ext}] ${file.path} -> ${target}`+"`"+`)
 
     return toHtml(text)
 }
