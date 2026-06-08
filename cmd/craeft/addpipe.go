@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -13,15 +12,6 @@ import (
 	"github.com/urfave/cli/v3"
 	"gopkg.in/yaml.v3"
 )
-
-//go:embed craeft.d.ts
-var tsDoc string
-
-//go:embed global.d.ts
-var globalDoc string
-
-//go:embed env.d.ts
-var envDoc string
 
 const (
 	pipeDir = "pipes"
@@ -51,7 +41,7 @@ export function transform(this: tCtx, input: Buffer): string | Buffer {
     const text = input.toString('utf8')
 
     const { file, target, vars } = this
-    console.log(`+"`"+`[${file.ext}] ${file.path} -> ${target}`+"`"+`)
+    console.log(` + "`" + `[${file.ext}] ${file.path} -> ${target}` + "`" + `)
 
     return toHtml(text)
 }
@@ -116,19 +106,11 @@ var addCommand = &cli.Command{
 					return fmt.Errorf("failed to create pipe directory: %w", err)
 				}
 
-				typesDir := filepath.Join(craeftDir, "types")
-				if err := os.MkdirAll(typesDir, 0755); err != nil {
-					return fmt.Errorf("failed to create types directory: %w", err)
-				}
-
 				for _, f := range []struct {
 					path    string
 					content string
 				}{
 					{filepath.Join(currPipeDir, configFile), string(out)},
-					{filepath.Join(typesDir, "craeft.d.ts"), tsDoc},
-					{filepath.Join(typesDir, "global.d.ts"), globalDoc},
-					{filepath.Join(typesDir, "env.d.ts"), envDoc},
 					{filepath.Join(currPipeDir, "tsconfig.json"), tsconfig},
 					{filepath.Join(currPipeDir, "index.ts"), indexTS},
 					{filepath.Join(currPipeDir, "package.json"), `{"name":"` + name + `","type":"module","dependencies":{}}`},

@@ -23,7 +23,7 @@ type JSPipe struct {
 	bundleMu   sync.RWMutex
 }
 
-func NewJSPipe(path string, srcRoot *utils.RootFS) (*JSPipe, error) {
+func NewJSPipe(path string, srcRoot *utils.RootFS, sharedRoot *utils.RootFS,) (*JSPipe, error) {
 	pcfg, err := loadConfig(filepath.Join(path, "config.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("load config: %w", err)
@@ -33,7 +33,8 @@ func NewJSPipe(path string, srcRoot *utils.RootFS) (*JSPipe, error) {
 	if err != nil {
 		return nil, fmt.Errorf("pipe rootfs: %w", err)
 	}
-	b, err := newBundle(pcfg.EntryPoint, pipeRoot, pcfg.Debug)
+
+	b, err := newBundle(pcfg.EntryPoint, pipeRoot, sharedRoot, pcfg.Debug)
 	if err != nil {
 		_ = pipeRoot.Close()
 		return nil, fmt.Errorf("new bundle: %w", err)

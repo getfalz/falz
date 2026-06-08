@@ -7,6 +7,17 @@ import (
 	"github.com/dop251/goja"
 )
 
+// @ts interface global.FileInfo
+// @doc
+// Metadata about the source file being transformed.
+// Passed as the `file` field on the `tCtx` context object.
+// All paths use forward slashes regardless of the host operating system.
+// @field path: string - Slash-normalised path to the source file, relative to the project root (e.g. `content/posts/hello.md`).
+// @field dir: string - Parent directory of the source file (e.g. `content/posts`).
+// @field name: string - Full filename including extension (e.g. `hello.md`).
+// @field stem: string - Filename without its extension (e.g. `hello`).
+// @field ext: string - File extension without the leading dot (e.g. `md`).
+// @field baseDir: string - Layout-scoping directory from which the governing layout was resolved. Used to locate fragments and partials relative to the correct base.
 type FileInfo struct {
 	Path string
 	Dir  string

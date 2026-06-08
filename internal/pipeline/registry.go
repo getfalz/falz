@@ -16,6 +16,8 @@ import (
 
 var ErrPipelineNotFound = errors.New("pipeline not found")
 
+const SharedPipeFolder = "shared"
+
 type Pipe interface {
 	// Index(ctx context.Context, input []byte, vars Vars) error
 	Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error)
@@ -33,20 +35,27 @@ type RegistryConfig struct {
 // Built-in pipes (md, tpl) are registered at construction.
 // JS pipes are loaded from disk and can be reloaded at runtime.
 type Registry struct {
-	cfg      *RegistryConfig
-	builtins map[string]Pipe
-	jsPipes  sync.Map // map[string]*JSPipe
+	cfg        *RegistryConfig
+	builtins   map[string]Pipe
+	jsPipes    sync.Map // map[string]*JSPipe
+	sharedRoot *utils.RootFS
 }
 
-func NewRegistry(cfg *RegistryConfig) *Registry {
+func NewRegistry(cfg *RegistryConfig) (*Registry, error) {
+	sharedPath := filepath.Join(cfg.PipesPath, SharedPipeFolder)
+	sharedRoot, err := utils.OpenRootFs(sharedPath)
+	if err != nil {
+		return nil, fmt.Errorf("shared root: %w", err)
+	}
 	return &Registry{
-		cfg: cfg,
+		cfg:        cfg,
+		sharedRoot: sharedRoot,
 		builtins: map[string]Pipe{
 			"md":  &MdPipe{},
 			"tpl": &TplPipe{},
 			"":    &NopPipe{},
 		},
-	}
+	}, nil
 }
 
 func (r *Registry) LoadAll() error {
@@ -72,6 +81,10 @@ func (r *Registry) LoadAll() error {
 // load creates a new JSPipe for the named pipe and stores it.
 // If a pipe with that name already exists it is replaced and closed.
 func (r *Registry) Load(name string) error {
+	if name == SharedPipeFolder {
+		log.WWarn(log.Pipeline).Msgf("pipe name %q is reserved; skipping", SharedPipeFolder)
+		return nil
+	}
 	path := filepath.Join(r.cfg.PipesPath, name)
 	info, err := os.Stat(path)
 
@@ -82,7 +95,7 @@ func (r *Registry) Load(name string) error {
 		return fmt.Errorf("pipe %q: directory not found at %s", name, path)
 	}
 
-	pipe, err := NewJSPipe(path, r.cfg.SourceRoot)
+	pipe, err := NewJSPipe(path, r.cfg.SourceRoot, r.sharedRoot)
 	if err != nil {
 		return err
 	}

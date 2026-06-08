@@ -2,11 +2,13 @@ package main
 
 import (
 	"context"
+	_ "embed"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
+	"craeft/internal/pipeline"
 	"craeft/internal/project"
 
 	"github.com/urfave/cli/v3"
@@ -20,6 +22,15 @@ const (
 	pipesDir   = "pipes"
 	layoutFile = "layout.xml"
 )
+
+//go:embed craeft.d.ts
+var tsDoc string
+
+//go:embed global.d.ts
+var globalDoc string
+
+//go:embed env.d.ts
+var envDoc string
 
 const (
 	layoutTpl = `<Layout tpl="{{body}}">
@@ -53,6 +64,9 @@ var initCommand = &cli.Command{
 		if err := os.MkdirAll(filepath.Join(craeftDir, pipesDir), 0755); err != nil {
 			return fmt.Errorf("failed to create pipes directory: %w", err)
 		}
+		if err := os.MkdirAll(filepath.Join(craeftDir, pipesDir, pipeline.SharedPipeFolder), 0755); err != nil {
+			return fmt.Errorf("failed to create pipes directory: %w", err)
+		}
 
 		output := c.String("output")
 		if output == "" {
@@ -81,6 +95,24 @@ var initCommand = &cli.Command{
 			return fmt.Errorf("write layout: %w", err)
 		}
 
+		typesDir := filepath.Join(craeftDir, "types")
+		if err := os.MkdirAll(typesDir, 0755); err != nil {
+			return fmt.Errorf("failed to create types directory: %w", err)
+		}
+
+		for _, f := range []struct {
+			path    string
+			content string
+		}{
+			{filepath.Join(typesDir, "craeft.d.ts"), tsDoc},
+			{filepath.Join(typesDir, "global.d.ts"), globalDoc},
+			{filepath.Join(typesDir, "env.d.ts"), envDoc},
+		} {
+			if err := os.WriteFile(f.path, []byte(f.content), 0644); err != nil {
+				return fmt.Errorf("write %s: %w", f.path, err)
+			}
+		}
+
 		return nil
 	},
 }
@@ -91,7 +123,7 @@ func parsePipes(raw string) []string {
 	}
 	valid := map[string]bool{"md": true, "tpl": true}
 	var selected []string
-	for _, r := range strings.Split(raw, ",") {
+	for r := range strings.SplitSeq(raw, ",") {
 		name := strings.TrimSpace(r)
 		if valid[name] {
 			selected = append(selected, name)

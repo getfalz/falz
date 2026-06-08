@@ -287,7 +287,11 @@ func (b *builder) inputFS(root SourceType) (fileReader, error) {
 
 // @ts type global.tCtx
 // @doc Context passed into the `transform` function.
-// @field vars: Record<string, unknown> - Variables set in the config.yaml file. Custom key/value mappings loaded from `config.yaml`. Values may include environment‑variable references (e.g. `$HOME/docs`), which will be expanded at runtime.
+// @field target: string - Absolute output path for the file being built.
+// @field file: FileInfo - Metadata about the source file being transformed.
+// @field vars: Record<string, unknown> - Custom key/value mappings loaded from `config.yaml`. Values may include environment-variable references (e.g. `$HOME/docs`), which are expanded at runtime.
+// @field type: string - Entry type; one of `"content"` or `"asset"`.
+// @field tag: string - Name of the content slot this entry fills in its layout template.
 func (b *builder) buildEntry(
 	ctx context.Context,
 	entry *BuildEntry,

@@ -18,7 +18,7 @@ type bundle struct {
 	ctx api.BuildContext
 }
 
-func newBundle(entryFile string, root *utils.RootFS, debug bool) (*bundle, error) {
+func newBundle(entryFile string, root *utils.RootFS, sharedRoot *utils.RootFS, debug bool) (*bundle, error) {
 
 	ctx, err := api.Context(api.BuildOptions{
 		EntryPoints:   []string{entryFile},
@@ -43,9 +43,11 @@ func newBundle(entryFile string, root *utils.RootFS, debug bool) (*bundle, error
 			"for-await":       false, // transforms for-await-of loops
 			"top-level-await": false, // disallows top-level await
 		},
-		External: []string{"kv", "fs", "http", "md", "fasttpl", "tpl"},
+		External:  []string{"kv", "fs", "http", "md", "fasttpl", "tpl"},
+		NodePaths: []string{filepath.Join(sharedRoot.Path(), "node_modules")},
 		Plugins: []api.Plugin{
-			pipeRootPlugin(root),
+			sharedSourcePlugin(sharedRoot),
+			pipeRootPlugin(root, sharedRoot),
 		},
 	})
 	if err != nil {
@@ -79,37 +81,75 @@ func (b *bundle) close() {
 	b.ctx.Dispose()
 }
 
-func pipeRootPlugin(root *utils.RootFS) api.Plugin {
-	absRoot := root.Path()
+func sharedSourcePlugin(sharedRoot *utils.RootFS) api.Plugin {
+	return api.Plugin{
+		Name: "shared-source",
+		Setup: func(build api.PluginBuild) {
+			build.OnResolve(api.OnResolveOptions{Filter: `^@shared/`},
+				func(args api.OnResolveArgs) (api.OnResolveResult, error) {
+					return api.OnResolveResult{
+						Path:      strings.TrimPrefix(args.Path, "@shared/"),
+						Namespace: "shared",
+					}, nil
+				})
+		},
+	}
+}
+
+func pipeRootPlugin(pipeRoot *utils.RootFS, sharedRoot *utils.RootFS) api.Plugin {
+	absPipe := pipeRoot.Path()
+	absShared := sharedRoot.Path()
+
+	within := func(base, abs string) bool {
+		rel, err := filepath.Rel(base, abs)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+	}
+
+	handler := func(args api.OnLoadArgs) (api.OnLoadResult, error) {
+		var (
+			data       []byte
+			err        error
+			resolveDir string
+		)
+
+		switch args.Namespace {
+		case "file":
+			if !within(absPipe, args.Path) && !within(absShared, args.Path) {
+				return api.OnLoadResult{Errors: []api.Message{{
+					Text: fmt.Sprintf("fsroot: file outside allowed directories: %q", args.Path),
+				}}}, nil
+			}
+			root := pipeRoot
+			base := absPipe
+			if within(absShared, args.Path) {
+				root = sharedRoot
+				base = absShared
+			}
+			rel, _ := filepath.Rel(base, args.Path)
+			data, err = root.ReadFile(rel)
+			resolveDir = filepath.Dir(args.Path)
+
+		case "shared":
+			data, err = sharedRoot.ReadFile(args.Path)
+			resolveDir = filepath.Join(absShared, filepath.Dir(args.Path))
+		}
+
+		if err != nil {
+			return api.OnLoadResult{}, fmt.Errorf("fsroot [%s] read %q: %w", args.Namespace, args.Path, err)
+		}
+		contents := string(data)
+		return api.OnLoadResult{
+			Contents:   &contents,
+			Loader:     loaderForExt(filepath.Ext(args.Path)),
+			ResolveDir: resolveDir,
+		}, nil
+	}
+
 	return api.Plugin{
 		Name: "fsroot",
 		Setup: func(build api.PluginBuild) {
-			build.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "file"},
-				func(args api.OnLoadArgs) (api.OnLoadResult, error) {
-					absPath := args.Path
-					if !filepath.IsAbs(absPath) {
-						return api.OnLoadResult{}, fmt.Errorf("fsroot: expected absolute resolved path, got %q", absPath)
-					}
-					rel, err := filepath.Rel(absRoot, absPath)
-					if err != nil {
-						return api.OnLoadResult{}, fmt.Errorf("fsroot: rel %q: %w", absPath, err)
-					}
-					if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-						return api.OnLoadResult{Errors: []api.Message{{
-							Text: fmt.Sprintf("fsroot: attempted to load file outside pipe directory: %q", absPath),
-						}}}, nil
-					}
-					data, err := root.ReadFile(rel)
-					if err != nil {
-						return api.OnLoadResult{}, fmt.Errorf("fsroot: read %q: %w", rel, err)
-					}
-					contents := string(data)
-					return api.OnLoadResult{
-						Contents:   &contents,
-						Loader:     loaderForExt(filepath.Ext(absPath)),
-						ResolveDir: filepath.Dir(absPath),
-					}, nil
-				})
+			build.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "file"}, handler)
+			build.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "shared"}, handler)
 		},
 	}
 }

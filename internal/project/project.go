@@ -73,11 +73,18 @@ func New(config *CraeftConfig) (*Project, error) {
 	}
 	ignoreBase = append(ignoreBase, blackList...)
 
-	pipes := pipeline.NewRegistry(&pipeline.RegistryConfig{
+	pipes, err := pipeline.NewRegistry(&pipeline.RegistryConfig{
 		Pipes:      config.Pipes,
 		PipesPath:  config.PipesPath,
 		SourceRoot: sourceRoot,
 	})
+
+	if err != nil {
+		_ = sourceRoot.Close()
+		_ = schemeRoot.Close()
+		_ = outputRoot.Close()
+		return nil, err
+	}
 	if err := pipes.LoadAll(); err != nil {
 		_ = sourceRoot.Close()
 		_ = schemeRoot.Close()

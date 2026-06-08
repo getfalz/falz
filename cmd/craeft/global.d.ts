@@ -567,6 +567,39 @@ declare global {
      */
     [Symbol.iterator](): URLSearchParamsIterator<T>
   }
+  /**
+   * 
+   * Metadata about the source file being transformed.
+   * Passed as the `file` field on the `tCtx` context object.
+   * All paths use forward slashes regardless of the host operating system.
+   *
+   */
+  interface FileInfo {
+    /**
+     * Slash-normalised path to the source file, relative to the project root (e.g. `content/posts/hello.md`).
+     */
+    path: string
+    /**
+     * Parent directory of the source file (e.g. `content/posts`).
+     */
+    dir: string
+    /**
+     * Full filename including extension (e.g. `hello.md`).
+     */
+    name: string
+    /**
+     * Filename without its extension (e.g. `hello`).
+     */
+    stem: string
+    /**
+     * File extension without the leading dot (e.g. `md`).
+     */
+    ext: string
+    /**
+     * Layout-scoping directory from which the governing layout was resolved. Used to locate fragments and partials relative to the correct base.
+     */
+    baseDir: string
+  }
   interface Console {
     /**
      * Logs the provided arguments to the console with info level.
