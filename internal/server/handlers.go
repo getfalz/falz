@@ -60,7 +60,9 @@ func (h *Handlers) RegisterAll(r *EventRegistry) {
 
 func (h *Handlers) handleContentModified(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		h.rehashAndMark(ctx, path)
+		for _, entry := range h.entriesForSource(path) {
+			h.rehashAndMark(ctx, entry.ID)
+		}
 	}
 	return nil
 }
@@ -69,30 +71,35 @@ func (h *Handlers) handleContentCreated(ctx context.Context, paths []string) err
 	graph := h.project.Graph()
 
 	for _, path := range paths {
-		if _, ok := graph.EntryByID(path); ok {
-			h.rehashAndMark(ctx, path)
+		if existing := h.entriesForSource(path); len(existing) > 0 {
+			for _, e := range existing {
+				h.rehashAndMark(ctx, e.ID)
+			}
 			continue
 		}
 
-		entry, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeSource)
+		entries, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeSource)
 		if !ok {
 			log.DDebug(log.Handler).Str("path", path).Msg("created file matched no content pattern")
 			continue
 		}
 
-		if err := h.computeAndMarkDirty(ctx, entry); err != nil {
-			log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content")
-			continue
+		for _, entry := range entries {
+			if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+				log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content")
+				continue
+			}
+			log.IInfo(log.Handler).Str("id", entry.ID).Msg("new content added to graph")
 		}
-
-		log.IInfo(log.Handler).Str("id", entry.ID).Msg("new content added to graph")
 	}
 	return nil
 }
 
 func (h *Handlers) handleContentDeleted(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		h.removeEntry(path)
+		for _, entry := range h.entriesForSource(path) {
+			h.removeEntry(entry.ID)
+		}
 	}
 	return nil
 }
@@ -116,18 +123,20 @@ func (h *Handlers) handleContentAssetCreated(ctx context.Context, paths []string
 			continue
 		}
 
-		entry, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeSource)
+		entries, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeSource)
 		if !ok {
 			log.DDebug(log.Handler).Str("path", path).Msg("created file matched no asset pattern")
 			continue
 		}
 
-		if err := h.computeAndMarkDirty(ctx, entry); err != nil {
-			log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content asset")
-			continue
+		for _, entry := range entries {
+			if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+				log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content")
+				continue
+			}
+			log.IInfo(log.Handler).Str("id", entry.ID).Msg("new content asset added to graph")
 		}
 
-		log.IInfo(log.Handler).Str("id", entry.ID).Msg("new content asset added to graph")
 	}
 	return nil
 }
@@ -235,18 +244,20 @@ func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, paths []string)
 			continue
 		}
 
-		entry, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeScheme)
+		entries, ok := h.source.AddFile(ctx, graph, path, project.SourceTypeScheme)
 		if !ok {
 			log.DDebug(log.Handler).Str("path", path).Msg("created file matched no scheme asset pattern")
 			continue
 		}
 
-		if err := h.computeAndMarkDirty(ctx, entry); err != nil {
-			log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new scheme asset")
-			continue
+		for _, entry := range entries {
+			if err := h.computeAndMarkDirty(ctx, entry); err != nil {
+				log.WWarn(log.Handler).Err(err).Str("path", path).Msg("failed to hash new content")
+				continue
+			}
+			log.IInfo(log.Handler).Str("id", entry.ID).Msg("new scheme asset added to graph")
 		}
 
-		log.IInfo(log.Handler).Str("id", entry.ID).Msg("new scheme asset added to graph")
 	}
 	return nil
 }
@@ -462,4 +473,14 @@ func (h *Handlers) handleConfigModified(ctx context.Context, paths []string) err
 
 	log.IInfo(log.Handler).Msg("config reloaded")
 	return nil
+}
+
+func (h *Handlers) entriesForSource(path string) []*project.BuildEntry {
+	var result []*project.BuildEntry
+	for _, e := range h.project.Graph().AllEntries() {
+		if e.SourcePath == path {
+			result = append(result, e)
+		}
+	}
+	return result
 }

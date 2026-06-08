@@ -187,7 +187,7 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 
 	for _, rel := range matches {
 		entry := &BuildEntry{
-			ID:         rel,
+			ID:         rel+":" + content.Name,
 			Type:       ContentType,
 			SourceRoot: SourceTypeSource,
 			SourcePath: rel,
@@ -212,7 +212,7 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 		}
 		for _, rel := range matches {
 			entry := &BuildEntry{
-				ID:         rel,
+				ID:         "asset:source:" + rel,
 				Type:       AssetType,
 				SourceRoot: SourceTypeSource,
 				SourcePath: rel,
@@ -286,7 +286,7 @@ func (si *SourceIndex) buildEntryEdge(graph graphBuilder, entryNode *EntryNode, 
 // Returns the newly created BuildEntry and true if the file matched a pattern,
 // or nil and false if it belongs to no pattern (not an error — the file may
 // simply not be a tracked source file).
-func (si *SourceIndex) AddFile(ctx context.Context, graph graphBuilder, filePath string, sourceRoot SourceType) (*BuildEntry, bool) {
+func (si *SourceIndex) AddFile(ctx context.Context, graph graphBuilder, filePath string, sourceRoot SourceType) ([]*BuildEntry, bool) {
 	dir := filepath.ToSlash(filepath.Dir(filePath))
 
 	lkeys, err := si.layouts.LayoutsForDir(ctx, dir)
@@ -304,13 +304,13 @@ func (si *SourceIndex) AddFile(ctx context.Context, graph graphBuilder, filePath
 
 		switch sourceRoot {
 		case SourceTypeSource:
-			if entry := si.matchContent(graph, filePath, dir, lKey, clyt.Layout()); entry != nil {
-				return entry, true
+			if entries := si.matchContent(graph, filePath, dir, lKey, clyt.Layout()); len(entries) > 0 {
+				return entries, true
 			}
 
 		case SourceTypeScheme:
 			if entry := si.matchAsset(graph, filePath, dir, lKey, clyt.Layout()); entry != nil {
-				return entry, true
+				return []*BuildEntry{entry}, true
 			}
 		}
 	}
@@ -320,13 +320,15 @@ func (si *SourceIndex) AddFile(ctx context.Context, graph graphBuilder, filePath
 
 // matchContent checks whether filePath matches any content or content-asset
 // pattern in the layout, builds the entry, and wires it into the graph.
-func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, lKey LayoutKey, lyt *layout.Layout) *BuildEntry {
+func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, lKey LayoutKey, lyt *layout.Layout) []*BuildEntry {
+	var entries []*BuildEntry
+
 	for _, content := range lyt.Contents() {
 		glob := filepath.ToSlash(filepath.Join(base, content.Source))
 
 		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
 			entry := &BuildEntry{
-				ID:         filePath,
+				ID:         filePath + ":" + content.Name,
 				Type:       ContentType,
 				SourceRoot: SourceTypeSource,
 				SourcePath: filePath,
@@ -338,16 +340,16 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 			entryNode := NewEntryNode(entry)
 			graph.AddNode(entryNode)
 			si.buildEntryEdge(graph, entryNode, lKey, content.Pipe)
-			return entry
+			entries = append(entries, entry)
+			continue
 		}
 
-		// Also check content-owned assets.
 		for _, asset := range content.Assets() {
 			glob := filepath.ToSlash(filepath.Join(base, asset.Source))
 
 			if matched, err := filepath.Match(glob, filePath); err == nil && matched {
 				entry := &BuildEntry{
-					ID:         filePath,
+					ID:         "asset:source:" + filePath,
 					Type:       AssetType,
 					SourceRoot: SourceTypeSource,
 					SourcePath: filePath,
@@ -359,12 +361,12 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 				entryNode := NewEntryNode(entry)
 				graph.AddNode(entryNode)
 				si.buildEntryEdge(graph, entryNode, lKey, asset.Pipe)
-				return entry
+				entries = append(entries, entry)
+				return entries
 			}
 		}
 	}
-
-	return nil
+	return entries
 }
 
 // matchAsset checks whether filePath matches any scheme-level asset

@@ -15,7 +15,6 @@ import (
 	"craeft/internal/pipeline"
 	"craeft/internal/utils"
 
-	"github.com/mattn/go-zglob"
 	"github.com/valyala/fasttemplate"
 )
 
@@ -149,6 +148,9 @@ func (a Asset) Validate() error {
 	if a.To == "" {
 		return errors.New("element <Asset>: missing required field: to")
 	}
+	if strings.ContainsAny(a.Source, "/\\") {
+		return fmt.Errorf("element <Content>: field 'src' must not contain path separators (got %q)", a.Source)
+	}
 	return nil
 }
 
@@ -172,9 +174,8 @@ func (c *Content) Validate() error {
 	if c.To == "" {
 		return errors.New("element <Content>: missing required field: to")
 	}
-	// TODO "./file.md" fails. is this a problem?
-	if filepath.Base(c.To) != c.To {
-		return errors.New("element <Content>: field 'to' should be a filename, not a path")
+	if strings.ContainsAny(c.Source, "/\\") {
+		return fmt.Errorf("element <Content>: field 'src' must not contain path separators (got %q)", c.Source)
 	}
 	return nil
 }
@@ -197,32 +198,8 @@ func (l *Layout) Assets() []Asset {
 	return out
 }
 
-// Path is the relative path of the layout to the project root folder.
-func (l *Layout) Path() string {
-	return normalizeRelFile(l.path)
-}
-
 func (c *Content) Assets() []Asset {
 	return c.assetElms
-}
-
-// MatchContent checks if the given path matches the layout's content
-func (l *Layout) MatchContent(path string) bool {
-	for _, c := range l.contents {
-		if c.MatchContent(path) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func (c *Content) MatchContent(path string) bool {
-	match, err := zglob.Match(c.Source, path)
-	if err != nil {
-		return false
-	}
-	return match
 }
 
 func normalizeRelFile(p string) string {

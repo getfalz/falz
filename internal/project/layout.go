@@ -136,6 +136,13 @@ func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry)
 		return "", fmt.Errorf("invalid output path: %q", output)
 	}
 
+	cleaned := filepath.ToSlash(filepath.Clean(output))
+	if cleaned == "" || cleaned == "." ||
+		filepath.IsAbs(cleaned) ||
+		cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+		return "", fmt.Errorf("invalid output path %q: must be a relative forward path with no parent traversal", output)
+	}
+
 	return filepath.Join(entry.BaseDir, output), nil
 }
 
