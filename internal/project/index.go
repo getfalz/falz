@@ -53,7 +53,7 @@ func NewSourceIndex(sourceFs sourceTree, schemeFS schemeTree, lc layoutFinder, i
 // Scan performs a full scan of the entire source tree.
 // Used during initial build.
 func (si *SourceIndex) Scan(ctx context.Context, graph graphBuilder) error {
-
+	seenAssets := make(map[string]struct{})
 	return fs.WalkDir(si.sourceFS.FS(), ".", func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -73,7 +73,7 @@ func (si *SourceIndex) Scan(ctx context.Context, graph graphBuilder) error {
 		}
 
 		base := filepath.ToSlash(path)
-		return si.scanDirectory(ctx, graph, base)
+		return si.scanDirectory(ctx, graph, base, seenAssets)
 	})
 }
 
@@ -81,7 +81,7 @@ func (si *SourceIndex) Scan(ctx context.Context, graph graphBuilder) error {
 // Stops at subdirectories that have their own layouts.
 // Used in watch mode when a directory is created or layout is added.
 func (si *SourceIndex) PartialScan(ctx context.Context, graph graphBuilder, baseDir string) error {
-
+	seenAssets := make(map[string]struct{})
 	return fs.WalkDir(si.sourceFS.FS(), baseDir, func(path string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -114,11 +114,11 @@ func (si *SourceIndex) PartialScan(ctx context.Context, graph graphBuilder, base
 		}
 
 		base := filepath.ToSlash(path)
-		return si.scanDirectory(ctx, graph, base)
+		return si.scanDirectory(ctx, graph, base, seenAssets)
 	})
 }
 
-func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, path string) error {
+func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, path string, seenAssets map[string]struct{}) error {
 
 	lkeys, err := si.layouts.LayoutsForDir(ctx, path)
 	if err != nil {
@@ -164,11 +164,13 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, pa
 				continue
 			}
 		}
-
-		for _, asset := range lyt.Assets() {
-			err := si.scanAsset(ctx, graph, path, lKey, asset)
-			if err != nil {
-				continue
+		if _, done := seenAssets[lKey.LayoutPath]; !done {
+			seenAssets[lKey.LayoutPath] = struct{}{}
+			for _, asset := range lyt.Assets() {
+				err := si.scanAsset(ctx, graph, lKey, asset)
+				if err != nil {
+					continue
+				}
 			}
 		}
 
@@ -187,7 +189,7 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 
 	for _, rel := range matches {
 		entry := &BuildEntry{
-			ID:         rel+":" + content.Name,
+			ID:         rel + ":" + content.Name,
 			Type:       ContentType,
 			SourceRoot: SourceTypeSource,
 			SourcePath: rel,
@@ -233,9 +235,9 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 	return nil
 }
 
-func (si *SourceIndex) scanAsset(ctx context.Context, graph graphBuilder, base string, key LayoutKey, asset layout.Asset) error {
+func (si *SourceIndex) scanAsset(ctx context.Context, graph graphBuilder, key LayoutKey, asset layout.Asset) error {
 
-	glob := filepath.ToSlash(filepath.Join(base, asset.Source))
+	glob := filepath.ToSlash(asset.Source)
 	matches, err := si.schemeFS.Glob(glob)
 	if err != nil {
 		return err
@@ -373,7 +375,7 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 // pattern in the layout, builds the entry, and wires it into the graph.
 func (si *SourceIndex) matchAsset(graph graphBuilder, filePath, base string, lKey LayoutKey, lyt *layout.Layout) *BuildEntry {
 	for _, asset := range lyt.Assets() {
-		glob := filepath.ToSlash(filepath.Join(filepath.Dir(lKey.LayoutPath), asset.Source))
+		glob := filepath.ToSlash(asset.Source)
 
 		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
 			entry := &BuildEntry{

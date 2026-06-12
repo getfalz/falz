@@ -177,7 +177,7 @@ func (fc *FileClassifier) classifySchemeFile(ctx context.Context, path string) (
 		}
 
 		for _, a := range lyt.Layout().Assets() {
-			glob := filepath.ToSlash(filepath.Join(dir, a.Source))
+			glob := filepath.ToSlash(a.Source)
 			matched, err := filepath.Match(glob, path)
 			if err == nil && matched {
 				return FileTypeSchemeAsset, nil
