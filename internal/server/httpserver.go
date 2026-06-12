@@ -6,6 +6,7 @@ import (
 	"craeft/internal/utils"
 	"errors"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -29,7 +30,7 @@ func NewHTTPServer(cfg HTTPServerConfig) *HTTPServer {
 	}
 }
 
-func (h *HTTPServer) Serve(ctx context.Context) error {
+func (h *HTTPServer) ServeOn(ctx context.Context, ln net.Listener) error {
 	outputDir := h.config.OutputPath
 	fs := http.FileServer(http.Dir(outputDir))
 
@@ -63,7 +64,6 @@ func (h *HTTPServer) Serve(ctx context.Context) error {
 		Addr:         fmt.Sprintf(":%d", h.config.Port),
 		Handler:      h.routing,
 		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
 	}
 
 	go func() {
@@ -76,7 +76,7 @@ func (h *HTTPServer) Serve(ctx context.Context) error {
 		Str("root", h.config.OutputPath).
 		Msg("http server starting")
 
-	return h.httpServer.ListenAndServe()
+	return h.httpServer.Serve(ln)
 }
 
 func (h *HTTPServer) Shutdown(ctx context.Context) error {

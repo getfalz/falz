@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net"
+	"net/http"
 	"time"
 
 	"craeft/internal/log"
@@ -28,65 +31,100 @@ func NewServer(p *project.Project) *Server {
 	handlers := NewHandlers(p)
 	handlers.RegisterAll(registry)
 
-	httpSrv := NewHTTPServer(HTTPServerConfig{
-		Port:       p.Config.Server.Port,
-		OutputPath: p.Config.OutputPath,
-	})
+	watcher := NewFsWatcher(cfg.SourcePath, coalescer)
 
-	hr := NewHotReload(HotReloadConfig{
-		Enabled: cfg.FsWatcher.HotReload,
-	}, p, httpSrv.routing)
+	s := &Server{
+		project:  p,
+		watcher:  watcher,
+		registry: registry,
+		handlers: handlers,
+	}
 
+	hotReload := cfg.Server.HotReload
+	if hotReload && !cfg.Server.Enable {
+		log.WWarn(log.Server).
+			Msg("hot reload requested but HTTP server is disabled; ignoring (enable with --start-server)")
+		hotReload = false
+	}
+
+	if cfg.Server.Enable {
+		s.http = NewHTTPServer(HTTPServerConfig{
+			Port:       p.Config.Server.Port,
+			OutputPath: p.Config.OutputPath,
+		})
+
+		if hotReload {
+			s.hotreload = NewHotReload(p, s.http.routing)
+		}
+	}
+
+	var rl reloader
+	if s.hotreload != nil {
+		rl = s.hotreload
+	}
 	debouncer := NewDebouncer(
 		DebouncerConfig{
-			HotReload: cfg.FsWatcher.HotReload,
-		}, p, registry, classifier, hr)
+			HotReload: hotReload,
+		}, p, registry, classifier, rl)
 
-	watcher := NewFsWatcher(WatcherConfig{
-		SourcePath: cfg.SourcePath,
-		Enabled:    cfg.FsWatcher.Enabled,
-	}, coalescer)
+	s.debouncer = debouncer
 
 	log.DDebug(log.Server).
 		Str("out", p.Config.OutputPath).
 		Msg("server initialized")
 
-	return &Server{
-		project:   p,
-		http:      httpSrv,
-		hotreload: hr,
-		watcher:   watcher,
-		debouncer: debouncer,
-		registry:  registry,
-		handlers:  handlers,
-	}
-
+	return s
 }
 
-func RunServer(c context.Context, p *project.Project) error {
+func RunServer(c context.Context, p *project.Project, forcePort bool) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
 	if err := p.Build(ctx); errors.Is(err, context.Canceled) {
-		// log.EError(log.Build).Err(err).Msg("initial build failed")
 		return err
 	}
 	log.IInfo(log.Build).Msg("initial build completed")
 
-	s := NewServer(p)
-
-	if s.watcher != nil {
-		changes := make(chan RawChange, 256)
-		go func() {
-			if err := s.watcher.Run(ctx, changes); err != nil && !errors.Is(err, context.Canceled) {
-				log.EError(log.Server).Err(err).Msg("file watcher exited with error")
-			}
-		}()
-
-		go s.debouncer.Run(ctx, changes)
+	var ln net.Listener
+	if p.Config.Server.Enable {
+		retries := portRetries
+		if forcePort {
+			retries = 0
+		}
+		l, port, err := listenSearchPort(p.Config.Server.Host, p.Config.Server.Port, retries)
+		if err != nil {
+			return err
+		}
+		ln = l
+		p.Config.Server.Port = port
 	}
 
-	return s.http.Serve(ctx)
+	s := NewServer(p)
+
+	changes := make(chan RawChange, 256)
+	go func() {
+		if err := s.watcher.Run(ctx, changes); err != nil && !errors.Is(err, context.Canceled) {
+			log.EError(log.Server).Err(err).Msg("file watcher exited with error")
+		}
+	}()
+
+	go s.debouncer.Run(ctx, changes)
+
+	if !p.Config.Server.Enable {
+		<-ctx.Done()
+		return nil
+	}
+
+	if p.Config.Server.OpenBrowser {
+		url := fmt.Sprintf("http://%s:%d/", p.Config.Server.Host, p.Config.Server.Port)
+		go tryOpenBrowser(ctx, url)
+	}
+
+	if err := s.http.ServeOn(ctx, ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+
+	return nil
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {

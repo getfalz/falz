@@ -23,13 +23,12 @@ const configFilePath = "config.yaml"
 const manifestoFile = ".manifest.json"
 
 type ServerConfig struct {
+	Enable bool   `yaml:"enabled" default:"false"`
+	HotReload bool `yaml:"hot_reload" default:"false"` // Enable hot-reload
 	Host string `yaml:"host" default:"localhost"`
 	Port int    `yaml:"port" default:"8080"`
-}
-
-type FsWatcherConfig struct {
-	Enabled   bool `yaml:"enabled" default:"true"`     // Enable file system watcher
-	HotReload bool `yaml:"hot_reload" default:"false"` // Enable hot-reload
+	OpenBrowser bool   `yaml:"open_browser" default:"true"`
+	PortRetries int    `yaml:"port_retries" default:"50"`
 }
 
 // TODO set start/end tag for layout.parseTpl
@@ -48,7 +47,7 @@ type BuildConfig struct {
 	ForceRebuild bool   `yaml:"force,omitempty" default:"false"`    // Ignore cache, rebuild everything
 	Concurrency  int    `yaml:"concurrency,omitempty"`              // Number of CPUs. It defaults to the number of logical CPUs
 	UseCAS       bool   `yaml:"use_cas,omitempty" default:"true"`   // Use content-addressable storage
-	CASPath      string `yaml:"-,"`                                 // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
+	CASPath      string `yaml:"-"`                                 // Path to content-addressable storage. Defaults to $XDG_CACHE_HOME/.craeft
 	CleanStale   bool   `yaml:"clean,omitempty" default:"false"`    // Remove outputs for deleted sources
 	PipeTimeout  int    `yaml:"pipe_timeout,omitempty" default:"3"` // Timeout for each pipe in seconds
 }
@@ -71,7 +70,6 @@ type CraeftConfig struct {
 	PipesPath    string `yaml:"-"`
 
 	Server    ServerConfig    `yaml:"server,omitempty"`
-	FsWatcher FsWatcherConfig `yaml:"file_watcher,omitempty"`
 
 	Variables map[string]any `yaml:"variables,omitempty"` // Key/value pair of variables available when building. Variables starting with a $ will be replaced with env vars
 	Hooks     HooksConfig    `yaml:"hooks,omitempty"`
@@ -132,8 +130,8 @@ func (c *CraeftConfig) IsValid() error {
 		}
 	}
 
-	if c.FsWatcher.HotReload && !c.FsWatcher.Enabled {
-		return errors.New("hot-reload enabled, but no file watcher enabled")
+	if c.Server.HotReload && !c.Server.Enable {
+		return errors.New("hot-reload enabled, but no server enabled")
 	}
 
 	return nil

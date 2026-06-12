@@ -463,12 +463,10 @@ func (h *Handlers) handleConfigModified(ctx context.Context, paths []string) err
 	log.DDebug(log.Handler).
 		Interface("cfg.Server", cfg.Server).
 		Interface("cur.Server", h.project.Config.Server).
-		Interface("cfg.FsWatcher", cfg.FsWatcher).
-		Interface("cur.FsWatcher", h.project.Config.FsWatcher).
 		Msg("config comparison")
 
-	if cfg.Server != h.project.Config.Server || cfg.FsWatcher != h.project.Config.FsWatcher {
-		log.WWarn(log.Handler).Msg("server/watcher config changed; restart required")
+	if cfg.Server != h.project.Config.Server {
+		log.WWarn(log.Handler).Msg("server config changed; restart required")
 	}
 
 	log.IInfo(log.Handler).Msg("config reloaded")

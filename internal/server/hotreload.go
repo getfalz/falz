@@ -39,10 +39,6 @@ type clientMsg struct {
 	Path string  `json:"path,omitempty"`
 }
 
-type HotReloadConfig struct {
-	Enabled bool
-}
-
 type HotReload struct {
 	upgrader websocket.Upgrader
 	project  builder
@@ -61,10 +57,7 @@ type builder interface {
 	ForceBuild(ctx context.Context, path string) (project.BuildStats, error)
 }
 
-func NewHotReload(config HotReloadConfig, p builder, mux *http.ServeMux) *HotReload {
-	if !config.Enabled {
-		return nil
-	}
+func NewHotReload(p builder, mux *http.ServeMux) *HotReload {
 	hr := &HotReload{
 		upgrader: websocket.Upgrader{
 			CheckOrigin: func(_ *http.Request) bool { return true },

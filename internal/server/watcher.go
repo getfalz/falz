@@ -27,19 +27,14 @@ type FileChange struct {
 	Time time.Time
 }
 
-type WatcherConfig struct {
-	SourcePath string
-	Enabled    bool // Content || Theme || Pipes
-}
-
 type FSWatcher struct {
-	config    WatcherConfig
+	sourcePath string
 	coalescer *EventCoalescer
 }
 
-func NewFsWatcher(config WatcherConfig, coalescer *EventCoalescer) *FSWatcher {
+func NewFsWatcher(sourcePath string, coalescer *EventCoalescer) *FSWatcher {
 	return &FSWatcher{
-		config:    config,
+		sourcePath: sourcePath,
 		coalescer: coalescer,
 	}
 }
@@ -47,7 +42,7 @@ func NewFsWatcher(config WatcherConfig, coalescer *EventCoalescer) *FSWatcher {
 func (f *FSWatcher) Run(ctx context.Context, changes chan RawChange) error {
 	events := make(chan notify.EventInfo, 256)
 
-	absProjectRoot, err := filepath.Abs(f.config.SourcePath)
+	absProjectRoot, err := filepath.Abs(f.sourcePath)
 	if err != nil {
 		return fmt.Errorf("get project root: %w", err)
 	}

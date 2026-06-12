@@ -16,21 +16,26 @@ import (
 
 var serverCommand = &cli.Command{
 	Name:  "server",
-	Usage: "Manage the server",
+	Usage: "Watch the project and rebuild on change",
 	Flags: []cli.Flag{
-		&cli.IntFlag{
-			Name:  "port",
-			Usage: "Port for the server",
-		},
+
 		&cli.BoolFlag{
-			Name:  "watch",
-			Usage: "Enable file watcher",
-			Value: true,
+			Name:  "start-server",
+			Usage: "Start the HTTP server",
+		},
+		&cli.IntFlag{
+			Name:    "port",
+			Aliases: []string{"p"},
+			Usage:   "Port for the server",
 		},
 		&cli.BoolFlag{
 			Name:  "hot-reload",
-			Usage: "Enable hot-reload. Only works if watch-content or watch-theme is enabled",
-			Value: false,
+			Usage: "Enable live hot reload (requires the HTTP server)",
+		},
+		&cli.BoolFlag{
+			Name:  "open",
+			Usage: "Open the browser once the server is listening",
+			Value: true,
 		},
 	},
 	Action: func(ctx context.Context, c *cli.Command) error {
@@ -38,8 +43,12 @@ var serverCommand = &cli.Command{
 		if port := c.Int("port"); port != 0 {
 			config.Server.Port = int(port)
 		}
-		config.FsWatcher.Enabled = c.Bool("watch")
-		config.FsWatcher.HotReload = c.Bool("watch") && c.Bool("hot-reload")
+		config.Server.Enable = c.Bool("start-server") || config.Server.Enable
+		config.Server.HotReload = c.Bool("hot-reload") || config.Server.HotReload
+		if c.IsSet("port") {
+			config.Server.Port = c.Int("port")
+		}
+		config.Server.OpenBrowser = c.Bool("open") && config.Server.Enable
 
 		p, err := project.New(config)
 		if err != nil {
@@ -53,7 +62,7 @@ var serverCommand = &cli.Command{
 		defer stop()
 
 		start := time.Now()
-		if err := server.RunServer(ctx, p); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		if err := server.RunServer(ctx, p, c.IsSet("port")); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Error(fmt.Errorf("server failed after %s: %v", time.Since(start), err))
 			return err
 		}
