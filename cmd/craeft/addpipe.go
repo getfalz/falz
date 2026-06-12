@@ -26,23 +26,32 @@ const (
     "strict": true,
     "esModuleInterop": true,
     "noEmit": true,
-    "skipLibCheck": true
+    "skipLibCheck": true,
+    "lib": [
+        "ES2020"
+    ]
 }
 	}`
 	tsconfig = `{
+    "extends": "../tsconfig.json",
     "compilerOptions": {
-        "target": "ES2020",
-        "module": "commonjs",
-        "strict": true,
-        "esModuleInterop": true,
         "baseUrl": ".",
-        "lib": [
-            "ES2020"
+        "paths": {
+            "@shared/*": [
+                "../shared/*"
+            ]
+        },
+        "typeRoots": [
+            "node_modules",
+            "../shared/node_modules"
         ]
     },
     "include": [
-        "index.ts",
-        "../../types/*.d.ts",
+        "**/*.ts",
+        "**/*.tsx",
+        "../shared/**/*.ts",
+        "../shared/**/*.tsx",
+        "../../types/*.d.ts"
     ]
 }`
 
@@ -121,7 +130,7 @@ var addCommand = &cli.Command{
 					path    string
 					content string
 				}{
-					{filepath.Join(craeftDir, pipeDir, "tsconfig.base.json"), baseTsconfig},
+					{filepath.Join(craeftDir, pipeDir, "tsconfig.json"), baseTsconfig},
 					{filepath.Join(currPipeDir, configFile), string(out)},
 					{filepath.Join(currPipeDir, "tsconfig.json"), tsconfig},
 					{filepath.Join(currPipeDir, "index.ts"), indexTS},

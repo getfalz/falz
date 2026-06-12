@@ -37,15 +37,20 @@ const (
 	<Content name="body" src="*.txt" to="{FILENAME}.txt"/>
 </Layout>`
 	sharedTsconfig = `{
-  "extends": "../tsconfig.base.json",
-  "compilerOptions": {
-    "baseUrl": "."
-  },
-  "include": [
-    "**/*.ts",
-    "**/*.tsx",
-    "../../.craeft/types/*.d.ts"
-  ]
+    "extends": "../tsconfig.json",
+    "compilerOptions": {
+        "baseUrl": ".",
+        "paths": {
+            "@shared/*": [
+                "shared/*"
+            ]
+        }
+    },
+    "include": [
+        "**/*.ts",
+        "**/*.tsx",
+        "../../types/*.d.ts"
+    ]
 }`
 )
 
