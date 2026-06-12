@@ -40,7 +40,7 @@ func GetTplModule(vm *goja.Runtime) *goja.Object {
 // @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
 // @returns string - A promise that resolves to the rendered string with variables replaced.
 func tplRender(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
-	b, err := argBytes(vm, call.Argument(0))
+	b, err := argString(vm, call.Argument(0))
 	if err != nil {
 		panic(vm.NewTypeError("tpl.render: first argument must be a string or Buffer: %v", err))
 	}
@@ -50,7 +50,7 @@ func tplRender(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 		panic(vm.NewTypeError("tpl.render: second argument must be an object: %v", err))
 	}
 
-	result, err := plush.Render(string(b), plush.NewContextWith(vars))
+	result, err := plush.Render(b, plush.NewContextWith(vars))
 	if err != nil {
 		panic(vm.NewGoError(fmt.Errorf("tpl.render: %w", err)))
 	}

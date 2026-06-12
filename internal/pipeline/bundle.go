@@ -18,8 +18,7 @@ type bundle struct {
 	ctx api.BuildContext
 }
 
-func newBundle(entryFile string, root *utils.RootFS, sharedRoot *utils.RootFS, debug bool) (*bundle, error) {
-
+func newBundle(entryFile string, root *utils.RootFS, pipesRoot *utils.RootFS, debug bool) (*bundle, error) {
 	ctx, err := api.Context(api.BuildOptions{
 		EntryPoints:   []string{entryFile},
 		AbsWorkingDir: root.Path(),
@@ -44,11 +43,8 @@ func newBundle(entryFile string, root *utils.RootFS, sharedRoot *utils.RootFS, d
 			"top-level-await": false, // disallows top-level await
 		},
 		External:  []string{"kv", "fs", "http", "md", "fasttpl", "tpl"},
-		NodePaths: []string{filepath.Join(sharedRoot.Path(), "node_modules")},
-		Plugins: []api.Plugin{
-			sharedSourcePlugin(sharedRoot),
-			pipeRootPlugin(root, sharedRoot),
-		},
+		NodePaths: []string{filepath.Join(pipesRoot.Path(), "shared", "node_modules")},
+		Plugins:   []api.Plugin{pipeRootPlugin(pipesRoot, filepath.Base(root.Path()))},
 	})
 	if err != nil {
 		return nil, fmt.Errorf("esbuild context: %w", err)
@@ -81,99 +77,67 @@ func (b *bundle) close() {
 	b.ctx.Dispose()
 }
 
-func sharedSourcePlugin(sharedRoot *utils.RootFS) api.Plugin {
+func pipeRootPlugin(pipesRoot *utils.RootFS, pipeName string) api.Plugin {
+	absPipes := pipesRoot.Path()
+	pipeNM := filepath.Join(absPipes, pipeName, "node_modules")
+	sharedNM := filepath.Join(absPipes, "shared", "node_modules")
+	sep := string(filepath.Separator)
+
+	within := func(base, p string) bool {
+		rel, err := filepath.Rel(base, p)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+sep)
+	}
+
 	return api.Plugin{
-		Name: "shared-source",
+		Name: "sandbox",
 		Setup: func(build api.PluginBuild) {
-			build.OnResolve(api.OnResolveOptions{Filter: `^@shared/`},
+			build.OnResolve(api.OnResolveOptions{Filter: `.*`},
 				func(args api.OnResolveArgs) (api.OnResolveResult, error) {
-					return api.OnResolveResult{
-						Path:      strings.TrimPrefix(args.Path, "@shared/"),
-						Namespace: "shared",
-					}, nil
+					if args.PluginData != nil {
+						return api.OnResolveResult{}, nil
+					}
+
+					probe := build.Resolve(args.Path, api.ResolveOptions{
+						ResolveDir: args.ResolveDir,
+						Importer:   args.Importer,
+						Kind:       args.Kind,
+						PluginData: true,
+					})
+					if len(probe.Errors) > 0 {
+						return api.OnResolveResult{Errors: probe.Errors}, nil
+					}
+					if probe.External {
+						return api.OnResolveResult{}, nil
+					}
+
+					if !filepath.IsAbs(probe.Path) {
+						return api.OnResolveResult{}, nil
+					}
+
+					rel, err := filepath.Rel(absPipes, probe.Path)
+					if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+sep) {
+						return api.OnResolveResult{Errors: []api.Message{{
+							Text: fmt.Sprintf("import %q escapes pipes root (resolved to %q)",
+								args.Path, probe.Path),
+						}}}, nil
+					}
+
+					if strings.Contains(probe.Path, sep+"node_modules"+sep) &&
+						!within(pipeNM, probe.Path) && !within(sharedNM, probe.Path) {
+						return api.OnResolveResult{Errors: []api.Message{{
+							Text: fmt.Sprintf("package %q resolved to disallowed node_modules: %q",
+								args.Path, probe.Path),
+						}}}, nil
+					}
+
+					if _, err := pipesRoot.Stat(rel); err != nil {
+						return api.OnResolveResult{Errors: []api.Message{{
+							Text: fmt.Sprintf("not accessible in sandbox %q: %v", rel, err),
+						}}}, nil
+					}
+
+					return api.OnResolveResult{}, nil
 				})
 		},
-	}
-}
-
-func pipeRootPlugin(pipeRoot *utils.RootFS, sharedRoot *utils.RootFS) api.Plugin {
-	absPipe := pipeRoot.Path()
-	absShared := sharedRoot.Path()
-
-	within := func(base, abs string) bool {
-		rel, err := filepath.Rel(base, abs)
-		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
-	}
-
-	handler := func(args api.OnLoadArgs) (api.OnLoadResult, error) {
-		var (
-			data       []byte
-			err        error
-			resolveDir string
-		)
-
-		switch args.Namespace {
-		case "file":
-			if !within(absPipe, args.Path) && !within(absShared, args.Path) {
-				return api.OnLoadResult{Errors: []api.Message{{
-					Text: fmt.Sprintf("fsroot: file outside allowed directories: %q", args.Path),
-				}}}, nil
-			}
-			root := pipeRoot
-			base := absPipe
-			if within(absShared, args.Path) {
-				root = sharedRoot
-				base = absShared
-			}
-			rel, _ := filepath.Rel(base, args.Path)
-			data, err = root.ReadFile(rel)
-			resolveDir = filepath.Dir(args.Path)
-
-		case "shared":
-			data, err = sharedRoot.ReadFile(args.Path)
-			resolveDir = filepath.Join(absShared, filepath.Dir(args.Path))
-		}
-
-		if err != nil {
-			return api.OnLoadResult{}, fmt.Errorf("fsroot [%s] read %q: %w", args.Namespace, args.Path, err)
-		}
-		contents := string(data)
-		return api.OnLoadResult{
-			Contents:   &contents,
-			Loader:     loaderForExt(filepath.Ext(args.Path)),
-			ResolveDir: resolveDir,
-		}, nil
-	}
-
-	return api.Plugin{
-		Name: "fsroot",
-		Setup: func(build api.PluginBuild) {
-			build.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "file"}, handler)
-			build.OnLoad(api.OnLoadOptions{Filter: ".*", Namespace: "shared"}, handler)
-		},
-	}
-}
-
-func loaderForExt(ext string) api.Loader {
-	switch ext {
-	case ".js", ".mjs", ".cjs":
-		return api.LoaderJS
-	case ".ts", ".tsx", ".mts", ".cts":
-		return api.LoaderTS
-	case ".json", ".jsonc":
-		return api.LoaderJSON
-
-	case ".txt", ".text",
-		".md", ".markdown",
-		".html", ".htm",
-		".css",
-		".svg",
-		".xml",
-		".csv",
-		".yaml", ".yml",
-		".toml":
-		return api.LoaderText
-	default:
-		return api.LoaderBinary
 	}
 }

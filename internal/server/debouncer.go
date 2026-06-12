@@ -172,7 +172,7 @@ func (d *Debouncer) handleBatch(ctx context.Context, raws []RawChange) error {
 		Msg("starting incremental rebuild")
 
 	stats, err := d.project.IncrementalBuild(ctx)
-	if err != nil && !errors.Is(err, context.Canceled) {
+	if errors.Is(err, context.Canceled) {
 		return fmt.Errorf("incremental build: %w", err)
 	}
 

@@ -67,8 +67,8 @@ func RunServer(c context.Context, p *project.Project) error {
 	ctx, cancel := context.WithCancel(c)
 	defer cancel()
 
-	if err := p.Build(ctx); err != nil && !errors.Is(err, context.Canceled) {
-		log.EError(log.Build).Err(err).Msg("initial build failed")
+	if err := p.Build(ctx); errors.Is(err, context.Canceled) {
+		// log.EError(log.Build).Err(err).Msg("initial build failed")
 		return err
 	}
 	log.IInfo(log.Build).Msg("initial build completed")

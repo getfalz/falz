@@ -18,6 +18,17 @@ const (
 )
 
 const (
+	baseTsconfig = `{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "esModuleInterop": true,
+    "noEmit": true,
+    "skipLibCheck": true
+}
+	}`
 	tsconfig = `{
     "compilerOptions": {
         "target": "ES2020",
@@ -110,6 +121,7 @@ var addCommand = &cli.Command{
 					path    string
 					content string
 				}{
+					{filepath.Join(craeftDir, pipeDir, "tsconfig.base.json"), baseTsconfig},
 					{filepath.Join(currPipeDir, configFile), string(out)},
 					{filepath.Join(currPipeDir, "tsconfig.json"), tsconfig},
 					{filepath.Join(currPipeDir, "index.ts"), indexTS},

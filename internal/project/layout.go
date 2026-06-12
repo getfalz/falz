@@ -42,6 +42,8 @@ var systemVars = map[string]struct{}{
 	"target": {},
 	"vars":   {},
 	"file":   {},
+	"type":   {},
+	"tag":   {},
 }
 
 // warnUnknownTags emits a warning for any key in vars that is not a known
@@ -131,10 +133,6 @@ func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry)
 			return fmt.Fprintf(w, "[unknown tag %q]", tag)
 		}
 	})
-
-	if output == "" || output == "." || output == ".." || strings.ContainsAny(output, "/\\") {
-		return "", fmt.Errorf("invalid output path: %q", output)
-	}
 
 	cleaned := filepath.ToSlash(filepath.Clean(output))
 	if cleaned == "" || cleaned == "." ||

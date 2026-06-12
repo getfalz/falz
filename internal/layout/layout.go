@@ -148,9 +148,10 @@ func (a Asset) Validate() error {
 	if a.To == "" {
 		return errors.New("element <Asset>: missing required field: to")
 	}
-	if strings.ContainsAny(a.Source, "/\\") {
-		return fmt.Errorf("element <Content>: field 'src' must not contain path separators (got %q)", a.Source)
-	}
+	// TODO only check if in content
+	// if strings.ContainsAny(a.Source, "/\\") {
+	// 	return fmt.Errorf("element <Content>: field 'src' must not contain path separators (got %q)", a.Source)
+	// }
 	return nil
 }
 

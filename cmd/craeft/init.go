@@ -36,6 +36,17 @@ const (
 	layoutTpl = `<Layout tpl="{{body}}">
 	<Content name="body" src="*.txt" to="{FILENAME}.txt"/>
 </Layout>`
+	sharedTsconfig = `{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": "."
+  },
+  "include": [
+    "**/*.ts",
+    "**/*.tsx",
+    "../../.craeft/types/*.d.ts"
+  ]
+}`
 )
 
 var initCommand = &cli.Command{
@@ -107,6 +118,7 @@ var initCommand = &cli.Command{
 			{filepath.Join(typesDir, "craeft.d.ts"), tsDoc},
 			{filepath.Join(typesDir, "global.d.ts"), globalDoc},
 			{filepath.Join(typesDir, "env.d.ts"), envDoc},
+			{filepath.Join(craeftDir, pipeDir, pipeline.SharedPipeFolder, "tsconfig.shared.json"), sharedTsconfig},
 		} {
 			if err := os.WriteFile(f.path, []byte(f.content), 0644); err != nil {
 				return fmt.Errorf("write %s: %w", f.path, err)

@@ -204,9 +204,6 @@ func (p *Project) Build(ctx context.Context) error {
 		},
 	)
 	stats, err := builder.Build(ctx, dirtyEntries)
-	if err != nil {
-		return fmt.Errorf("build: %w", err)
-	}
 
 	log.IInfo(log.Project).
 		Int("total", stats.Scheduled).
@@ -217,8 +214,12 @@ func (p *Project) Build(ctx context.Context) error {
 
 	p.graph.ClearDirty()
 
-	if err := p.Manifest.Save(); err != nil {
-		return fmt.Errorf("save manifest: %w", err)
+	if manErr := p.Manifest.Save(); manErr != nil {
+		return fmt.Errorf("save manifest: %w", manErr)
+	}
+
+	if err != nil {
+		return fmt.Errorf("build: %w", err)
 	}
 
 	log.IInfo(log.Project).Msg("build complete")

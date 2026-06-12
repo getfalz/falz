@@ -26,7 +26,7 @@ declare module "fasttpl" {
    * @returns The rendered string.
    *
    */
-  export function compile (template: string, params: Record<string, string | (() => string)>, config?: Config): string
+  export function compile (template: string | Buffer, params: Record<string, string | (() => string)>, config?: Config): string
 }
 /**
  * 

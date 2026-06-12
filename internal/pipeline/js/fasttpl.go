@@ -28,12 +28,15 @@ func GetFastTplModule(vm *goja.Runtime) *goja.Object {
 // parameters object. Parameter values may be plain strings or zero-argument
 // functions that return strings (evaluated lazily per occurrence).
 //
-// @param template  - string              - Template string, e.g. "Hello {{name}}!"
-// @param params    - Record<string, string | (() => string)> - Substitution values.
-// @param config?   - Config      - Optional tag delimiters.
-// @returns string  - The rendered string.
+// @param template - string | Buffer - Template string, e.g. "Hello {{name}}!"
+// @param params   - Record<string, string | (() => string)> - Substitution values.
+// @param config?  - Config - Optional tag delimiters.
+// @returns string - The rendered string.
 func fastCompile(call goja.FunctionCall, vm *goja.Runtime) goja.Value {
-	tpl := mustStringArg(vm, "fasttpl.compile", call.Argument(0))
+	tpl, err := argString(vm, call.Argument(0))
+	if err != nil {
+		panic(vm.NewTypeError("fasttpl.compile: first argument must be a string or Buffer: %v", err))
+	}
 
 	params, ok := call.Argument(1).(*goja.Object)
 	if !ok {

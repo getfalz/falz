@@ -42,8 +42,9 @@ type Registry struct {
 }
 
 func NewRegistry(cfg *RegistryConfig) (*Registry, error) {
-	sharedPath := filepath.Join(cfg.PipesPath, SharedPipeFolder)
-	sharedRoot, err := utils.OpenRootFs(sharedPath)
+	// sharedPath := filepath.Join(cfg.PipesPath, SharedPipeFolder)
+	// TODO testing with root = pipesPath
+	sharedRoot, err := utils.OpenRootFs(cfg.PipesPath)
 	if err != nil {
 		return nil, fmt.Errorf("shared root: %w", err)
 	}
