@@ -109,14 +109,12 @@ func setLogLevel(verbosity int, silence bool) {
 	}
 
 	switch verbosity {
-	case -1:
+	case 0:
 		zerolog.SetGlobalLevel(zerolog.WarnLevel)
 	case 1:
 		zerolog.SetGlobalLevel(zerolog.InfoLevel)
 	case 2:
 		zerolog.SetGlobalLevel(zerolog.DebugLevel)
-	case 3:
-		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	default:
 		zerolog.SetGlobalLevel(zerolog.TraceLevel)
 	}
