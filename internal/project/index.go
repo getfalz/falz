@@ -226,7 +226,7 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 		}
 		for _, rel := range matches {
 			entry := &BuildEntry{
-				ID:         "asset:source:" + rel,
+				ID:         fmt.Sprintf("asset:source:%s:%s", rel, asset.Name),
 				Type:       AssetType,
 				SourceRoot: SourceTypeSource,
 				SourcePath: rel,
@@ -256,7 +256,7 @@ func (si *SourceIndex) scanAsset(ctx context.Context, graph graphBuilder, key La
 	}
 	for _, rel := range matches {
 		entry := &BuildEntry{
-			ID:         fmt.Sprintf("asset:scheme:%s", rel),
+			ID:         fmt.Sprintf("asset:scheme:%s:%s", rel, asset.Name),
 			Type:       AssetType,
 			SourceRoot: SourceTypeScheme,
 			SourcePath: rel,
@@ -371,7 +371,7 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 
 			if matched, err := filepath.Match(glob, filePath); err == nil && matched {
 				entry := &BuildEntry{
-					ID:         "asset:source:" + filePath,
+					ID:         fmt.Sprintf("asset:source:%s:%s", filePath, asset.Name),
 					Type:       AssetType,
 					SourceRoot: SourceTypeSource,
 					SourcePath: filePath,
@@ -399,7 +399,7 @@ func (si *SourceIndex) matchAsset(graph graphBuilder, filePath, base string, lKe
 
 		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
 			entry := &BuildEntry{
-				ID:         fmt.Sprintf("asset:scheme:%s", filePath),
+				ID:         fmt.Sprintf("asset:scheme:%s:%s", filePath, asset.Name),
 				Type:       AssetType,
 				SourceRoot: SourceTypeScheme,
 				SourcePath: filePath,

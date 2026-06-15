@@ -362,7 +362,7 @@ func (lc *LayoutCache) LayoutsInDir(ctx context.Context, path string) (map[strin
 }
 
 func (lc *LayoutCache) LayoutsForDir(ctx context.Context, path string) (map[string]LayoutKey, error) {
-	matches, err := lc.fs.FindFile(path, lc.namePattern)
+	matches, err := lc.fs.FindNearest(path, lc.namePattern)
 	if err != nil {
 		return nil, fmt.Errorf("cannot find layout for path %q: %w", path, err)
 	}

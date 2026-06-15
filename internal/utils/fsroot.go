@@ -150,6 +150,44 @@ func (r *RootFS) FindFile(targetPath, pattern string) ([]string, error) {
 	return results, nil
 }
 
+
+// FindNearest is like FindFile but stops at the first directory level that
+// yields any match, rather than accumulating matches from all ancestors.
+func (r *RootFS) FindNearest(targetPath, pattern string) ([]string, error) {
+	cur := filepath.ToSlash(strings.TrimPrefix(targetPath, "/"))
+	if cur == "" {
+		cur = "."
+	}
+ 
+	for {
+		glob := pattern
+		if cur != "." {
+			glob = path.Join(cur, pattern)
+		}
+ 
+		matches, err := r.Glob(glob)
+		if err != nil {
+			return nil, fmt.Errorf("glob %q: %w", glob, err)
+		}
+ 
+		if len(matches) > 0 {
+			return matches, nil
+		}
+ 
+		if cur == "." {
+			break
+		}
+ 
+		next := path.Dir(cur)
+		if next == cur {
+			break
+		}
+		cur = next
+	}
+ 
+	return nil, fmt.Errorf("no files matching %q found while walking up from %q", pattern, targetPath)
+}
+
 func (r *RootFS) WriteFile(dst string, data []byte, perm fs.FileMode) error {
 	dst = filepath.ToSlash(filepath.Clean(dst))
 
