@@ -59,6 +59,7 @@ type BuildEntry struct {
 	Pipeline  string // Pipeline name
 	TagName   string // Content slot name (empty for assets)
 	BaseDir   string // Base directory
+	ContentVars map[string]string
 
 	// State
 	Hash  string
@@ -117,7 +118,7 @@ func NewLayoutNode(key LayoutKey) *LayoutNode {
 }
 
 func (n *LayoutNode) ID() string {
-	return fmt.Sprintf("layout:%s:%s", n.key.LayoutPath, n.key.CtxPath)
+    return fmt.Sprintf("layout:%s", n.key.LayoutPath)
 }
 func (n *LayoutNode) Kind() NodeKind { return NodeKindLayout }
 func (n *LayoutNode) Key() LayoutKey { return n.key }

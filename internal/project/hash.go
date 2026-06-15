@@ -18,7 +18,7 @@ type fileHasher interface {
 }
 
 type layoutLoader interface {
-	Get(ctx context.Context, key LayoutKey) (*LayoutCacheEntry, error)
+	Get(ctx context.Context, key LayoutKey, contentVars map[string]string) (*LayoutCacheEntry, error)
 }
 
 type entryHashGraph interface {
@@ -156,7 +156,7 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 		return "", fmt.Errorf("layout %s: %w", entry.LayoutKey.LayoutPath, err)
 	}
 
-	lyt, err := hi.layouts.Get(ctx, entry.LayoutKey)
+	lyt, err := hi.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
 	if err != nil {
 		return "", err
 	}

@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,8 +23,28 @@ import (
 )
 
 type LayoutKey struct {
-	CtxPath    string // the path from where the layout was searched. Used to find fragments and contents relative to this path.
-	LayoutPath string // the actual path to the layout file (incl. file name)
+	CtxPath        string // the path from where the layout was searched. Used to find fragments and contents relative to this path.
+	LayoutPath     string // the actual path to the layout file (incl. file name)
+	VarFingerprint string
+}
+
+func varFingerprint(vars map[string]string) string {
+	if len(vars) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(vars))
+	for k := range vars {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var sb strings.Builder
+	for _, k := range keys {
+		sb.WriteString(k)
+		sb.WriteByte('=')
+		sb.WriteString(vars[k])
+		sb.WriteByte('\n')
+	}
+	return sb.String()
 }
 
 type LayoutCacheEntry struct {
@@ -43,7 +64,7 @@ var systemVars = map[string]struct{}{
 	"vars":   {},
 	"file":   {},
 	"type":   {},
-	"tag":   {},
+	"tag":    {},
 }
 
 // warnUnknownTags emits a warning for any key in vars that is not a known
@@ -145,11 +166,12 @@ func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry)
 }
 
 type LayoutCache struct {
-	mu        sync.RWMutex
-	data      map[LayoutKey]*LayoutCacheEntry
-	fs        *utils.RootFS
-	sf        singleflight.Group
-	pipelines *pipeline.Registry
+	mu           sync.RWMutex
+	compiled     map[string]*LayoutCacheEntry
+	layoutToKeys map[string]map[string]struct{}
+	fs           *utils.RootFS
+	sf           singleflight.Group
+	pipelines    *pipeline.Registry
 
 	parsedMu sync.RWMutex
 	parsed   map[string]*layout.Layout
@@ -159,11 +181,12 @@ type LayoutCache struct {
 
 func NewLayoutCache(fs *utils.RootFS, pipes *pipeline.Registry, namePattern string) *LayoutCache {
 	return &LayoutCache{
-		data:        make(map[LayoutKey]*LayoutCacheEntry),
-		parsed:      make(map[string]*layout.Layout),
-		fs:          fs,
-		pipelines:   pipes,
-		namePattern: namePattern,
+		compiled:     make(map[string]*LayoutCacheEntry),
+		layoutToKeys: make(map[string]map[string]struct{}),
+		parsed:       make(map[string]*layout.Layout),
+		fs:           fs,
+		pipelines:    pipes,
+		namePattern:  namePattern,
 	}
 }
 
@@ -173,31 +196,30 @@ func (lc *LayoutCache) SetNamePattern(pattern string) {
 	lc.namePattern = pattern
 }
 
-func (lc *LayoutCache) Get(
-	ctx context.Context,
-	key LayoutKey,
-) (*LayoutCacheEntry, error) {
-
-	if tpl := lc.getCached(key); tpl != nil {
-		return tpl, nil
+func (lc *LayoutCache) Get(ctx context.Context, key LayoutKey, contentVars map[string]string) (*LayoutCacheEntry, error) {
+	lyt, err := lc.Parse(key)
+	if err != nil {
+		return nil, err
 	}
-
-	cached, err, _ := lc.sf.Do(key.CtxPath+"|"+key.LayoutPath, func() (any, error) {
-		if compiled := lc.getCached(key); compiled != nil {
-			return compiled, nil
+	rctx := layout.RenderCtx{Pipelines: lc.pipelines, FS: lc.fs}
+	depPaths, err := lyt.CollectDeps(ctx, rctx, key.CtxPath)
+	if err != nil {
+		return nil, fmt.Errorf("collect layout deps: %w", err)
+	}
+	cacheKey := depFingerprint(depPaths) + "|" + key.VarFingerprint
+	if entry := lc.getCompiled(cacheKey); entry != nil {
+		return entry, nil
+	}
+	result, err, _ := lc.sf.Do(cacheKey, func() (any, error) {
+		if entry := lc.getCompiled(cacheKey); entry != nil {
+			return entry, nil
 		}
-
-		compiled, err := lc.compile(ctx, key)
-		if err != nil {
-			return nil, err
-		}
-
-		return compiled, nil
+		return lc.compile(ctx, key, contentVars, cacheKey)
 	})
 	if err != nil {
 		return nil, err
 	}
-	return cached.(*LayoutCacheEntry), nil
+	return result.(*LayoutCacheEntry), nil
 }
 
 func (lc *LayoutCache) Parse(key LayoutKey) (*layout.Layout, error) {
@@ -226,7 +248,7 @@ func (lc *LayoutCache) Parse(key LayoutKey) (*layout.Layout, error) {
 	return lyt, nil
 }
 
-func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCacheEntry, error) {
+func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey, contentVars map[string]string, cacheKey string) (*LayoutCacheEntry, error) {
 	start := time.Now()
 
 	lyt, err := lc.Parse(key)
@@ -238,7 +260,7 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		Pipelines: lc.pipelines,
 		FS:        lc.fs,
 	}
-	str, deps, err := lyt.Render(ctx, rctx, key.CtxPath)
+	str, deps, err := lyt.Render(ctx, rctx, key.CtxPath, contentVars)
 	if err != nil {
 		return nil, err
 	}
@@ -296,7 +318,11 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey) (*LayoutCache
 		size:      fi.Size(),
 	}
 	lc.mu.Lock()
-	lc.data[key] = entry
+	lc.compiled[cacheKey] = entry
+	if lc.layoutToKeys[key.LayoutPath] == nil {
+		lc.layoutToKeys[key.LayoutPath] = make(map[string]struct{})
+	}
+	lc.layoutToKeys[key.LayoutPath][cacheKey] = struct{}{}
 	lc.mu.Unlock()
 
 	log.DDebug(log.Layout).
@@ -354,30 +380,19 @@ func (lc *LayoutCache) LayoutsForDir(ctx context.Context, path string) (map[stri
 	return out, nil
 }
 
-func (lc *LayoutCache) getCached(key LayoutKey) *LayoutCacheEntry {
+func (lc *LayoutCache) getCompiled(cacheKey string) *LayoutCacheEntry {
 	lc.mu.RLock()
-	entry, exists := lc.data[key]
+	entry := lc.compiled[cacheKey]
 	lc.mu.RUnlock()
-
-	if !exists {
-		return nil
-	}
-
-	fi, err := lc.fs.Stat(key.LayoutPath)
-	if err != nil {
-		return nil
-	}
-
-	if entry.size != fi.Size() || !entry.mtime.Equal(fi.ModTime()) {
-		return nil
-	}
-
 	return entry
 }
 
 func (lc *LayoutCache) Invalidate(key LayoutKey) {
 	lc.mu.Lock()
-	delete(lc.data, key)
+	for cacheKey := range lc.layoutToKeys[key.LayoutPath] {
+		delete(lc.compiled, cacheKey)
+	}
+	delete(lc.layoutToKeys, key.LayoutPath)
 	lc.mu.Unlock()
 
 	lc.parsedMu.Lock()
@@ -393,6 +408,14 @@ func (lc *LayoutCache) Invalidate(key LayoutKey) {
 func (lc *LayoutCache) InvalidateAll() {
 	lc.mu.Lock()
 	defer lc.mu.Unlock()
-	lc.data = make(map[LayoutKey]*LayoutCacheEntry)
+	lc.compiled = make(map[string]*LayoutCacheEntry)
+	lc.layoutToKeys = make(map[string]map[string]struct{})
 	log.DDebug(log.Layout).Msg("layout cache cleared")
+}
+
+func depFingerprint(paths []string) string {
+	sorted := make([]string, len(paths))
+	copy(sorted, paths)
+	sort.Strings(sorted)
+	return strings.Join(sorted, "\n")
 }

@@ -21,7 +21,7 @@ type schemeTree interface {
 }
 
 type layoutFinder interface {
-	Get(ctx context.Context, key LayoutKey) (*LayoutCacheEntry, error)
+	Parse(key LayoutKey) (*layout.Layout, error)
 	LayoutsForDir(ctx context.Context, path string) (map[string]LayoutKey, error)
 	LayoutsInDir(ctx context.Context, path string) (map[string]LayoutKey, error)
 }
@@ -127,12 +127,11 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, pa
 	}
 
 	for lytPath, lKey := range lkeys {
-		clyt, err := si.layouts.Get(ctx, lKey)
+		lyt, err := si.layouts.Parse(lKey)
 		if err != nil {
 			return fmt.Errorf("failed to parse layout %q: %w", lytPath, err)
 		}
 
-		lyt := clyt.Layout()
 		lytNode := NewLayoutNode(lKey)
 		graph.AddNode(lytNode)
 
@@ -181,6 +180,12 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, pa
 
 func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base string, key LayoutKey, content layout.Content) error {
 
+	contentKey := LayoutKey{
+		CtxPath:        key.CtxPath,
+		LayoutPath:     key.LayoutPath,
+		VarFingerprint: varFingerprint(content.Vars()),
+	}
+
 	glob := filepath.ToSlash(filepath.Join(base, content.Source))
 	matches, err := si.sourceFS.Glob(glob)
 	if err != nil {
@@ -194,10 +199,11 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 			SourceRoot: SourceTypeSource,
 			SourcePath: rel,
 
-			LayoutKey: key,
-			Pipeline:  content.Pipe,
-			TagName:   content.Name,
-			BaseDir:   base,
+			LayoutKey:   contentKey,
+			Pipeline:    content.Pipe,
+			TagName:     content.Name,
+			BaseDir:     base,
+			ContentVars: content.Vars(),
 		}
 
 		entryNode := NewEntryNode(entry)
@@ -298,7 +304,7 @@ func (si *SourceIndex) AddFile(ctx context.Context, graph graphBuilder, filePath
 	}
 
 	for _, lKey := range lkeys {
-		clyt, err := si.layouts.Get(ctx, lKey)
+		lyt, err := si.layouts.Parse(lKey)
 		if err != nil {
 			log.WWarn(log.Plan).Err(err).Str("layout", lKey.LayoutPath).Msg("AddFile: failed to parse layout")
 			continue
@@ -306,12 +312,12 @@ func (si *SourceIndex) AddFile(ctx context.Context, graph graphBuilder, filePath
 
 		switch sourceRoot {
 		case SourceTypeSource:
-			if entries := si.matchContent(graph, filePath, dir, lKey, clyt.Layout()); len(entries) > 0 {
+			if entries := si.matchContent(graph, filePath, dir, lKey, lyt); len(entries) > 0 {
 				return entries, true
 			}
 
 		case SourceTypeScheme:
-			if entry := si.matchAsset(graph, filePath, dir, lKey, clyt.Layout()); entry != nil {
+			if entry := si.matchAsset(graph, filePath, dir, lKey, lyt); entry != nil {
 				return []*BuildEntry{entry}, true
 			}
 		}
@@ -326,18 +332,26 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 	var entries []*BuildEntry
 
 	for _, content := range lyt.Contents() {
+
+		contentKey := LayoutKey{
+			CtxPath:        lKey.CtxPath,
+			LayoutPath:     lKey.LayoutPath,
+			VarFingerprint: varFingerprint(content.Vars()),
+		}
+
 		glob := filepath.ToSlash(filepath.Join(base, content.Source))
 
 		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
 			entry := &BuildEntry{
-				ID:         filePath + ":" + content.Name,
-				Type:       ContentType,
-				SourceRoot: SourceTypeSource,
-				SourcePath: filePath,
-				LayoutKey:  lKey,
-				Pipeline:   content.Pipe,
-				TagName:    content.Name,
-				BaseDir:    base,
+				ID:          filePath + ":" + content.Name,
+				Type:        ContentType,
+				SourceRoot:  SourceTypeSource,
+				SourcePath:  filePath,
+				LayoutKey:   contentKey,
+				Pipeline:    content.Pipe,
+				TagName:     content.Name,
+				BaseDir:     base,
+				ContentVars: content.Vars(),
 			}
 			entryNode := NewEntryNode(entry)
 			graph.AddNode(entryNode)

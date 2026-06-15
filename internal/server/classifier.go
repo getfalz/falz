@@ -124,13 +124,13 @@ func (fc *FileClassifier) classifySourceFile(ctx context.Context, path string) (
 	}
 
 	for _, key := range keys {
-		lyt, err := fc.project.Layouts.Get(ctx, key)
+		lyt, err := fc.project.Layouts.Parse(key)
 		if err != nil {
 			log.WWarn(log.Server).Err(err).Str("layout", key.LayoutPath).Msg("failed to parse layout")
 			continue
 		}
 
-		for _, cc := range lyt.Layout().Contents() {
+		for _, cc := range lyt.Contents() {
 			glob := filepath.ToSlash(filepath.Join(dir, cc.Source))
 			matched, err := filepath.Match(glob, path)
 			if err == nil && matched {
@@ -164,19 +164,19 @@ func (fc *FileClassifier) classifySchemeFile(ctx context.Context, path string) (
 	}
 
 	for _, key := range keys {
-		lyt, err := fc.project.Layouts.Get(ctx, key)
+		lyt, err := fc.project.Layouts.Parse(key)
 		if err != nil {
 			log.WWarn(log.Server).Err(err).Str("layout", key.LayoutPath).Msg("failed to parse layout")
 			continue
 		}
 
-		for _, f := range lyt.Layout().Fragments() {
+		for _, f := range lyt.Fragments() {
 			if path == f.Source {
 				return FileTypeFragment, nil
 			}
 		}
 
-		for _, a := range lyt.Layout().Assets() {
+		for _, a := range lyt.Assets() {
 			glob := filepath.ToSlash(a.Source)
 			matched, err := filepath.Match(glob, path)
 			if err == nil && matched {

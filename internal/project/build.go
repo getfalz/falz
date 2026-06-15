@@ -221,7 +221,7 @@ func (b *builder) buildStage(
 					}
 
 					// compute output path
-					lyt, err := b.layouts.Get(ctx, entry.LayoutKey)
+					lyt, err := b.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
 					if err != nil {
 						artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
 						sendErr(artifact.Error)
@@ -326,7 +326,7 @@ func (b *builder) buildEntry(
 		return artifact
 	}
 
-	lyt, err := b.layouts.Get(ctx, entry.LayoutKey)
+	lyt, err := b.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
 	if err != nil {
 		artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
 		return artifact
@@ -347,6 +347,10 @@ func (b *builder) buildEntry(
 		"vars":   b.config.Variables,
 		"type":   entry.Type.String(),
 		"tag":   entry.TagName,
+	}
+
+	for k, v := range entry.ContentVars {
+		vars[k] = v
 	}
 
 	transformed, err := pl.Transform(ctx, data, vars)

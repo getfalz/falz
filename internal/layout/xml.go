@@ -2,6 +2,7 @@ package layout
 
 import (
 	"encoding/xml"
+	"errors"
 	"io"
 )
 
@@ -37,6 +38,7 @@ type Content struct {
 	Pipe      string
 	To        string
 	assetElms []Asset
+	vars      map[string]string
 }
 
 type Asset struct {
@@ -46,6 +48,12 @@ type Asset struct {
 	Source  string   `xml:"src,attr"`
 	Pipe    string   `xml:"pipe,attr"`
 	To      string   `xml:"to,attr"`
+}
+
+type Var struct {
+	XMLName xml.Name `xml:"Var"`
+	Name    string   `xml:"name,attr"`
+	Value   string   `xml:"value,attr"`
 }
 
 func (l *Layout) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
@@ -137,7 +145,8 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				return nil
 			}
 		case xml.StartElement:
-			if t.Name.Local == "Asset" {
+			switch t.Name.Local {
+			case "Asset":
 				var a Asset
 				if err := d.DecodeElement(&a, &t); err != nil {
 					return err
@@ -147,6 +156,18 @@ func (c *Content) UnmarshalXML(d *xml.Decoder, start xml.StartElement) error {
 				}
 				// pipelines are set on layout.UnmarshalXML
 				c.assetElms = append(c.assetElms, a)
+			case "Var":
+				var v Var
+				if err := d.DecodeElement(&v, &t); err != nil {
+					return err
+				}
+				if v.Name == "" {
+					return errors.New("element <Var>: missing required field: name")
+				}
+				if c.vars == nil {
+					c.vars = make(map[string]string)
+				}
+				c.vars[v.Name] = v.Value
 			}
 		}
 	}

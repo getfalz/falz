@@ -23,7 +23,7 @@ type RenderCtx struct {
 	FS        *utils.RootFS
 }
 
-func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) ([]byte, string, error) {
+func (f *Fragment) Render(ctx context.Context, rctx RenderCtx, compileVars map[string]string) ([]byte, string, error) {
 	files, err := rctx.FS.FindFile(f.base, f.Source)
 	if err != nil {
 		return nil, "", err
@@ -36,14 +36,16 @@ func (f *Fragment) Render(ctx context.Context, rctx RenderCtx) ([]byte, string, 
 		return nil, "", fmt.Errorf("fragment %q: can't read file %q: %w", f.Name, fragmentPath, err)
 	}
 
-	vars := pipeline.Vars{}
 	pipe, err := rctx.Pipelines.Get(f.Pipe)
 	if err != nil {
 		return nil, "", fmt.Errorf("fragment %q: pipe %q not found: %w", f.Name, pipe.Config().PipelineName, err)
 	}
-	// TODO set vars
-	// vars.Set("vars", t.P.Config.Variables)
-	// vars.Set("assets", f.)
+	vars := pipeline.Vars{
+		"file": pipeline.NewFileInfo(fragmentPath, filepath.Dir(fragmentPath)),
+	}
+	for k, v := range compileVars {
+		vars[k] = v
+	}
 	result, err := pipe.Transform(ctx, content, vars)
 	if err != nil {
 		return nil, "", fmt.Errorf("fragment %q: pipe %q couldn't transform: %w", f.Name, pipe.Config().PipelineName, err)
@@ -63,7 +65,7 @@ func (c Content) Render(ctx context.Context) string {
 }
 
 // Render layout. The fragments will be searched first in the given base path
-func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rendered []byte, deps []string, err error) {
+func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string, compileVars map[string]string) (rendered []byte, deps []string, err error) {
 
 	if cerr := ctx.Err(); cerr != nil {
 		log.EError(log.Layout).Err(cerr).Str("layout_rel", l.path).Msg("render canceled (pre)")
@@ -90,12 +92,16 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 
 	tplVariables := make(map[string]any)
 
+	for k, v := range compileVars {
+		tplVariables[k] = v
+	}
+
 	for _, c := range l.contents {
 		tplVariables[c.Name] = c.Render(ctx)
 	}
 
 	for _, f := range l.fragments {
-		output, fragmentPath, err := f.Render(ctx, rctx)
+		output, fragmentPath, err := f.Render(ctx, rctx, compileVars)
 		if err != nil {
 			return nil, nil, fmt.Errorf("layout %q: render fragment %q with src %q: %w", l.path, f.Name, f.Source, err)
 		}
@@ -129,6 +135,29 @@ func (l *Layout) Render(ctx context.Context, rctx RenderCtx, base string) (rende
 		Msg("layout template rendered")
 
 	return buf.Bytes(), deps, nil
+}
+
+func (l *Layout) CollectDeps(ctx context.Context, rctx RenderCtx, base string) ([]string, error) {
+	var deps []string
+	if l.TplPath != "" {
+		paths, err := rctx.FS.FindFile(base, l.TplPath)
+		if err != nil {
+			return nil, fmt.Errorf("template %q: %w", l.TplPath, err)
+		}
+		if len(paths) > 0 {
+			deps = append(deps, filepath.ToSlash(paths[0]))
+		}
+	}
+	for _, f := range l.fragments {
+		files, err := rctx.FS.FindFile(f.base, f.Source)
+		if err != nil {
+			return nil, fmt.Errorf("fragment %q: %w", f.Source, err)
+		}
+		if len(files) > 0 {
+			deps = append(deps, filepath.ToSlash(files[0]))
+		}
+	}
+	return deps, nil
 }
 
 func (l Layout) Validate() error {
@@ -179,6 +208,10 @@ func (c *Content) Validate() error {
 		return fmt.Errorf("element <Content>: field 'src' must not contain path separators (got %q)", c.Source)
 	}
 	return nil
+}
+
+func (c *Content) Vars() map[string]string {
+	return c.vars
 }
 
 func (l *Layout) Fragments() []Fragment {
