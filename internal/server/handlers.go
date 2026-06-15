@@ -293,6 +293,28 @@ func (h *Handlers) handlePipelineModified(ctx context.Context, paths []string) e
 			}
 		}
 	}
+
+	for pipeName := range pipeNames {
+		if err := h.project.PipesRegistry.Reload(pipeName); err != nil {
+			log.WWarn(log.Handler).Err(err).Str("pipeline", pipeName).Msg("pipeline reload failed")
+			continue
+		}
+		log.IInfo(log.Handler).Str("pipeline", pipeName).Msg("pipeline reloaded")
+
+		pipeNode, ok := graph.GetNode(fmt.Sprintf("pipeline:%s", pipeName))
+		if !ok {
+			continue
+		}
+
+		for _, n := range graph.DependentsOf(pipeNode) {
+			switch dep := n.(type) {
+			case *project.EntryNode:
+				h.rehashAndMark(ctx, dep.Entry().ID)
+			case *project.FragmentNode:
+				h.invalidateAndRehash(ctx, dep.Path(), true)
+			}
+		}
+	}
 	return nil
 }
 

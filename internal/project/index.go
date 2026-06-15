@@ -144,6 +144,12 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, pa
 			fragNode := NewFragmentNode(fragPaths[0])
 			graph.AddNode(fragNode)
 			graph.AddEdge(lytNode, fragNode)
+
+			if frag.Pipe != "" {
+				pipeNode := NewPipelineNode(frag.Pipe)
+				graph.AddNode(pipeNode)
+				graph.AddEdge(fragNode, pipeNode)
+			}
 		}
 
 		if lyt.TplPath != "" {
