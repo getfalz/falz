@@ -42,7 +42,7 @@ func newBundle(entryFile string, root *utils.RootFS, pipesRoot *utils.RootFS, de
 			"for-await":       false, // transforms for-await-of loops
 			"top-level-await": false, // disallows top-level await
 		},
-		External:  []string{"kv", "fs", "http", "md", "fasttpl", "tpl"},
+		External:  []string{"kv", "fs", "http", "md", "fasttpl", "tpl", "yaml"},
 		NodePaths: []string{filepath.Join(pipesRoot.Path(), "shared", "node_modules")},
 		Plugins:   []api.Plugin{pipeRootPlugin(pipesRoot, filepath.Base(root.Path()))},
 	})

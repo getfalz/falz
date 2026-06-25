@@ -85,6 +85,15 @@ func RunServer(c context.Context, p *project.Project, forcePort bool) error {
 	}
 	log.IInfo(log.Build).Msg("initial build completed")
 
+	if err := p.Build(ctx); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return err
+		}
+		log.EError(log.Build).Err(err).Msg("initial build completed with errors")
+	} else {
+		log.IInfo(log.Build).Msg("initial build completed")
+	}
+
 	var ln net.Listener
 	if p.Config.Server.Enable {
 		retries := portRetries

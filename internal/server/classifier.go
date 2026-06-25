@@ -4,6 +4,7 @@ import (
 	"context"
 	"craeft/internal/log"
 	"craeft/internal/project"
+	"craeft/internal/utils"
 	"path/filepath"
 	"strings"
 
@@ -71,9 +72,9 @@ func (fc *FileClassifier) Classify(ctx context.Context, raw RawChange) *FileChan
 
 func (fc *FileClassifier) resolveRoot(absPath string) (relPath, root string) {
 	switch {
-    case strings.HasPrefix(absPath, fc.project.Config.ConfigFile):
-        rel, _ := filepath.Rel(fc.project.Config.ConfigFile, absPath)
-        return rel, "config"
+	case strings.HasPrefix(absPath, fc.project.Config.ConfigFile):
+		rel, _ := filepath.Rel(fc.project.Config.ConfigFile, absPath)
+		return rel, "config"
 	case strings.HasPrefix(absPath, fc.schemePath):
 		rel, _ := filepath.Rel(fc.schemePath, absPath)
 		return rel, "scheme"
@@ -131,15 +132,13 @@ func (fc *FileClassifier) classifySourceFile(ctx context.Context, path string) (
 		}
 
 		for _, cc := range lyt.Contents() {
-			glob := filepath.ToSlash(filepath.Join(dir, cc.Source))
-			matched, err := filepath.Match(glob, path)
+			matched, err := utils.MatchSrc(dir, cc.Source, path)
 			if err == nil && matched {
 				return FileTypeContent, nil
 			}
 
 			for _, a := range cc.Assets() {
-				glob := filepath.ToSlash(filepath.Join(dir, a.Source))
-				matched, err := filepath.Match(glob, path)
+				matched, err := utils.MatchSrc(dir, a.Source, path)
 				if err == nil && matched {
 					return FileTypeContentAsset, nil
 				}
@@ -177,8 +176,7 @@ func (fc *FileClassifier) classifySchemeFile(ctx context.Context, path string) (
 		}
 
 		for _, a := range lyt.Assets() {
-			glob := filepath.ToSlash(a.Source)
-			matched, err := filepath.Match(glob, path)
+			matched, err := utils.MatchSrc(dir, a.Source, path)
 			if err == nil && matched {
 				return FileTypeSchemeAsset, nil
 			}

@@ -160,10 +160,7 @@ func nodeAttributes(n Node) nodeAttrs {
 
 	case NodeKindLayout:
 		ln := n.(*LayoutNode)
-		label := shortLabel(ln.Key().LayoutPath)
-		if ctx := ln.Key().CtxPath; ctx != "" && ctx != "." {
-			label += " (" + ctx + ")"
-		}
+		label := ln.Key().String()
 		return nodeAttrs{label: label, kind: string(NodeKindLayout), color: "#86efac"}
 
 	case NodeKindFragment:

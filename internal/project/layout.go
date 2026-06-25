@@ -28,6 +28,10 @@ type LayoutKey struct {
 	VarFingerprint string
 }
 
+func (k LayoutKey) String() string {
+	return fmt.Sprintf("LayoutKey{CtxPath=%q, LayoutPath=%q, VarFingerprint=%q}", k.CtxPath, k.LayoutPath, k.VarFingerprint)
+}
+
 func varFingerprint(vars map[string]string) string {
 	if len(vars) == 0 {
 		return ""

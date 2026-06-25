@@ -243,6 +243,8 @@ func setupRequire(w *vmWorker) {
 			return js.GetFastTplModule(w.vm)
 		case "tpl":
 			return js.GetTplModule(w.vm)
+		case "yaml":
+			return js.GetYamlModule(w.vm)
 		}
 		// Unknown module — esbuild should have bundled it.
 		// Returning undefined lets scripts fail naturally with a clear JS error.

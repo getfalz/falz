@@ -52,6 +52,10 @@ func (h *HTTPServer) ServeOn(ctx context.Context, ln net.Listener) error {
 			// return
 		}
 
+		w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+		w.Header().Set("Pragma", "no-cache")
+		w.Header().Set("Expires", "0")
+
 		log.TTrace(log.Server).
 			Str("method", r.Method).
 			Str("path", r.URL.Path).
@@ -61,9 +65,9 @@ func (h *HTTPServer) ServeOn(ctx context.Context, ln net.Listener) error {
 	})
 
 	h.httpServer = &http.Server{
-		Addr:         fmt.Sprintf(":%d", h.config.Port),
-		Handler:      h.routing,
-		ReadTimeout:  10 * time.Second,
+		Addr:        fmt.Sprintf(":%d", h.config.Port),
+		Handler:     h.routing,
+		ReadTimeout: 10 * time.Second,
 	}
 
 	go func() {

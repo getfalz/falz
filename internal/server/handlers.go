@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"craeft/internal/log"
+	"craeft/internal/pipeline"
 	"craeft/internal/project"
 )
 
@@ -274,23 +275,20 @@ func (h *Handlers) handleSchemeAssetDeleted(ctx context.Context, paths []string)
 func (h *Handlers) handlePipelineModified(ctx context.Context, paths []string) error {
 	graph := h.project.Graph()
 
+	reloadAll := false
 	pipeNames := make(map[string]struct{})
 	for _, path := range paths {
 		name, _, _ := strings.Cut(path, "/")
-		pipeNames[name] = struct{}{}
+		if name == pipeline.SharedPipeFolder {
+			reloadAll = true
+		} else {
+			pipeNames[name] = struct{}{}
+		}
 	}
 
-	for pipeName := range pipeNames {
-		if err := h.project.PipesRegistry.Reload(pipeName); err != nil {
-			log.WWarn(log.Handler).Err(err).Str("pipeline", pipeName).Msg("pipeline reload failed")
-			continue
-		}
-		log.IInfo(log.Handler).Str("pipeline", pipeName).Msg("pipeline reloaded")
-
-		for _, entry := range graph.AllEntries() {
-			if entry.Pipeline == pipeName {
-				h.rehashAndMark(ctx, entry.ID)
-			}
+	if reloadAll {
+		for _, name := range h.project.Config.Pipes {
+			pipeNames[name] = struct{}{}
 		}
 	}
 
@@ -335,6 +333,10 @@ func (h *Handlers) rehashAndMark(ctx context.Context, id string) {
 	newHash, err := h.hasher.ComputeHash(ctx, entry)
 	if err != nil {
 		log.WWarn(log.Handler).Err(err).Str("id", id).Msg("failed to compute hash")
+		_ = graph.UpdateEntry(id, func(e *project.BuildEntry) error {
+			e.Dirty = true
+			return nil
+		})
 		return
 	}
 

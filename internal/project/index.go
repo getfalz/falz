@@ -8,16 +8,17 @@ import (
 
 	"craeft/internal/layout"
 	"craeft/internal/log"
+	"craeft/internal/utils"
 )
 
 type sourceTree interface {
 	FS() fs.FS
-	Glob(pattern string) ([]string, error)
+	GlobSrc(base, src string) ([]string, error)
 }
 
 type schemeTree interface {
 	FindFile(targetPath, pattern string) ([]string, error)
-	Glob(pattern string) ([]string, error)
+	GlobSrc(base, src string) ([]string, error)
 }
 
 type layoutFinder interface {
@@ -172,7 +173,7 @@ func (si *SourceIndex) scanDirectory(ctx context.Context, graph graphBuilder, pa
 		if _, done := seenAssets[lKey.LayoutPath]; !done {
 			seenAssets[lKey.LayoutPath] = struct{}{}
 			for _, asset := range lyt.Assets() {
-				err := si.scanAsset(ctx, graph, lKey, asset)
+				err := si.scanAsset(ctx, graph, path, lKey, asset)
 				if err != nil {
 					continue
 				}
@@ -192,8 +193,7 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 		VarFingerprint: varFingerprint(content.Vars()),
 	}
 
-	glob := filepath.ToSlash(filepath.Join(base, content.Source))
-	matches, err := si.sourceFS.Glob(glob)
+	matches, err := si.sourceFS.GlobSrc(base, content.Source)
 	if err != nil {
 		return err
 	}
@@ -219,8 +219,7 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 	}
 
 	for _, asset := range content.Assets() {
-		glob := filepath.ToSlash(filepath.Join(base, asset.Source))
-		matches, err := si.sourceFS.Glob(glob)
+		matches, err := si.sourceFS.GlobSrc(base, asset.Source)
 		if err != nil {
 			return err
 		}
@@ -247,10 +246,9 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 	return nil
 }
 
-func (si *SourceIndex) scanAsset(ctx context.Context, graph graphBuilder, key LayoutKey, asset layout.Asset) error {
+func (si *SourceIndex) scanAsset(ctx context.Context, graph graphBuilder, base string, key LayoutKey, asset layout.Asset) error {
 
-	glob := filepath.ToSlash(asset.Source)
-	matches, err := si.schemeFS.Glob(glob)
+	matches, err := si.schemeFS.GlobSrc(base, asset.Source)
 	if err != nil {
 		return err
 	}
@@ -345,9 +343,7 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 			VarFingerprint: varFingerprint(content.Vars()),
 		}
 
-		glob := filepath.ToSlash(filepath.Join(base, content.Source))
-
-		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
+		if matched, err := utils.MatchSrc(base, content.Source, filePath); err == nil && matched {
 			entry := &BuildEntry{
 				ID:          filePath + ":" + content.Name,
 				Type:        ContentType,
@@ -367,9 +363,7 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 		}
 
 		for _, asset := range content.Assets() {
-			glob := filepath.ToSlash(filepath.Join(base, asset.Source))
-
-			if matched, err := filepath.Match(glob, filePath); err == nil && matched {
+			if matched, err := utils.MatchSrc(base, asset.Source, filePath); err == nil && matched {
 				entry := &BuildEntry{
 					ID:         fmt.Sprintf("asset:source:%s:%s", filePath, asset.Name),
 					Type:       AssetType,
@@ -395,9 +389,8 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 // pattern in the layout, builds the entry, and wires it into the graph.
 func (si *SourceIndex) matchAsset(graph graphBuilder, filePath, base string, lKey LayoutKey, lyt *layout.Layout) *BuildEntry {
 	for _, asset := range lyt.Assets() {
-		glob := filepath.ToSlash(asset.Source)
-
-		if matched, err := filepath.Match(glob, filePath); err == nil && matched {
+		base := filepath.Dir(lKey.LayoutPath)
+		if matched, err := utils.MatchSrc(base, asset.Source, filePath); err == nil && matched {
 			entry := &BuildEntry{
 				ID:         fmt.Sprintf("asset:scheme:%s:%s", filePath, asset.Name),
 				Type:       AssetType,
