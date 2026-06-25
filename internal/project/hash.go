@@ -106,7 +106,6 @@ func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) error {
 	return errors.Join(errs...)
 }
 
-
 func (hi *HashIndex) hasherFS(root SourceType) (fileHasher, error) {
 	switch root {
 	case SourceTypeSource:
@@ -161,7 +160,7 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 		return "", err
 	}
 
-	fragmentHashes := make([]string, 0, len(lyt.GetDeps()))
+	fragmentHashes := make([]string, 0, len(lyt.GetDeps())+len(lyt.Layout().Fragments()))
 	for _, path := range lyt.GetDeps() {
 		fragHash, err := hi.schemeFS.HashFile(path)
 		if err != nil {
@@ -169,14 +168,17 @@ func (hi *HashIndex) hashLayoutDeps(ctx context.Context, entry *BuildEntry) (str
 		}
 		fragmentHashes = append(fragmentHashes, fragHash)
 	}
+	for _, frag := range lyt.Layout().Fragments() {
+		fragmentHashes = append(fragmentHashes, hi.hashPipeline(frag.Pipe))
+	}
 
 	return utils.CombineHashes(append(fragmentHashes, layoutHash)...), nil
 }
 
 func (hi *HashIndex) hashPipeline(name string) string {
-    pl, err := hi.pipes.Get(name)
-    if err != nil {
-        return ""
-    }
-    return pl.Hash()
+	pl, err := hi.pipes.Get(name)
+	if err != nil {
+		return ""
+	}
+	return pl.Hash()
 }

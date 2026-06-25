@@ -210,7 +210,7 @@ func (lc *LayoutCache) Get(ctx context.Context, key LayoutKey, contentVars map[s
 	if err != nil {
 		return nil, fmt.Errorf("collect layout deps: %w", err)
 	}
-	cacheKey := depFingerprint(depPaths) + "|" + key.VarFingerprint
+	cacheKey := layoutCacheKey(key, depPaths)
 	if entry := lc.getCompiled(cacheKey); entry != nil {
 		return entry, nil
 	}
@@ -417,9 +417,11 @@ func (lc *LayoutCache) InvalidateAll() {
 	log.DDebug(log.Layout).Msg("layout cache cleared")
 }
 
-func depFingerprint(paths []string) string {
-	sorted := make([]string, len(paths))
-	copy(sorted, paths)
+func layoutCacheKey(key LayoutKey, depPaths []string) string {
+	sorted := make([]string, len(depPaths))
+	copy(sorted, depPaths)
 	sort.Strings(sorted)
-	return strings.Join(sorted, "\n")
+	depsFingerprint := strings.Join(sorted, "\n")
+
+	return key.LayoutPath + "|" + depsFingerprint + "|" + key.VarFingerprint
 }
