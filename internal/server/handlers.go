@@ -61,7 +61,7 @@ func (h *Handlers) RegisterAll(r *EventRegistry) {
 
 func (h *Handlers) handleContentModified(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		for _, entry := range h.entriesForSource(path) {
+		for _, entry := range h.project.Graph().EntriesBySource(project.SourceTypeSource, project.ContentType, path) {
 			h.rehashAndMark(ctx, entry.ID)
 		}
 	}
@@ -72,7 +72,7 @@ func (h *Handlers) handleContentCreated(ctx context.Context, paths []string) err
 	graph := h.project.Graph()
 
 	for _, path := range paths {
-		if existing := h.entriesForSource(path); len(existing) > 0 {
+		if existing := h.project.Graph().EntriesBySource(project.SourceTypeSource, project.ContentType, path); len(existing) > 0 {
 			for _, e := range existing {
 				h.rehashAndMark(ctx, e.ID)
 			}
@@ -98,7 +98,7 @@ func (h *Handlers) handleContentCreated(ctx context.Context, paths []string) err
 
 func (h *Handlers) handleContentDeleted(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		for _, entry := range h.entriesForSource(path) {
+		for _, entry := range h.project.Graph().EntriesBySource(project.SourceTypeSource, project.ContentType, path) {
 			h.removeEntry(entry.ID)
 		}
 	}
@@ -109,7 +109,9 @@ func (h *Handlers) handleContentDeleted(ctx context.Context, paths []string) err
 
 func (h *Handlers) handleContentAssetModified(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		h.rehashAndMark(ctx, fmt.Sprintf("asset:source:%s", path))
+		for _, entry := range h.project.Graph().EntriesBySource(project.SourceTypeSource, project.AssetType, path) {
+			h.rehashAndMark(ctx, entry.ID)
+		}
 	}
 	return nil
 }
@@ -118,9 +120,12 @@ func (h *Handlers) handleContentAssetCreated(ctx context.Context, paths []string
 	graph := h.project.Graph()
 
 	for _, path := range paths {
-		id := fmt.Sprintf("asset:source:%s", path)
-		if _, ok := graph.EntryByID(id); ok {
-			h.rehashAndMark(ctx, id)
+		found := false
+		for _, entry := range graph.EntriesBySource(project.SourceTypeSource, project.AssetType, path) {
+			found = true
+			h.rehashAndMark(ctx, entry.ID)
+		}
+		if found {
 			continue
 		}
 
@@ -144,7 +149,9 @@ func (h *Handlers) handleContentAssetCreated(ctx context.Context, paths []string
 
 func (h *Handlers) handleContentAssetDeleted(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		h.removeEntry(fmt.Sprintf("asset:source:%s", path))
+		for _, entry := range h.project.Graph().EntriesBySource(project.SourceTypeSource, project.AssetType, path) {
+			h.removeEntry(entry.ID)
+		}
 	}
 	return nil
 }
@@ -230,7 +237,9 @@ func (h *Handlers) handleFragmentModified(ctx context.Context, paths []string) e
 
 func (h *Handlers) handleSchemeAssetModified(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		h.rehashAndMark(ctx, fmt.Sprintf("asset:scheme:%s", path))
+		for _, entry := range h.project.Graph().EntriesBySource(project.SourceTypeScheme, project.AssetType, path) {
+			h.rehashAndMark(ctx, entry.ID)
+		}
 	}
 	return nil
 }
@@ -239,9 +248,12 @@ func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, paths []string)
 	graph := h.project.Graph()
 
 	for _, path := range paths {
-		id := fmt.Sprintf("asset:scheme:%s", path)
-		if _, ok := graph.EntryByID(id); ok {
-			h.rehashAndMark(ctx, id)
+		found := false
+		for _, entry := range graph.EntriesBySource(project.SourceTypeScheme, project.AssetType, path) {
+			found = true
+			h.rehashAndMark(ctx, entry.ID)
+		}
+		if found {
 			continue
 		}
 
@@ -265,7 +277,9 @@ func (h *Handlers) handleSchemeAssetCreated(ctx context.Context, paths []string)
 
 func (h *Handlers) handleSchemeAssetDeleted(ctx context.Context, paths []string) error {
 	for _, path := range paths {
-		h.removeEntry(fmt.Sprintf("asset:scheme:%s", path))
+		for _, entry := range h.project.Graph().EntriesBySource(project.SourceTypeScheme, project.AssetType, path) {
+			h.removeEntry(entry.ID)
+		}
 	}
 	return nil
 }
@@ -495,14 +509,4 @@ func (h *Handlers) handleConfigModified(ctx context.Context, paths []string) err
 
 	log.IInfo(log.Handler).Msg("config reloaded")
 	return nil
-}
-
-func (h *Handlers) entriesForSource(path string) []*project.BuildEntry {
-	var result []*project.BuildEntry
-	for _, e := range h.project.Graph().AllEntries() {
-		if e.SourcePath == path {
-			result = append(result, e)
-		}
-	}
-	return result
 }

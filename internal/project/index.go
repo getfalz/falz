@@ -200,7 +200,6 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 
 	for _, rel := range matches {
 		entry := &BuildEntry{
-			ID:         rel + ":" + content.Name,
 			Type:       ContentType,
 			SourceRoot: SourceTypeSource,
 			SourcePath: rel,
@@ -225,7 +224,6 @@ func (si *SourceIndex) scanContent(ctx context.Context, graph graphBuilder, base
 		}
 		for _, rel := range matches {
 			entry := &BuildEntry{
-				ID:         fmt.Sprintf("asset:source:%s:%s", rel, asset.Name),
 				Type:       AssetType,
 				SourceRoot: SourceTypeSource,
 				SourcePath: rel,
@@ -254,7 +252,6 @@ func (si *SourceIndex) scanAsset(ctx context.Context, graph graphBuilder, base s
 	}
 	for _, rel := range matches {
 		entry := &BuildEntry{
-			ID:         fmt.Sprintf("asset:scheme:%s:%s", rel, asset.Name),
 			Type:       AssetType,
 			SourceRoot: SourceTypeScheme,
 			SourcePath: rel,
@@ -345,7 +342,6 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 
 		if matched, err := utils.MatchSrc(base, content.Source, filePath); err == nil && matched {
 			entry := &BuildEntry{
-				ID:          filePath + ":" + content.Name,
 				Type:        ContentType,
 				SourceRoot:  SourceTypeSource,
 				SourcePath:  filePath,
@@ -365,7 +361,6 @@ func (si *SourceIndex) matchContent(graph graphBuilder, filePath, base string, l
 		for _, asset := range content.Assets() {
 			if matched, err := utils.MatchSrc(base, asset.Source, filePath); err == nil && matched {
 				entry := &BuildEntry{
-					ID:         fmt.Sprintf("asset:source:%s:%s", filePath, asset.Name),
 					Type:       AssetType,
 					SourceRoot: SourceTypeSource,
 					SourcePath: filePath,
@@ -392,7 +387,6 @@ func (si *SourceIndex) matchAsset(graph graphBuilder, filePath, base string, lKe
 		base := filepath.Dir(lKey.LayoutPath)
 		if matched, err := utils.MatchSrc(base, asset.Source, filePath); err == nil && matched {
 			entry := &BuildEntry{
-				ID:         fmt.Sprintf("asset:scheme:%s:%s", filePath, asset.Name),
 				Type:       AssetType,
 				SourceRoot: SourceTypeScheme,
 				SourcePath: filePath,

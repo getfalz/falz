@@ -34,8 +34,8 @@ type graphmlGraph struct {
 }
 
 type graphmlNode struct {
-	ID    string        `xml:"id,attr"`
-	Data  []graphmlData `xml:"data"`
+	ID   string        `xml:"id,attr"`
+	Data []graphmlData `xml:"data"`
 }
 
 type graphmlEdge struct {
@@ -92,8 +92,8 @@ func WriteGraphML(w io.Writer, g DependencyGraph) error {
 		for _, dep := range deps {
 			xmlEdges = append(xmlEdges, graphmlEdge{
 				ID:     edgeID(edgeIdx),
-				Source: xmlID(n.ID()),
-				Target: xmlID(dep.ID()),
+				Source: n.ID(),
+				Target: dep.ID(),
 			})
 			edgeIdx++
 		}
@@ -129,7 +129,7 @@ func toXMLNode(n Node) graphmlNode {
 		data = append(data, graphmlData{Key: "d_base_dir", Value: a.baseDir})
 	}
 	return graphmlNode{
-		ID:   xmlID(n.ID()),
+		ID:   n.ID(),
 		Data: data,
 	}
 }
@@ -196,28 +196,6 @@ func shortLabel(path string) string {
 		return path
 	}
 	return parts[len(parts)-1]
-}
-
-// xmlID returns a valid XML id attribute value for any node ID string.
-// GraphML node ids must be valid XML NCNames in strict parsers, so we
-// prefix with "n_" and replace every non-alphanumeric character with "_".
-func xmlID(s string) string {
-	var b strings.Builder
-	b.WriteString("n_")
-	for _, r := range s {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '.':
-			b.WriteRune(r)
-		default:
-			b.WriteRune('_')
-		}
-	}
-	return b.String()
-}
-
-// xmlSafeID is like xmlID but without the "n_" prefix, for group IDs.
-func xmlSafeID(s string) string {
-	return strings.TrimPrefix(xmlID(s), "n_")
 }
 
 func edgeID(i int) string {

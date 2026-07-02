@@ -55,16 +55,37 @@ type BuildEntry struct {
 	SourcePath string     // Source file path
 
 	// Build information
-	LayoutKey LayoutKey
-	Pipeline  string // Pipeline name
-	TagName   string // Content slot name (empty for assets)
-	BaseDir   string // Base directory
+	LayoutKey   LayoutKey
+	Pipeline    string // Pipeline name
+	TagName     string // Content slot name (empty for assets)
+	BaseDir     string // Base directory
 	ContentVars map[string]string
 
 	// State
 	Hash  string
 	Dirty bool  // Needs rebuilding
 	Error error // Build error if any
+}
+
+func (e *BuildEntry) CanonicalID() string {
+	switch {
+	case e.Type == ContentType:
+		return fmt.Sprintf("%s:%s", e.SourcePath, e.TagName)
+	case e.Type == AssetType && e.SourceRoot == SourceTypeSource:
+		return fmt.Sprintf("asset:source:%s:%s", e.SourcePath, e.TagName)
+	case e.Type == AssetType && e.SourceRoot == SourceTypeScheme:
+		return fmt.Sprintf("asset:scheme:%s:%s", e.SourcePath, e.TagName)
+	default:
+		panic(fmt.Sprintf("unsupported build entry identity: type=%v sourceRoot=%v sourcePath=%q tagName=%q", e.Type, e.SourceRoot, e.SourcePath, e.TagName))
+	}
+}
+
+func (e *BuildEntry) sourceKey() entrySourceKey {
+	return entrySourceKey{
+		root:      e.SourceRoot,
+		entryType: e.Type,
+		path:      e.SourcePath,
+	}
 }
 
 type DependencyGraph interface {
@@ -74,6 +95,7 @@ type DependencyGraph interface {
 	AllNodes() []Node
 
 	AllEntries() []*BuildEntry
+	EntriesBySource(root SourceType, entryType EntryType, path string) []*BuildEntry
 	EntryByID(id string) (*BuildEntry, bool)
 	DirtyEntries() []*BuildEntry
 	CleanEntries() []*BuildEntry
@@ -102,6 +124,7 @@ func NewEntryNode(entry *BuildEntry) *EntryNode {
 	if entry == nil {
 		panic("entry cannot be nil")
 	}
+	entry.ID = entry.CanonicalID()
 	return &EntryNode{entry: entry}
 }
 
@@ -118,7 +141,7 @@ func NewLayoutNode(key LayoutKey) *LayoutNode {
 }
 
 func (n *LayoutNode) ID() string {
-    return fmt.Sprintf("layout:%s", n.key.LayoutPath)
+	return fmt.Sprintf("layout:%s", n.key.LayoutPath)
 }
 func (n *LayoutNode) Kind() NodeKind { return NodeKindLayout }
 func (n *LayoutNode) Key() LayoutKey { return n.key }
@@ -169,17 +192,25 @@ func (n *PipelineNode) Kind() NodeKind { return NodeKindPipeline }
 func (n *PipelineNode) Name() string   { return n.name }
 
 type dependencyGraph struct {
-	mu      sync.RWMutex
-	nodes   map[string]Node
-	edges   map[string]map[string]struct{}
-	reverse map[string]map[string]struct{}
+	mu              sync.RWMutex
+	nodes           map[string]Node
+	entriesBySource map[entrySourceKey]map[string]struct{}
+	edges           map[string]map[string]struct{}
+	reverse         map[string]map[string]struct{}
+}
+
+type entrySourceKey struct {
+	root      SourceType
+	entryType EntryType
+	path      string
 }
 
 func NewDependencyGraph() DependencyGraph {
 	return &dependencyGraph{
-		nodes:   make(map[string]Node),
-		edges:   make(map[string]map[string]struct{}),
-		reverse: make(map[string]map[string]struct{}),
+		nodes:           make(map[string]Node),
+		entriesBySource: make(map[entrySourceKey]map[string]struct{}),
+		edges:           make(map[string]map[string]struct{}),
+		reverse:         make(map[string]map[string]struct{}),
 	}
 }
 
@@ -195,6 +226,7 @@ func (g *dependencyGraph) AddNode(node Node) {
 
 	id := node.ID()
 	g.nodes[id] = node
+	g.indexNode(node)
 
 	if g.edges[id] == nil {
 		g.edges[id] = make(map[string]struct{})
@@ -231,6 +263,7 @@ func (g *dependencyGraph) RemoveNode(node Node) {
 	}
 
 	delete(g.nodes, id)
+	g.unindexNode(node)
 }
 
 func (g *dependencyGraph) GetNode(id string) (Node, bool) {
@@ -254,6 +287,35 @@ func (g *dependencyGraph) AllNodes() []Node {
 	return nodes
 }
 
+func (g *dependencyGraph) indexNode(node Node) {
+	entryNode, ok := node.(*EntryNode)
+	if !ok {
+		return
+	}
+
+	entry := entryNode.entry
+	key := entry.sourceKey()
+	if g.entriesBySource[key] == nil {
+		g.entriesBySource[key] = make(map[string]struct{})
+	}
+	g.entriesBySource[key][entry.ID] = struct{}{}
+}
+
+func (g *dependencyGraph) unindexNode(node Node) {
+	entryNode, ok := node.(*EntryNode)
+	if !ok {
+		return
+	}
+
+	entry := entryNode.entry
+	key := entry.sourceKey()
+	entries := g.entriesBySource[key]
+	delete(entries, entry.ID)
+	if len(entries) == 0 {
+		delete(g.entriesBySource, key)
+	}
+}
+
 // AllEntries returns all entry nodes in the graph.
 // The returned slice contains pointers to the actual BuildEntry objects.
 func (g *dependencyGraph) AllEntries() []*BuildEntry {
@@ -263,6 +325,22 @@ func (g *dependencyGraph) AllEntries() []*BuildEntry {
 	var entries []*BuildEntry
 	for _, node := range g.nodes {
 		if node.Kind() == NodeKindEntry {
+			if entryNode, ok := node.(*EntryNode); ok {
+				entries = append(entries, entryNode.entry)
+			}
+		}
+	}
+	return entries
+}
+
+func (g *dependencyGraph) EntriesBySource(root SourceType, entryType EntryType, path string) []*BuildEntry {
+	g.mu.RLock()
+	defer g.mu.RUnlock()
+
+	ids := g.entriesBySource[entrySourceKey{root: root, entryType: entryType, path: path}]
+	entries := make([]*BuildEntry, 0, len(ids))
+	for id := range ids {
+		if node, ok := g.nodes[id]; ok {
 			if entryNode, ok := node.(*EntryNode); ok {
 				entries = append(entries, entryNode.entry)
 			}
@@ -545,6 +623,7 @@ func (g *dependencyGraph) Clear() {
 	defer g.mu.Unlock()
 
 	g.nodes = make(map[string]Node)
+	g.entriesBySource = make(map[entrySourceKey]map[string]struct{})
 	g.edges = make(map[string]map[string]struct{})
 	g.reverse = make(map[string]map[string]struct{})
 }
