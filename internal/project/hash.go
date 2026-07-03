@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"sync/atomic"
 
+	"craeft/internal/layout"
 	"craeft/internal/log"
 	"craeft/internal/utils"
 
@@ -19,6 +20,7 @@ type fileHasher interface {
 
 type layoutLoader interface {
 	Get(ctx context.Context, key LayoutKey, contentVars map[string]string) (*LayoutCacheEntry, error)
+	Parse(key LayoutKey) (*layout.Layout, error)
 }
 
 type entryHashGraph interface {
@@ -142,10 +144,13 @@ func (hi *HashIndex) ComputeHash(ctx context.Context, entry *BuildEntry) (string
 
 	pipelineHash := hi.hashPipeline(entry.Pipeline)
 
+	varsHash := utils.HashString(varFingerprint(entry.ContentVars))
+
 	return utils.CombineHashes(
 		contentHash,
 		layoutHash,
 		pipelineHash,
+		varsHash,
 	), nil
 }
 

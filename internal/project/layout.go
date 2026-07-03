@@ -6,9 +6,7 @@ import (
 	"fmt"
 	"io"
 	"path/filepath"
-	"regexp"
 	"sort"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -55,12 +53,10 @@ type LayoutCacheEntry struct {
 	layout    *layout.Layout
 	layoutTpl *fasttemplate.Template
 
-	// map of output path templates for the current layout
-	outputs map[string]*fasttemplate.Template
-	mtime   time.Time
-	size    int64
-	deps    []string
-	tags    map[string]struct{} // a list of all tags used in the layout template
+	mtime time.Time
+	size  int64
+	deps  []string
+	tags  map[string]struct{} // a list of all tags used in the layout template
 }
 
 var systemVars = map[string]struct{}{
@@ -103,70 +99,6 @@ func (lc *LayoutCacheEntry) GetDeps() []string {
 
 func (lc *LayoutCacheEntry) Layout() *layout.Layout {
 	return lc.layout
-}
-
-var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
-
-func (lc *LayoutCacheEntry) ContentOutput(contentName string, entry *BuildEntry) (string, error) {
-	tpl, ok := lc.outputs[contentName]
-	if !ok {
-		return "", fmt.Errorf("content %q not found in layout", contentName)
-	}
-	if tpl == nil {
-		return "", fmt.Errorf("content %q has no output template", contentName)
-	}
-
-	name := filepath.Base(entry.SourcePath)
-	extWithDot := filepath.Ext(name)
-	filename := strings.TrimSuffix(name, extWithDot)
-	ext := strings.TrimPrefix(extWithDot, ".")
-
-	// TODO don't panic on template parse
-	// e.g. panic: unexpected error: unknown placeholder: FILENAM
-	output := tpl.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
-		switch tag {
-		case "FILENAME":
-			return w.Write([]byte(filename))
-		case "EXT":
-			return w.Write([]byte(ext))
-		case "BASENAME":
-			return w.Write([]byte(name))
-		case "PIPE":
-			return w.Write([]byte(entry.Pipeline))
-		case "HASH":
-			if entry.Hash == "" {
-				return 0, fmt.Errorf("HASH not available yet")
-			}
-			return w.Write([]byte(entry.Hash))
-		default:
-			// HASH:N ?
-			if m := hasHashTag.FindStringSubmatch(tag); len(m) == 2 {
-				if entry.Hash == "" {
-					return 0, fmt.Errorf("HASH not available yet")
-				}
-
-				n, err := strconv.Atoi(m[1])
-				if err != nil || n <= 0 {
-					return 0, fmt.Errorf("invalid HASH length: %q", m[1])
-				}
-				if n > len(entry.Hash) {
-					n = len(entry.Hash)
-				}
-				return w.Write([]byte(entry.Hash[:n]))
-			}
-
-			return fmt.Fprintf(w, "[unknown tag %q]", tag)
-		}
-	})
-
-	cleaned := filepath.ToSlash(filepath.Clean(output))
-	if cleaned == "" || cleaned == "." ||
-		filepath.IsAbs(cleaned) ||
-		cleaned == ".." || strings.HasPrefix(cleaned, "../") {
-		return "", fmt.Errorf("invalid output path %q: must be a relative forward path with no parent traversal", output)
-	}
-
-	return filepath.Join(entry.BaseDir, output), nil
 }
 
 type LayoutCache struct {
@@ -280,33 +212,6 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey, contentVars m
 		return 0, nil
 	})
 
-	outputs := make(map[string]*fasttemplate.Template, len(lyt.Contents()))
-	for _, c := range lyt.Contents() {
-		cToTpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
-		if err != nil {
-			log.Warn(fmt.Sprintf("failed to parse content output template for content %q in layout %q: %v. This content will be ignored.", c.Name, key.LayoutPath, err))
-			continue
-		}
-		outputs[c.Name] = cToTpl
-
-		for _, asset := range c.Assets() {
-			assetToTpl, err := fasttemplate.NewTemplate(asset.To, "{", "}")
-			if err != nil {
-				log.Warn(fmt.Sprintf("failed to parse content asset output template for asset %q in layout %q: %v. This asset will be ignored.", asset.Name, key.LayoutPath, err))
-				continue
-			}
-			outputs[asset.Name] = assetToTpl
-		}
-	}
-	for _, c := range lyt.Assets() {
-		assetToTpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
-		if err != nil {
-			log.Warn(fmt.Sprintf("failed to parse asset output template for asset %q in layout %q: %v. This asset will be ignored.", c.Name, key.LayoutPath, err))
-			continue
-		}
-		outputs[c.Name] = assetToTpl
-	}
-
 	fi, err := lc.fs.Stat(key.LayoutPath)
 	if err != nil {
 		return nil, fmt.Errorf("failed to stat layout file %q: %w", key.LayoutPath, err)
@@ -316,7 +221,6 @@ func (lc *LayoutCache) compile(ctx context.Context, key LayoutKey, contentVars m
 		layout:    lyt,
 		layoutTpl: tpl,
 		tags:      tags,
-		outputs:   outputs,
 		deps:      deps,
 		mtime:     fi.ModTime(),
 		size:      fi.Size(),

@@ -12,6 +12,7 @@ import (
 
 	"github.com/rs/zerolog"
 
+	"craeft/internal/layout"
 	"craeft/internal/log"
 	"craeft/internal/pipeline"
 )
@@ -42,6 +43,7 @@ type pipelineLoader interface {
 
 type manifestUpdater interface {
 	Set(id string, entry ManifestEntry)
+	Get(id string) (ManifestEntry, bool)
 }
 
 type artifactCache interface {
@@ -215,37 +217,23 @@ func (b *builder) buildStage(
 				inCache := b.config.UseCAS && b.cache != nil && !b.config.ForceRebuild && b.cache.Has(entry.Hash)
 
 				if inCache {
-					artifact := &buildArtifact{
-						Entry:  entry,
-						Cached: true,
-					}
+					if me, ok := b.manifest.Get(entry.ID); ok && me.Hash == entry.Hash {
+						artifact := &buildArtifact{
+							Entry:      entry,
+							OutputPath: me.OutputPath,
+							Cached:     true,
+						}
 
-					// compute output path
-					lyt, err := b.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
-					if err != nil {
-						artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
-						sendErr(artifact.Error)
+						metrics.cached.Add(1)
+						metrics.built.Add(1)
+
+						select {
+						case <-ctx.Done():
+							return
+						case out <- artifact:
+						}
 						continue
 					}
-
-					outputPath, err := lyt.ContentOutput(entry.TagName, entry)
-					if err != nil {
-						artifact.Error = fmt.Errorf("compute output path: %w", err)
-						sendErr(artifact.Error)
-						continue
-					}
-
-					artifact.OutputPath = outputPath
-
-					metrics.cached.Add(1)
-					metrics.built.Add(1)
-
-					select {
-					case <-ctx.Done():
-						return
-					case out <- artifact:
-					}
-					continue
 				}
 
 				artifact := b.buildEntry(ctx, entry)
@@ -287,7 +275,7 @@ func (b *builder) inputFS(root SourceType) (fileReader, error) {
 
 // @ts type global.tCtx
 // @doc Context passed into the `transform` function.
-// @field target: string - Absolute output path for the file being built.
+// @field target: string - Output path for the file being built.
 // @field file: FileInfo - Metadata about the source file being transformed.
 // @field vars: Record<string, unknown> - Custom key/value mappings loaded from `config.yaml`. Values may include environment-variable references (e.g. `$HOME/docs`), which are expanded at runtime.
 // @field type: string - Entry type; one of `"content"` or `"asset"`.
@@ -326,13 +314,37 @@ func (b *builder) buildEntry(
 		return artifact
 	}
 
-	lyt, err := b.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
+	// TODO define "default" vars keys somewhere, so that ExecuteString can ignore them
+	vars := pipeline.Vars{
+		"file": pipeline.NewFileInfo(entry.SourcePath, entry.BaseDir),
+		"vars": b.config.Variables,
+		"type": entry.Type.String(),
+		"tag":  entry.TagName,
+	}
+
+	for k, v := range entry.ContentVars {
+		vars[k] = v
+	}
+
+	result, err := pl.Transform(ctx, data, vars)
 	if err != nil {
-		artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
+		artifact.Error = fmt.Errorf("transform %s: %w", entry.SourcePath, err)
 		return artifact
 	}
 
-	outputPath, err := lyt.ContentOutput(entry.TagName, entry)
+	lyt, err := b.layouts.Parse(entry.LayoutKey)
+	if err != nil {
+		artifact.Error = fmt.Errorf("parse layout %s: %w", entry.LayoutKey, err)
+		return artifact
+	}
+
+	outputPath, err := lyt.ContentOutput(entry.TagName, layout.OutputEntry{
+		SourcePath: entry.SourcePath,
+		Pipeline:   entry.Pipeline,
+		Hash:       entry.Hash,
+		BaseDir:    entry.BaseDir,
+		Alias:      result.Alias,
+	})
 	if err != nil {
 		artifact.Error = fmt.Errorf("compute output path: %w", err)
 		return artifact
@@ -340,32 +352,20 @@ func (b *builder) buildEntry(
 
 	artifact.OutputPath = outputPath
 
-	// TODO define "default" vars keys somewhere, so that ExecuteString can ignore them
-	vars := pipeline.Vars{
-		"target": outputPath,
-		"file":   pipeline.NewFileInfo(entry.SourcePath, entry.BaseDir),
-		"vars":   b.config.Variables,
-		"type":   entry.Type.String(),
-		"tag":   entry.TagName,
-	}
-
-	for k, v := range entry.ContentVars {
-		vars[k] = v
-	}
-
-	transformed, err := pl.Transform(ctx, data, vars)
-	if err != nil {
-		artifact.Error = fmt.Errorf("transform %s: %w", entry.SourcePath, err)
-		return artifact
-	}
-
 	// For content entries, apply layout template
 	if entry.Type == ContentType && lyt != nil {
-		vars.Set(entry.TagName, transformed)
+		vars.Set(entry.TagName, result.Content)
 
-		artifact.Data = lyt.ExecuteBytes(vars)
+		// render whole layout
+		lt, err := b.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
+		if err != nil {
+			artifact.Error = fmt.Errorf("get layout %s: %w", entry.LayoutKey, err)
+			return artifact
+		}
+
+		artifact.Data = lt.ExecuteBytes(vars)
 	} else {
-		artifact.Data = transformed
+		artifact.Data = result.Content
 	}
 
 	elapsed := time.Since(start)

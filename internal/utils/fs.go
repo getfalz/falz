@@ -4,14 +4,13 @@ import (
 	"context"
 	"fmt"
 	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
 	"craeft/internal/log"
 )
 
-func NormRel(p string) string {
+func NormPath(p string) string {
 	// Your matches from fs.Glob are slash-separated already, but normalize anyway.
 	p = strings.ReplaceAll(p, "\\", "/") // just in case
 	p = path.Clean(p)
@@ -19,27 +18,6 @@ func NormRel(p string) string {
 		return "."
 	}
 	return strings.TrimPrefix(p, "./")
-}
-
-// NormalizePath returns an absolute path relative to the given basePath
-func NormalizePath(basePath string, path string) (string, error) {
-	clean := filepath.Clean(path)
-
-	if filepath.IsAbs(clean) {
-		rel, err := filepath.Rel(basePath, clean)
-		if err != nil {
-			return "", err
-		}
-		return "/" + filepath.ToSlash(rel), nil
-	}
-
-	abs := filepath.Join(basePath, clean)
-
-	rel, err := filepath.Rel(basePath, abs)
-	if err != nil {
-		return "", err
-	}
-	return "/" + filepath.ToSlash(rel), nil
 }
 
 // TODO deprecate

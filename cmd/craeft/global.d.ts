@@ -558,6 +558,22 @@ declare global {
     writeDoubleBE(value: number, offset?: number): number
   }
   /**
+   * 
+   * Optional object a `transform` function may return instead of a bare
+   * `string`/`Buffer`, to override where the file is written
+   *
+   */
+  interface TransformResult {
+    /**
+     * The transformed output bytes.
+     */
+    content: string | Buffer
+    /**
+     * Alias for the output path
+     */
+    alias?: string
+  }
+  /**
    * An iterator over URLSearchParams entries, keys, or values.
    *
    */

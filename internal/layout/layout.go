@@ -6,9 +6,11 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
-	"path"
 	"path/filepath"
+	"regexp"
+	"strconv"
 	"strings"
 
 	"craeft/internal/log"
@@ -57,7 +59,7 @@ func (f *Fragment) Render(ctx context.Context, rctx RenderCtx, compileVars map[s
 		Str("file", fragmentPath).
 		Msg("fragment rendered")
 
-	return result, fragmentPath, nil
+	return result.Content, fragmentPath, nil
 }
 
 func (c Content) Render(ctx context.Context) string {
@@ -236,20 +238,116 @@ func (c *Content) Assets() []Asset {
 	return c.assetElms
 }
 
-func normalizeRelFile(p string) string {
-	p = filepath.ToSlash(p)
-	p = strings.TrimPrefix(p, "./")
-	p = path.Clean(p)
-	if p == "." {
-		return ""
+func (l *Layout) buildOutputs() error {
+	l.outputs = make(map[string]*fasttemplate.Template)
+
+	for _, c := range l.Contents() {
+		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to parse content output template for content %q: %v. This content will be ignored.", c.Name, err))
+			continue
+		}
+		l.outputs[c.Name] = tpl
+
+		for _, asset := range c.Assets() {
+			assetTpl, err := fasttemplate.NewTemplate(asset.To, "{", "}")
+			if err != nil {
+				log.Warn(fmt.Sprintf("failed to parse content asset output template for asset %q: %v. This asset will be ignored.", asset.Name, err))
+				continue
+			}
+			l.outputs[asset.Name] = assetTpl
+		}
 	}
-	return p
+
+	for _, c := range l.Assets() {
+		tpl, err := fasttemplate.NewTemplate(c.To, "{", "}")
+		if err != nil {
+			log.Warn(fmt.Sprintf("failed to parse asset output template for asset %q: %v. This asset will be ignored.", c.Name, err))
+			continue
+		}
+		l.outputs[c.Name] = tpl
+	}
+	return nil
+}
+
+var hasHashTag = regexp.MustCompile(`^HASH:(\d+)$`)
+
+type OutputEntry struct {
+	SourcePath string
+	Pipeline   string
+	Hash       string // may be "" if not computed yet
+	BaseDir    string
+	Alias      string
+}
+
+func (l *Layout) ContentOutput(contentName string, entry OutputEntry) (string, error) {
+	tpl, ok := l.outputs[contentName]
+	if !ok {
+		return "", fmt.Errorf("content %q not found in layout", contentName)
+	}
+	if tpl == nil {
+		return "", fmt.Errorf("content %q has no output template", contentName)
+	}
+
+	name := filepath.Base(entry.SourcePath)
+	extWithDot := filepath.Ext(name)
+	filename := strings.TrimSuffix(name, extWithDot)
+	ext := strings.TrimPrefix(extWithDot, ".")
+
+	// TODO don't panic on template parse
+	// e.g. panic: unexpected error: unknown placeholder: FILENAM
+	output := tpl.ExecuteFuncString(func(w io.Writer, tag string) (int, error) {
+		switch tag {
+		case "FILENAME":
+			return w.Write([]byte(filename))
+		case "EXT":
+			return w.Write([]byte(ext))
+		case "BASENAME":
+			return w.Write([]byte(name))
+		case "ALIAS":
+			return w.Write([]byte(entry.Alias))
+		case "PIPE":
+			return w.Write([]byte(entry.Pipeline))
+		case "HASH":
+			if entry.Hash == "" {
+				return 0, fmt.Errorf("HASH not available yet")
+			}
+			return w.Write([]byte(entry.Hash))
+		default:
+			// HASH:N ?
+			if m := hasHashTag.FindStringSubmatch(tag); len(m) == 2 {
+				if entry.Hash == "" {
+					return 0, fmt.Errorf("HASH not available yet")
+				}
+
+				n, err := strconv.Atoi(m[1])
+				if err != nil || n <= 0 {
+					return 0, fmt.Errorf("invalid HASH length: %q", m[1])
+				}
+				if n > len(entry.Hash) {
+					n = len(entry.Hash)
+				}
+				return w.Write([]byte(entry.Hash[:n]))
+			}
+
+			return fmt.Fprintf(w, "[unknown tag %q]", tag)
+		}
+	})
+
+	return filepath.Join(entry.BaseDir, utils.NormPath(output)), nil
+}
+
+// OutputTemplate returns the output-path template for a given content/asset
+// name. Independent of vars — safe to call without ever rendering.
+func (l *Layout) OutputTemplate(name string) (*fasttemplate.Template, bool) {
+	tpl, ok := l.outputs[name]
+	return tpl, ok
 }
 
 // Parse parses a layout.xml file. The basePath is the root of the project, and path is the path including the name of the file and should be relative to project path
 func Parse(path string, data []byte) (*Layout, error) {
 
-	relPath := normalizeRelFile(path)
+	relPath := utils.NormPath(path)
 
 	l := &Layout{
 		path: relPath,
@@ -260,6 +358,10 @@ func Parse(path string, data []byte) (*Layout, error) {
 	}
 
 	if err := l.Validate(); err != nil {
+		return nil, err
+	}
+
+	if err := l.buildOutputs(); err != nil {
 		return nil, err
 	}
 

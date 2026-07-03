@@ -93,7 +93,7 @@ func newVMWorker(ctx context.Context, cfg vmConfig, prg *goja.Program) (*vmWorke
 	return worker, nil
 }
 
-func (w *vmWorker) transform(ctx context.Context, input []byte, vars map[string]any) ([]byte, error) {
+func (w *vmWorker) transform(ctx context.Context, input []byte, vars map[string]any) (TransformResult, error) {
 	stop := w.watchContext(ctx)
 	defer stop()
 
@@ -104,21 +104,51 @@ func (w *vmWorker) transform(ctx context.Context, input []byte, vars map[string]
 	if err != nil {
 		var ie *goja.InterruptedError
 		if errors.As(err, &ie) && ctx.Err() != nil {
-			return nil, ctx.Err()
+			return TransformResult{}, ctx.Err()
 		}
-		return nil, fmt.Errorf("pipe %q: transform: %w", w.cfg.name, err)
+		return TransformResult{}, fmt.Errorf("pipe %q: transform: %w", w.cfg.name, err)
 	}
 
 	switch v := result.Export().(type) {
 	case string:
-		return []byte(v), nil
+		return TransformResult{Content: []byte(v)}, nil
 	case []byte:
-		return v, nil
+		return TransformResult{Content: v}, nil
+	case map[string]interface{}:
+		return extractTransformResult(v, w.cfg.name)
 	case nil:
-		return nil, fmt.Errorf("pipe %q: transform returned null/undefined", w.cfg.name)
+		return TransformResult{}, fmt.Errorf("pipe %q: transform returned null/undefined", w.cfg.name)
 	default:
-		return []byte(result.String()), nil
+		return TransformResult{Content: []byte(result.String())}, nil
 	}
+}
+
+func extractTransformResult(v map[string]interface{}, pipeName string) (TransformResult, error) {
+	raw, ok := v["content"]
+	if !ok {
+		return TransformResult{}, fmt.Errorf("pipe %q: transform returned an object without a \"content\" field", pipeName)
+	}
+
+	var content []byte
+	switch c := raw.(type) {
+	case string:
+		content = []byte(c)
+	case []byte:
+		content = c
+	default:
+		return TransformResult{}, fmt.Errorf("pipe %q: transform \"content\" field must be a string or Buffer, got %T", pipeName, raw)
+	}
+
+	var alias string
+	if a, ok := v["alias"]; ok && a != nil {
+		s, ok := a.(string)
+		if !ok {
+			return TransformResult{}, fmt.Errorf("pipe %q: transform \"alias\" field must be a string, got %T", pipeName, a)
+		}
+		alias = s
+	}
+
+	return TransformResult{Content: content, Alias: alias}, nil
 }
 
 // watchContext spawns a goroutine that interrupts the VM if ctx is cancelled.

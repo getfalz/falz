@@ -18,9 +18,20 @@ var ErrPipelineNotFound = errors.New("pipeline not found")
 
 const SharedPipeFolder = "shared"
 
+// @ts interface global.TransformResult
+// @doc
+// Optional object a `transform` function may return instead of a bare
+// `string`/`Buffer`, to override where the file is written
+// @field content: string | Buffer - The transformed output bytes.
+// @field alias?: string - Alias for the output path
+type TransformResult struct {
+	Content []byte
+	Alias    string
+}
+
 type Pipe interface {
 	// Index(ctx context.Context, input []byte, vars Vars) error
-	Transform(ctx context.Context, input []byte, vars Vars) ([]byte, error)
+	Transform(ctx context.Context, input []byte, vars Vars) (TransformResult, error)
 	Config() PipelineConfig
 	Hash() string
 }

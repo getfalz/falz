@@ -4,6 +4,8 @@ import (
 	"encoding/xml"
 	"errors"
 	"io"
+
+	"github.com/valyala/fasttemplate"
 )
 
 type Layout struct {
@@ -19,6 +21,8 @@ type Layout struct {
 	XMLName xml.Name `xml:"Layout"`
 	tpl     string
 	TplPath string
+
+	outputs map[string]*fasttemplate.Template
 }
 
 type Fragment struct {

@@ -57,12 +57,13 @@ const (
 
 	indexTS = `import { toHtml } from "md"
 
-export function transform(this: tCtx, input: Buffer): string | Buffer {
+export function transform(this: tCtx, input: Buffer): string | Buffer | TransformResult {
     const text = input.toString('utf8')
 
     const { file, target, vars } = this
     console.log(` + "`" + `[${file.ext}] ${file.path} -> ${target}` + "`" + `)
 
+    // return { content: toHtml(text), path: "es/nosotros.html" }
     return toHtml(text)
 }
 `
