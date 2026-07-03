@@ -35,6 +35,7 @@ type fileReader interface {
 type outputWriter interface {
 	MkdirAll(path string, perm fs.FileMode) error
 	WriteFile(name string, data []byte, perm fs.FileMode) error
+	Remove(name string) error
 }
 
 type pipelineLoader interface {
@@ -415,6 +416,13 @@ func (b *builder) writeStage(
 						if err := b.writeArtifact(artifact); err != nil {
 							sendErr(fmt.Errorf("write result %s: %w", artifact.Entry.ID, err))
 							continue
+						}
+
+						if prev, ok := b.manifest.Get(artifact.Entry.ID); ok &&
+							prev.OutputPath != "" && prev.OutputPath != artifact.OutputPath {
+							if err := b.outputFS.Remove(prev.OutputPath); err != nil && !errors.Is(err, fs.ErrNotExist) {
+								sendErr(fmt.Errorf("remove stale output %s for %s: %w", prev.OutputPath, artifact.Entry.ID, err))
+							}
 						}
 
 						// outputPath is already computed in writeArtifact
