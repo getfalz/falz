@@ -85,8 +85,12 @@ func (r *RootFS) Stat(name string) (os.FileInfo, error) {
 	return r.root.Stat(name)
 }
 
-func (r *RootFS) Remove(name string) error {
-	return r.root.Remove(name)
+func (r *RootFS) Remove(path string) error {
+	return r.root.Remove(path)
+}
+
+func (r *RootFS) RemoveAll(path string) error {
+	return r.root.Remove(path)
 }
 
 func (r *RootFS) Path() string {

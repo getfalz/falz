@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 
 	"craeft/internal/log"
@@ -338,4 +339,46 @@ func (p *Project) Close() error {
 		err = errors.Join(err, e)
 	}
 	return err
+}
+
+// CleanCache removes tracked build outputs, the CAS store, and the build
+// manifest.
+func CleanCache(config *CraeftConfig) error {
+	var errs []error
+
+	outputRoot, err := utils.NewRootFs(config.OutputPath)
+	if err != nil {
+		return fmt.Errorf("clean: open output root: %w", err)
+	}
+	defer outputRoot.Close()
+
+	manifest, err := OpenManifest(outputRoot, manifestoFile)
+	if err != nil {
+		return fmt.Errorf("clean: open manifest: %w", err)
+	}
+
+	removed := manifest.CleanStale(map[string]struct{}{})
+	for _, entry := range removed {
+		if rErr := outputRoot.Remove(entry.OutputPath); rErr != nil && !os.IsNotExist(rErr) {
+			errs = append(errs, fmt.Errorf("clean output %s: %w", entry.OutputPath, rErr))
+		}
+	}
+
+	if err := outputRoot.Remove(manifestoFile); err != nil && !os.IsNotExist(err) {
+		errs = append(errs, fmt.Errorf("clean manifest: %w", err))
+	}
+
+	if casPath := resolveCASPath(config.SourcePath); casPath != "" {
+		casParent, err := utils.NewRootFs(filepath.Dir(casPath))
+		if err != nil {
+			return fmt.Errorf("clean: open CAS parent: %w", err)
+		}
+		defer casParent.Close()
+
+		if err := casParent.RemoveAll(filepath.Base(casPath)); err != nil {
+			return fmt.Errorf("clean CAS: %w", err)
+		}
+	}
+
+	return errors.Join(errs...)
 }

@@ -25,6 +25,13 @@ var buildCommand = &cli.Command{
 		config := loadConfig(c)
 		config.Debug = c.Bool("debug")
 
+		if c.Bool("clean") {
+			if err := project.CleanCache(config); err != nil {
+				log.Fatal(fmt.Sprintf("Failed cleaning cache: %v", err))
+			}
+			log.Print("Cleaned CAS and manifest\n")
+		}
+
 		p, err := project.New(config)
 		if err != nil {
 			log.Fatal(fmt.Sprintf("Failed initializing the project: %v", err))
