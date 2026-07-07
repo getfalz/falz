@@ -392,10 +392,16 @@ func (h *Handlers) rehashAndMark(ctx context.Context, id string) {
 		return nil
 	})
 
+	if len(oldHash) > 8 {
+		oldHash = oldHash[:8]
+	}
+	if len(newHash) > 8 {
+		newHash = newHash[:8]
+	}
 	log.DDebug(log.Handler).
 		Str("id", id).
-		Str("old_hash", oldHash[:8]).
-		Str("new_hash", newHash[:8]).
+		Str("old_hash", oldHash).
+		Str("new_hash", newHash).
 		Msg("entry changed, marked dirty")
 }
 
