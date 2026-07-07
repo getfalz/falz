@@ -50,6 +50,13 @@ var serverCommand = &cli.Command{
 		}
 		config.Server.OpenBrowser = c.Bool("open") && config.Server.Enable
 
+		if c.Bool("clean") {
+			if err := project.CleanCache(config); err != nil {
+				log.Fatal(fmt.Sprintf("Failed cleaning cache: %v", err))
+			}
+			log.Print("Cleaned CAS and manifest\n")
+		}
+
 		p, err := project.New(config)
 		if err != nil {
 			log.Fatal(fmt.Sprintf("Failed initializing the project: %v", err))

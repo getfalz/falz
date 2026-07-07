@@ -53,7 +53,11 @@ func main() {
 				Usage: "Disable CAS caching",
 				Value: false,
 			},
-
+			&cli.BoolFlag{
+				Name:  "clean",
+				Usage: "Empty CAS and manifest before building",
+				Value: false,
+			},
 			&cli.BoolFlag{
 				Name:  "silence",
 				Usage: "Disable output",
