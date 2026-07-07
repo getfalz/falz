@@ -164,8 +164,18 @@ func (h *Handlers) handleContentAssetDeleted(ctx context.Context, paths []string
 // --- Layouts ---
 
 func (h *Handlers) handleLayoutModified(ctx context.Context, paths []string) error {
+	graph := h.project.Graph()
+
 	for _, path := range paths {
 		log.IInfo(log.Handler).Str("layout", path).Msg("layout modified")
+
+		h.project.Layouts.Invalidate(project.LayoutKey{LayoutPath: path})
+
+		dir := filepath.Dir(path)
+		if err := h.source.PartialScan(ctx, graph, dir); err != nil {
+			log.EError(log.Handler).Err(err).Str("dir", dir).Msg("partial scan failed")
+		}
+
 		h.invalidateAndRehash(ctx, path, "")
 	}
 	return nil
@@ -177,6 +187,8 @@ func (h *Handlers) handleLayoutCreated(ctx context.Context, paths []string) erro
 	for _, path := range paths {
 		dir := filepath.Dir(path)
 		log.IInfo(log.Handler).Str("layout", path).Str("dir", dir).Msg("layout created, rescanning directory")
+
+		h.project.Layouts.Invalidate(project.LayoutKey{LayoutPath: path})
 
 		// Entries in this dir were bound to a parent layout; remove them so
 		// PartialScan re-adds them under the new, more specific layout.

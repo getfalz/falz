@@ -135,10 +135,18 @@ func (hi *HashIndex) ComputeHash(ctx context.Context, entry *BuildEntry) (string
 	}
 
 	var layoutHash string
-	if entry.Type == ContentType && entry.LayoutKey.LayoutPath != "" {
-		layoutHash, err = hi.hashLayoutDeps(ctx, entry)
-		if err != nil {
-			return "", fmt.Errorf("layout deps: %w", err)
+	if entry.LayoutKey.LayoutPath != "" {
+		switch entry.Type {
+		case ContentType:
+			layoutHash, err = hi.hashLayoutDeps(ctx, entry)
+			if err != nil {
+				return "", fmt.Errorf("layout deps: %w", err)
+			}
+		case AssetType:
+			layoutHash, err = hi.schemeFS.HashFile(entry.LayoutKey.LayoutPath)
+			if err != nil {
+				return "", fmt.Errorf("layout: %w", err)
+			}
 		}
 	}
 
