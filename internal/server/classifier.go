@@ -175,6 +175,13 @@ func (fc *FileClassifier) classifySchemeFile(ctx context.Context, path string) (
 			}
 		}
 
+		if tpl := lyt.TplPath; tpl != "" {
+			matched, err := utils.MatchSrc(dir, tpl, path)
+			if err == nil && matched {
+				return FileTypeLayoutTemplate, nil
+			}
+		}
+
 		for _, a := range lyt.Assets() {
 			matched, err := utils.MatchSrc(dir, a.Source, path)
 			if err == nil && matched {

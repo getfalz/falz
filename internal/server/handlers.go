@@ -46,6 +46,11 @@ func (h *Handlers) RegisterAll(r *EventRegistry) {
 	r.Register(FileTypeFragment, ModTypeCreated, HandlerFunc(h.handleFragmentModified))
 	r.Register(FileTypeFragment, ModTypeDeleted, HandlerFunc(h.handleFragmentModified))
 
+	// Layout template handlers
+	r.Register(FileTypeLayoutTemplate, ModTypeModified, HandlerFunc(h.handleLayoutTemplateModified))
+	r.Register(FileTypeLayoutTemplate, ModTypeCreated, HandlerFunc(h.handleLayoutTemplateModified))
+	r.Register(FileTypeLayoutTemplate, ModTypeDeleted, HandlerFunc(h.handleLayoutTemplateModified))
+
 	// Scheme Asset handlers
 	r.Register(FileTypeSchemeAsset, ModTypeModified, HandlerFunc(h.handleSchemeAssetModified))
 	r.Register(FileTypeSchemeAsset, ModTypeCreated, HandlerFunc(h.handleSchemeAssetCreated))
@@ -161,7 +166,7 @@ func (h *Handlers) handleContentAssetDeleted(ctx context.Context, paths []string
 func (h *Handlers) handleLayoutModified(ctx context.Context, paths []string) error {
 	for _, path := range paths {
 		log.IInfo(log.Handler).Str("layout", path).Msg("layout modified")
-		h.invalidateAndRehash(ctx, path, false)
+		h.invalidateAndRehash(ctx, path, "")
 	}
 	return nil
 }
@@ -228,7 +233,17 @@ func (h *Handlers) handleLayoutDeleted(ctx context.Context, paths []string) erro
 func (h *Handlers) handleFragmentModified(ctx context.Context, paths []string) error {
 	for _, path := range paths {
 		log.DDebug(log.Handler).Str("fragment", path).Msg("fragment changed")
-		h.invalidateAndRehash(ctx, path, true)
+		h.invalidateAndRehash(ctx, path, "fragment")
+	}
+	return nil
+}
+
+// --- Layout Templates ---
+
+func (h *Handlers) handleLayoutTemplateModified(ctx context.Context, paths []string) error {
+	for _, path := range paths {
+		log.DDebug(log.Handler).Str("template", path).Msg("layout template changed")
+		h.invalidateAndRehash(ctx, path, "template")
 	}
 	return nil
 }
@@ -323,7 +338,7 @@ func (h *Handlers) handlePipelineModified(ctx context.Context, paths []string) e
 			case *project.EntryNode:
 				h.rehashAndMark(ctx, dep.Entry().ID)
 			case *project.FragmentNode:
-				h.invalidateAndRehash(ctx, dep.Path(), true)
+				h.invalidateAndRehash(ctx, dep.Path(), "fragment")
 			}
 		}
 	}
@@ -413,20 +428,22 @@ func (h *Handlers) hashNewEntries(ctx context.Context) {
 	}
 }
 
-// invalidateAndRehash invalidates the compiled layout cache for a layout or
-// fragment path, then rehashes all graph entries that depend on it.
-// Set fromFragment=true when path is a fragment rather than a layout file.
-func (h *Handlers) invalidateAndRehash(ctx context.Context, path string, fromFragment bool) {
+// invalidateAndRehash invalidates the compiled layout cache for a layout,
+// fragment, or template path, then rehashes all graph entries that depend on
+// it. Set depNodePrefix to "fragment" or "template" when path refers to a
+// layout dependency rather than the layout file itself; leave it empty when
+// path is the layout's own path.
+func (h *Handlers) invalidateAndRehash(ctx context.Context, path string, depNodePrefix string) {
 	graph := h.project.Graph()
 
 	var layoutNodes []project.Node
 
-	if fromFragment {
-		fragNode, ok := graph.GetNode(fmt.Sprintf("fragment:%s", path))
+	if depNodePrefix != "" {
+		depNode, ok := graph.GetNode(fmt.Sprintf("%s:%s", depNodePrefix, path))
 		if !ok {
 			return
 		}
-		for _, n := range graph.DependentsOf(fragNode) {
+		for _, n := range graph.DependentsOf(depNode) {
 			if n.Kind() == project.NodeKindLayout {
 				layoutNodes = append(layoutNodes, n)
 			}

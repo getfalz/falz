@@ -210,7 +210,7 @@ func pathsFromChanges(changes []FileChange) []string {
 func (d *Debouncer) notify(changes []FileChange, dirty []*project.BuildEntry) {
 	for _, c := range changes {
 		switch c.Type {
-		case FileTypeLayout, FileTypeFragment, FileTypePipeline, FileTypeSchemeAsset:
+		case FileTypeLayout, FileTypeFragment, FileTypePipeline, FileTypeSchemeAsset, FileTypeLayoutTemplate:
 			log.DDebug(log.Server).
 				Str("reason", string(c.Type)).
 				Msg("hot-reload: full page reload (structural change)")
