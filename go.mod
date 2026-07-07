@@ -1,6 +1,6 @@
 module craeft
 
-go 1.24.1
+go 1.26.4
 
 require (
 	github.com/creasty/defaults v1.8.0
@@ -10,7 +10,6 @@ require (
 	github.com/gobuffalo/plush v3.8.3+incompatible
 	github.com/gomarkdown/markdown v0.0.0-20240730141124-034f12af3bf6
 	github.com/gorilla/websocket v1.5.3
-	github.com/mattn/go-zglob v0.0.6
 	github.com/rjeczalik/notify v0.9.3
 	github.com/rs/zerolog v1.33.0
 	github.com/urfave/cli/v2 v2.27.4
