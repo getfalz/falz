@@ -40,7 +40,7 @@ func (f *Fragment) Render(ctx context.Context, rctx RenderCtx, compileVars map[s
 
 	pipe, err := rctx.Pipelines.Get(f.Pipe)
 	if err != nil {
-		return nil, "", fmt.Errorf("fragment %q: pipe %q not found: %w", f.Name, pipe.Config().PipelineName, err)
+		return nil, "", fmt.Errorf("fragment %q: pipe %q not found: %w", f.Name, f.Pipe, err)
 	}
 	vars := pipeline.Vars{
 		"file": pipeline.NewFileInfo(fragmentPath, filepath.Dir(fragmentPath)),

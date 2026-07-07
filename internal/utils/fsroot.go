@@ -90,7 +90,7 @@ func (r *RootFS) Remove(path string) error {
 }
 
 func (r *RootFS) RemoveAll(path string) error {
-	return r.root.Remove(path)
+	return r.root.RemoveAll(path)
 }
 
 func (r *RootFS) Path() string {

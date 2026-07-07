@@ -278,9 +278,10 @@ func (b *builder) inputFS(root SourceType) (fileReader, error) {
 // @doc Context passed into the `transform` function.
 // @field target: string - Output path for the file being built.
 // @field file: FileInfo - Metadata about the source file being transformed.
-// @field vars: Record<string, unknown> - Custom key/value mappings loaded from `config.yaml`. Values may include environment-variable references (e.g. `$HOME/docs`), which are expanded at runtime.
-// @field type: string - Entry type; one of `"content"` or `"asset"`.
-// @field tag: string - Name of the content slot this entry fills in its layout template.
+// @field globals: Record<string, unknown> - Custom key/value mappings loaded from `config.yaml`. Values may include environment-variable references (e.g. `$HOME/docs`), which are expanded at runtime.
+// @field vars: Record<string, string> - Variables from any `<Var>` elements on the matching `<Content>` entry.
+// @field entry.type: string - Entry type; one of `"content"` or `"asset"`.
+// @field entry.tag: string - Name of the content slot this entry fills in its layout template.
 func (b *builder) buildEntry(
 	ctx context.Context,
 	entry *BuildEntry,
@@ -315,19 +316,29 @@ func (b *builder) buildEntry(
 		return artifact
 	}
 
-	// TODO define "default" vars keys somewhere, so that ExecuteString can ignore them
-	vars := pipeline.Vars{
-		"file": pipeline.NewFileInfo(entry.SourcePath, entry.BaseDir),
-		"vars": b.config.Variables,
-		"type": entry.Type.String(),
-		"tag":  entry.TagName,
+	fileInfo := pipeline.NewFileInfo(entry.SourcePath, entry.BaseDir)
+
+	globals := b.config.Variables
+	if globals == nil {
+		globals = map[string]any{}
 	}
 
-	for k, v := range entry.ContentVars {
-		vars[k] = v
+	contentVars := entry.ContentVars
+	if contentVars == nil {
+		contentVars = map[string]string{}
 	}
 
-	result, err := pl.Transform(ctx, data, vars)
+	jsVars := pipeline.Vars{
+		"file":    fileInfo,
+		"globals": globals,
+		"vars":    contentVars,
+		"entry": pipeline.Vars{
+			"type": entry.Type.String(),
+			"tag":  entry.TagName,
+		},
+	}
+
+	result, err := pl.Transform(ctx, data, jsVars)
 	if err != nil {
 		artifact.Error = fmt.Errorf("transform %s: %w", entry.SourcePath, err)
 		return artifact
@@ -355,7 +366,17 @@ func (b *builder) buildEntry(
 
 	// For content entries, apply layout template
 	if entry.Type == ContentType && lyt != nil {
-		vars.Set(entry.TagName, result.Content)
+		// TODO define "default" vars keys somewhere, so that ExecuteString can ignore them
+		layoutVars := pipeline.Vars{
+			"file": fileInfo,
+			"vars": b.config.Variables,
+			"type": entry.Type.String(),
+			"tag":  entry.TagName,
+		}
+		for k, v := range entry.ContentVars {
+			layoutVars[k] = v
+		}
+		layoutVars.Set(entry.TagName, result.Content)
 
 		// render whole layout
 		lt, err := b.layouts.Get(ctx, entry.LayoutKey, entry.ContentVars)
@@ -364,7 +385,7 @@ func (b *builder) buildEntry(
 			return artifact
 		}
 
-		artifact.Data = lt.ExecuteBytes(vars)
+		artifact.Data = lt.ExecuteBytes(layoutVars)
 	} else {
 		artifact.Data = result.Content
 	}
