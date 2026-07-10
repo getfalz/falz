@@ -175,15 +175,17 @@ func (fc *FileClassifier) classifySchemeFile(ctx context.Context, path string) (
 			}
 		}
 
+		layoutDir := filepath.Dir(key.LayoutPath)
+
 		if tpl := lyt.TplPath; tpl != "" {
-			matched, err := utils.MatchSrc(dir, tpl, path)
+			matched, err := utils.MatchSrc(layoutDir, tpl, path)
 			if err == nil && matched {
 				return FileTypeLayoutTemplate, nil
 			}
 		}
 
 		for _, a := range lyt.Assets() {
-			matched, err := utils.MatchSrc(dir, a.Source, path)
+			matched, err := utils.MatchSrc(layoutDir, a.Source, path)
 			if err == nil && matched {
 				return FileTypeSchemeAsset, nil
 			}
