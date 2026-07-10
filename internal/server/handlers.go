@@ -533,6 +533,21 @@ func (h *Handlers) handleConfigModified(ctx context.Context, paths []string) err
 	h.project.Config.Variables = cfg.Variables
 	h.project.Config.Build = cfg.Build
 
+	if cfg.Build.UseCAS && h.project.CAS == nil {
+		cas, err := project.NewCAS(cfg.Build.CASPath, h.project.Output)
+		if err != nil {
+			log.EError(log.Handler).Err(err).Msg("failed to initialize CAS backend after config reload; disabling CAS")
+			h.project.Config.Build.UseCAS = false
+		} else {
+			h.project.CAS = cas
+		}
+	} else if !cfg.Build.UseCAS && h.project.CAS != nil {
+		if err := h.project.CAS.Close(); err != nil {
+			log.WWarn(log.Handler).Err(err).Msg("failed to close CAS backend after disabling it")
+		}
+		h.project.CAS = nil
+	}
+
 	log.DDebug(log.Handler).
 		Interface("cfg.Server", cfg.Server).
 		Interface("cur.Server", h.project.Config.Server).

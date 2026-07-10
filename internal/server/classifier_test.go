@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"craeft/internal/pipeline"
 	"craeft/internal/project"
@@ -143,5 +144,66 @@ func TestClassifySchemeFile_UnrelatedFile_IsUnknown(t *testing.T) {
 	}
 	if got != FileTypeUnknown {
 		t.Fatalf("expected FileTypeUnknown, got %q", got)
+	}
+}
+
+// TestClassify_SourceContentFile_ClassifiedAsContent is a real end-to-end
+// usage test of the watcher's entrypoint: a raw filesystem event for a
+// content file under the project's source root should resolve to a
+// FileTypeContent change with the path relative to that root.
+func TestClassify_SourceContentFile_ClassifiedAsContent(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	writeServerSourceFile(t, cfg, "about.md", "hello world")
+
+	fc := NewFileClassifier(p, cfg.SourcePath, cfg.SchemePath, cfg.PipesPath, cfg.OutputPath, p.Ignore)
+
+	got := fc.Classify(context.Background(), RawChange{
+		Path: filepath.Join(cfg.SourcePath, "about.md"),
+		Mod:  ModTypeModified,
+		Time: time.Now(),
+	})
+	if got == nil {
+		t.Fatalf("expected a classification, got nil")
+	}
+	if got.Type != FileTypeContent || got.Path != "about.md" || got.Mod != ModTypeModified {
+		t.Fatalf("unexpected classification: %+v", got)
+	}
+}
+
+// TestClassify_IgnoredSourceFile_ReturnsNil ensures files matched by the
+// project's ignore list (e.g. dotfiles, editor swap files configured via
+// `ignore:` in config.yaml) never reach a handler.
+func TestClassify_IgnoredSourceFile_ReturnsNil(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	p.Ignore.Reload([]string{"*.swp"})
+	writeServerSourceFile(t, cfg, "about.md.swp", "swap file junk")
+
+	fc := NewFileClassifier(p, cfg.SourcePath, cfg.SchemePath, cfg.PipesPath, cfg.OutputPath, p.Ignore)
+
+	got := fc.Classify(context.Background(), RawChange{
+		Path: filepath.Join(cfg.SourcePath, "about.md.swp"),
+		Mod:  ModTypeCreated,
+		Time: time.Now(),
+	})
+	if got != nil {
+		t.Fatalf("expected an ignored file to classify to nil, got %+v", got)
+	}
+}
+
+// TestClassify_UnrelatedAbsolutePath_ReturnsNil covers an event for a path
+// outside every configured root (source/scheme/pipes/config) -- e.g. a
+// sibling directory the OS watcher happened to report -- which must be
+// silently dropped rather than misattributed to one of the roots.
+func TestClassify_UnrelatedAbsolutePath_ReturnsNil(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	fc := NewFileClassifier(p, cfg.SourcePath, cfg.SchemePath, cfg.PipesPath, cfg.OutputPath, p.Ignore)
+
+	got := fc.Classify(context.Background(), RawChange{
+		Path: filepath.Join(t.TempDir(), "unrelated.txt"),
+		Mod:  ModTypeModified,
+		Time: time.Now(),
+	})
+	if got != nil {
+		t.Fatalf("expected an unrelated path to classify to nil, got %+v", got)
 	}
 }

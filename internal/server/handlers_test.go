@@ -36,6 +36,7 @@ func newTestServerProject(t *testing.T) (*project.Project, *project.CraeftConfig
 		SourcePath: sourcePath,
 		SchemePath: schemePath,
 		PipesPath:  pipesPath,
+		ConfigFile: filepath.Join(base, ".craeft", "config.yaml"),
 		Layout:     "layout.xml",
 		Build:      project.BuildConfig{Concurrency: 1},
 	}
@@ -95,6 +96,152 @@ func TestRehashAndMark_NeverHashedEntry_DoesNotPanic(t *testing.T) {
 	entry, ok := p.Graph().EntryByID(id)
 	if !ok || entry.Hash == "" {
 		t.Fatalf("expected the entry to be rehashed, got %+v (ok=%v)", entry, ok)
+	}
+}
+
+// TestHandleContentCreated_NewFileMatchingPattern_AddsHashedDirtyEntry
+// models the most common watch-mode event: the user adds a brand-new
+// content file while the server is running, and it should show up in the
+// graph, already hashed, and marked dirty for the next rebuild.
+func TestHandleContentCreated_NewFileMatchingPattern_AddsHashedDirtyEntry(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	h := NewHandlers(p)
+
+	writeServerSourceFile(t, cfg, "about.md", "hello world")
+
+	if err := h.handleContentCreated(context.Background(), []string{"about.md"}); err != nil {
+		t.Fatalf("handleContentCreated: %v", err)
+	}
+
+	entry, ok := p.Graph().EntryByID("about.md:body")
+	if !ok {
+		t.Fatalf("expected about.md:body to be added to the graph")
+	}
+	if entry.Hash == "" {
+		t.Fatalf("expected the new entry to already be hashed")
+	}
+	if !entry.Dirty {
+		t.Fatalf("expected the new entry to be marked dirty for the next build")
+	}
+}
+
+// TestHandleContentCreated_UnmatchedFile_IsIgnored models adding a file
+// that isn't picked up by any layout's Content pattern (e.g. a stray
+// .DS_Store or a draft with the wrong extension): it must not be added to
+// the graph or cause an error.
+func TestHandleContentCreated_UnmatchedFile_IsIgnored(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	h := NewHandlers(p)
+
+	writeServerSourceFile(t, cfg, "notes.txt", "not markdown")
+
+	if err := h.handleContentCreated(context.Background(), []string{"notes.txt"}); err != nil {
+		t.Fatalf("handleContentCreated: %v", err)
+	}
+
+	if len(p.Graph().AllEntries()) != 0 {
+		t.Fatalf("expected no entries for an unmatched file, got %+v", p.Graph().AllEntries())
+	}
+}
+
+// TestHandleContentModified_ThenIncrementalBuild_UpdatesOutput models the
+// full real loop: build once, edit the file, get notified, and confirm the
+// incremental rebuild actually reflects the edit on disk.
+func TestHandleContentModified_ThenIncrementalBuild_UpdatesOutput(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	writeServerSourceFile(t, cfg, "about.md", "hello world")
+
+	if err := p.Build(context.Background()); err != nil {
+		t.Fatalf("initial Build: %v", err)
+	}
+
+	writeServerSourceFile(t, cfg, "about.md", "hello universe")
+
+	h := NewHandlers(p)
+	if err := h.handleContentModified(context.Background(), []string{"about.md"}); err != nil {
+		t.Fatalf("handleContentModified: %v", err)
+	}
+
+	entry, ok := p.Graph().EntryByID("about.md:body")
+	if !ok || !entry.Dirty {
+		t.Fatalf("expected the entry to be marked dirty after the edit, got %+v (ok=%v)", entry, ok)
+	}
+
+	if _, err := p.IncrementalBuild(context.Background()); err != nil {
+		t.Fatalf("IncrementalBuild: %v", err)
+	}
+
+	data, err := p.Output.ReadFile("about.html")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	if string(data) != "<html>hello universe</html>" {
+		t.Fatalf("expected the rebuild to reflect the edit, got %q", data)
+	}
+}
+
+// TestHandleContentDeleted_RemovesEntryAndManifestRecord models deleting a
+// content file while the server is running: both the graph entry and its
+// manifest record must be cleaned up so a stale output isn't served.
+func TestHandleContentDeleted_RemovesEntryAndManifestRecord(t *testing.T) {
+	p, cfg := newTestServerProject(t)
+	writeServerSourceFile(t, cfg, "about.md", "hello world")
+
+	if err := p.Build(context.Background()); err != nil {
+		t.Fatalf("initial Build: %v", err)
+	}
+	if err := os.Remove(filepath.Join(cfg.SourcePath, "about.md")); err != nil {
+		t.Fatalf("remove source file: %v", err)
+	}
+
+	h := NewHandlers(p)
+	if err := h.handleContentDeleted(context.Background(), []string{"about.md"}); err != nil {
+		t.Fatalf("handleContentDeleted: %v", err)
+	}
+
+	if _, ok := p.Graph().EntryByID("about.md:body"); ok {
+		t.Fatalf("expected the entry to be removed from the graph")
+	}
+	if _, ok := p.Manifest.Get("about.md:body"); ok {
+		t.Fatalf("expected the manifest record to be removed too")
+	}
+}
+
+// TestHandleConfigModified_NeverEnablesCASWithoutABackend is a regression
+// test for a bug where handleConfigModified copied the freshly reloaded
+// BuildConfig (including UseCAS) onto the live project without creating or
+// refreshing the project's CAS backend to match. A project that starts
+// with CAS disabled has p.CAS == nil; a config reload flips UseCAS on even
+// with a completely absent config.yaml, since BuildConfig.UseCAS defaults
+// to "true". The combination (UseCAS=true, CAS==nil) used to be reachable
+// and is invalid: build.go passes the (typed-nil) *project.CAS through the
+// artifactCache interface, so `cache != nil` reads true even though the
+// pointer is nil, and the next incremental build panics inside a worker
+// goroutine. handleConfigModified now creates the CAS backend when it's
+// missing and UseCAS is enabled (and closes it when disabled).
+func TestHandleConfigModified_NeverEnablesCASWithoutABackend(t *testing.T) {
+	t.Setenv("XDG_CACHE_HOME", t.TempDir())
+
+	p, cfg := newTestServerProject(t)
+	writeServerSourceFile(t, cfg, "about.md", "hello world")
+
+	if err := p.Build(context.Background()); err != nil {
+		t.Fatalf("initial Build: %v", err)
+	}
+	if p.CAS != nil {
+		t.Fatalf("test setup assumption broken: expected CAS to start disabled")
+	}
+
+	h := NewHandlers(p)
+	if err := h.handleConfigModified(context.Background(), nil); err != nil {
+		t.Fatalf("handleConfigModified: %v", err)
+	}
+	if p.CAS != nil {
+		t.Cleanup(func() { _ = p.CAS.Close() })
+	}
+
+	if p.Config.Build.UseCAS && p.CAS == nil {
+		t.Fatalf("BUG: config reload enabled UseCAS but left the CAS backend (p.CAS) nil -- the next incremental build will panic")
 	}
 }
 
