@@ -126,12 +126,26 @@ func TestHash_ComputeHash_AssetEntry_HashesLayoutFileDirectly(t *testing.T) {
 		Pipeline: "css", LayoutKey: LayoutKey{LayoutPath: "layout.xml"},
 	}
 
-	if _, err := hi.ComputeHash(context.Background(), entry); err != nil {
+	hash, err := hi.ComputeHash(context.Background(), entry)
+	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
 	if layouts.getCalls != 0 {
 		t.Fatalf("expected layouts.Get not to be called for asset entries (only the layout file itself is hashed), got %d calls", layouts.getCalls)
+	}
+
+	// Regression test for a bug where an asset entry's hash never included
+	// its layout at all (the check was `entry.Type == ContentType`, so
+	// AssetType entries always got layoutHash == ""), meaning the CAS cache
+	// wouldn't invalidate when the governing layout changed.
+	schemeFS.hashes["layout.xml"] = "layout-hash-changed"
+	changedHash, err := hi.ComputeHash(context.Background(), entry)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if changedHash == hash {
+		t.Fatalf("expected an asset entry's hash to change when its layout file changes, got the same hash %q both times", hash)
 	}
 }
 

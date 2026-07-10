@@ -243,6 +243,59 @@ func TestBuild_ContentEntry_WritesRenderedOutput(t *testing.T) {
 	}
 }
 
+// TestBuild_ContentEntry_PassesStructuredVarsToPipe is a regression test for
+// a bug where the pipe transform received a flattened vars map: content vars
+// merged at the top level, "vars" pointing at the global config variables
+// (not the entry's own <Var> values), and "type"/"tag" as top-level keys.
+// Pipes now receive "vars" (this entry's content vars), "globals" (config
+// variables), and a nested "entry": {type, tag}.
+func TestBuild_ContentEntry_PassesStructuredVarsToPipe(t *testing.T) {
+	src := &fakeFileReader{files: map[string][]byte{"about.md": []byte("hello")}}
+	out := &fakeOutputWriter{}
+	layouts := &fakeLayoutLoader{lyt: testLayout(t), entry: testLayoutEntry(t)}
+
+	var captured pipeline.Vars
+	pipe := &fakePipe{hash: "h", transform: func(ctx context.Context, input []byte, vars pipeline.Vars) (pipeline.TransformResult, error) {
+		captured = vars
+		return pipeline.TransformResult{Content: input}, nil
+	}}
+	pipes := &fakePipelineLoader{pipes: map[string]pipeline.Pipe{"text": pipe}}
+
+	b := NewBuilder(src, &fakeFileReader{}, out, layouts, pipes, &fakeManifest{}, nil, &BuilderConfig{
+		Concurrency: 1,
+		Variables:   map[string]any{"siteName": "Acme"},
+	})
+
+	entry := &BuildEntry{
+		ID: "about.md:body", Type: ContentType, SourceRoot: SourceTypeSource,
+		SourcePath: "about.md", TagName: "body", Pipeline: "text", BaseDir: ".",
+		ContentVars: map[string]string{"title": "Hello Page"},
+	}
+
+	if _, err := b.Build(context.Background(), []*BuildEntry{entry}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if captured == nil {
+		t.Fatalf("expected pipe.Transform to be called")
+	}
+
+	gotVars, ok := captured["vars"].(map[string]string)
+	if !ok || gotVars["title"] != "Hello Page" {
+		t.Fatalf(`expected vars["vars"] to be the entry's ContentVars {"title":"Hello Page"}, got %#v`, captured["vars"])
+	}
+
+	gotGlobals, ok := captured["globals"].(map[string]any)
+	if !ok || gotGlobals["siteName"] != "Acme" {
+		t.Fatalf(`expected vars["globals"] to be the config Variables {"siteName":"Acme"}, got %#v`, captured["globals"])
+	}
+
+	gotEntry, ok := captured["entry"].(pipeline.Vars)
+	if !ok || gotEntry["type"] != "content" || gotEntry["tag"] != "body" {
+		t.Fatalf(`expected vars["entry"] to be {"type":"content","tag":"body"}, got %#v`, captured["entry"])
+	}
+}
+
 func TestBuild_AssetEntry_SkipsLayoutTemplate(t *testing.T) {
 	scheme := &fakeFileReader{files: map[string][]byte{"style.css": []byte("body{}")}}
 	out := &fakeOutputWriter{}
