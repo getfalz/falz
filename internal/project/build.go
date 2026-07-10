@@ -241,7 +241,7 @@ func (b *builder) buildStage(
 
 				if artifact.Skipped {
 					metrics.skipped.Add(1)
-					return
+					continue
 				}
 
 				metrics.built.Add(1)

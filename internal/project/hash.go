@@ -51,7 +51,7 @@ func NewHashIndex(
 	}
 }
 
-func (hi *HashIndex) HashAll(ctx context.Context, graph DependencyGraph) error {
+func (hi *HashIndex) HashAll(ctx context.Context, graph entryHashGraph) error {
 	entries := graph.AllEntries()
 	if len(entries) == 0 {
 		return nil
