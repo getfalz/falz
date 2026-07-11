@@ -5,7 +5,6 @@ package pipeline
 // Extends the global scope with the Buffer constructor and BufferEncoding type
 // as defined by the Node.js buffer module.
 
-
 // @ts type global.WithImplicitCoercion<T>
 //
 // @doc

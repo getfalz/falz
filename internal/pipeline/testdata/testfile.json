@@ -1,7 +1,0 @@
-{
-    "key": "value",
-    "number": 42,
-    "nested": {
-        "bool": true
-    }
-}

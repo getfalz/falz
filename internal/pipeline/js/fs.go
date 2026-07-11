@@ -212,7 +212,7 @@ func (f *FsApi) lastModified(vm *goja.Runtime, call goja.FunctionCall) goja.Valu
 func fileEntry(vm *goja.Runtime, dir, name string, info os.FileInfo) map[string]any {
 	return map[string]any{
 		"name":        name,
-		"path":        filepath.ToSlash(filepath.Join(dir, name)),
+		"path":        "/" + filepath.ToSlash(filepath.Join(dir, name)),
 		"size":        info.Size(),
 		"modTime":     newJSDate(vm, info.ModTime()),
 		"isFile":      info.Mode().IsRegular(),

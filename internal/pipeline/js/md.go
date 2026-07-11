@@ -100,14 +100,14 @@ func extractParserExtensions(vm *goja.Runtime, arg *goja.Object) (parser.Extensi
 	if raw == nil || goja.IsUndefined(raw) || goja.IsNull(raw) {
 		return parser.NoExtensions, nil
 	}
-	options, ok := raw.ToObject(vm).Export().(map[string]any)
-	if !ok {
+	var options map[string]bool
+	if err := vm.ExportTo(raw, &options); err != nil {
 		return parser.NoExtensions, fmt.Errorf("parser options must be an object")
 	}
 
 	ext := parser.NoExtensions
-	for key, val := range options {
-		if on, ok := val.(bool); !ok || !on {
+	for key, on := range options {
+		if !on {
 			continue
 		}
 		switch key {
@@ -136,7 +136,6 @@ func extractParserExtensions(vm *goja.Runtime, arg *goja.Object) (parser.Extensi
 		case "NoEmptyLineBeforeBlock":
 			ext |= parser.NoEmptyLineBeforeBlock
 		case "HeadingIDs":
-			fmt.Println("getParserExtensions: enabling HeadingIDs")
 			ext |= parser.HeadingIDs
 		case "Titleblock":
 			ext |= parser.Titleblock
@@ -198,14 +197,14 @@ func extractRenderFlags(vm *goja.Runtime, arg *goja.Object) (html.Flags, error) 
 	if raw == nil || goja.IsUndefined(raw) || goja.IsNull(raw) {
 		return html.FlagsNone, nil
 	}
-	options, ok := raw.ToObject(vm).Export().(map[string]any)
-	if !ok {
+	var options map[string]bool
+	if err := vm.ExportTo(raw, &options); err != nil {
 		return html.FlagsNone, fmt.Errorf("renderer options must be an object")
 	}
 
 	renderFlags := html.FlagsNone
-	for key, val := range options {
-		if on, ok := val.(bool); !ok || !on {
+	for key, on := range options {
+		if !on {
 			continue
 		}
 		switch key {

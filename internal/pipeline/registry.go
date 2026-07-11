@@ -26,7 +26,7 @@ const SharedPipeFolder = "shared"
 // @field alias?: string - Alias for the output path
 type TransformResult struct {
 	Content []byte
-	Alias    string
+	Alias   string
 }
 
 type Pipe interface {

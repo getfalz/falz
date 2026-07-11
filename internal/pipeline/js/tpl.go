@@ -29,16 +29,15 @@ func GetTplModule(vm *goja.Runtime) *goja.Object {
 // @doc
 // Renders a Plush template string against a variables map and returns the result.
 // Plush supports ERB-style tags:
-//   - <%= expr %>  outputs the result of expr (HTML-escaped by default)
-//   - <%== expr %> outputs the result of expr without escaping
-//   - <% stmt %>   executes a statement (if, for, etc.) without output
+//   - <%= expr %> outputs the result of expr, HTML-escaped
+//   - <% stmt %>  executes a statement (if, for, etc.) without output
 //
 // Throws a TypeError if arguments have the wrong type.
 // Throws an Error if template rendering fails (syntax error, undefined variable, etc.).
 //
 // @param template - string | Buffer - A template  with embedded dynamic content (e.g., "<%= name %>").
 // @param variables - Record<string, any> - An object (map) containing key-value pairs to replace placeholders in the template.
-// @returns string - A promise that resolves to the rendered string with variables replaced.
+// @returns string - The rendered string with variables replaced.
 func tplRender(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 	b, err := argString(vm, call.Argument(0))
 	if err != nil {

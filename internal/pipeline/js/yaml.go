@@ -68,7 +68,7 @@ func yamlStringify(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 	enc := yaml.NewEncoder(&buf)
 	enc.SetIndent(opts.Indent)
 
-	if err := enc.Encode(val.Export()); err != nil {
+	if err := encodeRecovering(enc, val.Export()); err != nil {
 		panic(vm.NewGoError(fmt.Errorf("yaml.stringify: %w", err)))
 	}
 	if err := enc.Close(); err != nil {
@@ -76,6 +76,20 @@ func yamlStringify(vm *goja.Runtime, call goja.FunctionCall) goja.Value {
 	}
 
 	return vm.ToValue(buf.String())
+}
+
+// encodeRecovering runs enc.Encode and converts any panic into an error.
+// gopkg.in/yaml.v3's Encoder.Encode only recovers its own internal
+// yamlError panics; for genuinely unmarshalable values (e.g. a Go func,
+// which a JS function value exports as) it panics with a plain string
+// instead, which would otherwise crash the process.
+func encodeRecovering(enc *yaml.Encoder, v any) (err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			err = fmt.Errorf("%v", r)
+		}
+	}()
+	return enc.Encode(v)
 }
 
 // @ts interface yaml.StringifyOptions

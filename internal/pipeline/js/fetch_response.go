@@ -1,9 +1,9 @@
 package js
 
 import (
-	"slices"
 	"encoding/json"
 	"fmt"
+	"slices"
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/buffer"

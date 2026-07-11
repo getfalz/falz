@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/dop251/goja"
-	"github.com/dop251/goja_nodejs/buffer"
 )
 
 func argMustString(arg goja.Value) (string, error) {
@@ -25,7 +24,11 @@ func argBytes(vm *goja.Runtime, val goja.Value) ([]byte, error) {
 	if val == nil || goja.IsUndefined(val) || goja.IsNull(val) {
 		return nil, fmt.Errorf("expected string or Buffer, got %v", val)
 	}
-	return buffer.Bytes(vm, val), nil
+	var b []byte
+	if err := vm.ExportTo(val, &b); err != nil {
+		return nil, fmt.Errorf("expected string or Buffer, got %v", val)
+	}
+	return b, nil
 }
 
 func argString(vm *goja.Runtime, val goja.Value) (string, error) {

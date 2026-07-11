@@ -17,7 +17,6 @@ import (
 	"github.com/dop251/goja"
 	"github.com/dop251/goja/parser"
 	"github.com/dop251/goja_nodejs/buffer"
-	"github.com/dop251/goja_nodejs/url"
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
 )
@@ -221,27 +220,17 @@ func newConsoleLogger(pipeName string) zerolog.Logger {
 	return zerolog.New(writer).With().Timestamp().Str("pipe", pipeName).Logger()
 }
 
-func setupGlobals(vm *goja.Runtime) {
-	bufMod := vm.NewObject()
-	_ = bufMod.Set("exports", vm.NewObject())
-	buffer.Require(vm, bufMod)
-	bufExports := bufMod.Get("exports").ToObject(vm)
-	vm.Set("Buffer", bufExports.Get("Buffer"))
-
-	urlMod := vm.NewObject()
-	_ = urlMod.Set("exports", vm.NewObject())
-	url.Require(vm, urlMod)
-	urlExports := urlMod.Get("exports").ToObject(vm)
-	vm.Set("URL", urlExports.Get("URL"))
-	vm.Set("URLSearchParams", urlExports.Get("URLSearchParams"))
-}
-
 func setupVM(w *vmWorker) {
 	w.vm.SetFieldNameMapper(goja.UncapFieldNameMapper())
 	setupConsole(w.vm, w.cfg.name, w.logger)
-	setupRequire(w)
+	js.SetupRequire(w.ctx, w.vm, js.RuntimeConfig{
+		Name:          w.cfg.name,
+		Root:          w.cfg.root,
+		HTTPPolicy:    w.cfg.httpPolicy,
+		HTTPTransport: w.cfg.httpTransport,
+	})
 	// setupCommonJS(vm)
-	setupGlobals(w.vm)
+	js.SetupGlobals(w.vm)
 }
 
 func setupCommonJS(vm *goja.Runtime) {
@@ -250,38 +239,6 @@ func setupCommonJS(vm *goja.Runtime) {
 	_ = module.Set("exports", exports)
 	vm.Set("exports", exports)
 	vm.Set("module", module)
-}
-
-func setupRequire(w *vmWorker) {
-	w.vm.Set("require", func(call goja.FunctionCall) goja.Value {
-		name := call.Argument(0).String()
-		switch name {
-		// case "kv":
-		// 	kvAPI, err := NewKVStore(cfg.dbPath)
-		// 	if err != nil {
-		// 		panic(vm.NewGoError(fmt.Errorf("require('kv'): %w", err)))
-		// 	}
-		// 	return kvAPI.GetModule(vm)
-		case "fs":
-			fsAPI := js.NewFsApi(w.cfg.root)
-			return fsAPI.GetModule(w.vm)
-		case "http":
-			return js.GetHTTPModule(w.vm, w.ctx, w.cfg.httpPolicy, w.cfg.httpTransport)
-		case "md":
-			return js.GetMdModule(w.vm)
-		case "fasttpl":
-			return js.GetFastTplModule(w.vm)
-		case "tpl":
-			return js.GetTplModule(w.vm)
-		case "yaml":
-			return js.GetYamlModule(w.vm)
-		}
-		// Unknown module — esbuild should have bundled it.
-		// Returning undefined lets scripts fail naturally with a clear JS error.
-		l := log.Logger().With().Str("pipe", w.cfg.name).Logger()
-		l.Warn().Str("module", name).Msg("require: unknown module")
-		return goja.Undefined()
-	})
 }
 
 // @ts interface global.Console
