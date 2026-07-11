@@ -52,15 +52,9 @@ func newTestClassifier(t *testing.T, root *utils.RootFS) *FileClassifier {
 	return NewFileClassifier(proj, "", root.Path(), "", "", project.NewIgnoreList(nil, nil))
 }
 
-// TestClassifySchemeFile_AssetNestedUnderRootLayout_UsesLayoutDirAsMatchBase
-// is a regression test for a bug where classifySchemeFile matched a scheme
-// file's Asset/Template src pattern against the *changed file's own*
-// directory instead of the *governing layout's* directory. This broke as
-// soon as an asset (or template) lived in a subdirectory relative to the
-// layout that declares it and the layout itself was found by walking up
-// from that subdirectory (e.g. assets under "css/" declared by a root-level
-// layout.xml): the match base and the pattern's implied base diverged, so
-// the file was never classified.
+// An asset declared by a root-level layout but living in a subdirectory
+// (e.g. "css/*.css") must be classified using the layout's own directory as
+// the match base, not the changed file's directory.
 func TestClassifySchemeFile_AssetNestedUnderRootLayout_UsesLayoutDirAsMatchBase(t *testing.T) {
 	root := newTestSchemeRoot(t)
 	writeSchemeFile(t, root, "layout.xml",
@@ -78,11 +72,8 @@ func TestClassifySchemeFile_AssetNestedUnderRootLayout_UsesLayoutDirAsMatchBase(
 	}
 }
 
-// TestClassifySchemeFile_LayoutTemplateFile_IsClassified is a regression
-// test for a bug where a layout's own template file (Layout's `src`/TplPath
-// attribute) was never matched against any file type at all, so edits to it
-// went unclassified (FileTypeUnknown) and were silently ignored by the
-// watcher/hot-reload pipeline.
+// A layout's own template file (its `src`/TplPath attribute) must be
+// classified as FileTypeLayoutTemplate.
 func TestClassifySchemeFile_LayoutTemplateFile_IsClassified(t *testing.T) {
 	root := newTestSchemeRoot(t)
 	writeSchemeFile(t, root, "layout.xml", `<Layout src="tpl.html"/>`)

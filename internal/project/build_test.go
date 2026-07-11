@@ -243,12 +243,8 @@ func TestBuild_ContentEntry_WritesRenderedOutput(t *testing.T) {
 	}
 }
 
-// TestBuild_ContentEntry_PassesStructuredVarsToPipe is a regression test for
-// a bug where the pipe transform received a flattened vars map: content vars
-// merged at the top level, "vars" pointing at the global config variables
-// (not the entry's own <Var> values), and "type"/"tag" as top-level keys.
-// Pipes now receive "vars" (this entry's content vars), "globals" (config
-// variables), and a nested "entry": {type, tag}.
+// The pipe transform receives "vars" (the entry's own content vars),
+// "globals" (config variables), and a nested "entry": {type, tag}.
 func TestBuild_ContentEntry_PassesStructuredVarsToPipe(t *testing.T) {
 	src := &fakeFileReader{files: map[string][]byte{"about.md": []byte("hello")}}
 	out := &fakeOutputWriter{}

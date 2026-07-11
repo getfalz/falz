@@ -92,12 +92,22 @@ func TestHash_ComputeHash_ContentEntry_ChangesWithInputs(t *testing.T) {
 	}
 
 	cases := map[string]func(sourceFS, schemeFS *fakeFileHasher, pipes *fakePipelineLoader, vars map[string]string){
-		"content changes":       func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { s.hashes["about.md"] = "content-hash-2" },
-		"layout file changes":   func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { sc.hashes["layout.xml"] = "layout-hash-2" },
-		"fragment dep changes":  func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { sc.hashes["frag.html"] = "frag-hash-2" },
-		"content pipe changes":  func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { p.pipes["md"] = &fakePipe{hash: "md-pipe-hash-2"} },
-		"fragment pipe changes": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { p.pipes["html"] = &fakePipe{hash: "html-pipe-hash-2"} },
-		"vars change":           func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { v["x"] = "z" },
+		"content changes": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) {
+			s.hashes["about.md"] = "content-hash-2"
+		},
+		"layout file changes": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) {
+			sc.hashes["layout.xml"] = "layout-hash-2"
+		},
+		"fragment dep changes": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) {
+			sc.hashes["frag.html"] = "frag-hash-2"
+		},
+		"content pipe changes": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) {
+			p.pipes["md"] = &fakePipe{hash: "md-pipe-hash-2"}
+		},
+		"fragment pipe changes": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) {
+			p.pipes["html"] = &fakePipe{hash: "html-pipe-hash-2"}
+		},
+		"vars change": func(s, sc *fakeFileHasher, p *fakePipelineLoader, v map[string]string) { v["x"] = "z" },
 	}
 
 	for name, mutate := range cases {
@@ -135,10 +145,8 @@ func TestHash_ComputeHash_AssetEntry_HashesLayoutFileDirectly(t *testing.T) {
 		t.Fatalf("expected layouts.Get not to be called for asset entries (only the layout file itself is hashed), got %d calls", layouts.getCalls)
 	}
 
-	// Regression test for a bug where an asset entry's hash never included
-	// its layout at all (the check was `entry.Type == ContentType`, so
-	// AssetType entries always got layoutHash == ""), meaning the CAS cache
-	// wouldn't invalidate when the governing layout changed.
+	// An asset entry's hash must change when its governing layout changes,
+	// so the CAS cache invalidates correctly.
 	schemeFS.hashes["layout.xml"] = "layout-hash-changed"
 	changedHash, err := hi.ComputeHash(context.Background(), entry)
 	if err != nil {

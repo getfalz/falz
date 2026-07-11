@@ -57,11 +57,8 @@ func writeServerSourceFile(t *testing.T, cfg *project.CraeftConfig, name, conten
 	}
 }
 
-// TestRehashAndMark_NeverHashedEntry_DoesNotPanic is a regression test for a
-// crash when an entry's previous Hash is empty (e.g. a freshly scanned entry
-// that hasn't been hashed yet): rehashAndMark used to slice oldHash[:8]
-// unconditionally, which panics (slice bounds out of range) whenever
-// len(oldHash) < 8 -- including the empty-string case.
+// rehashAndMark must not panic when an entry's previous Hash is empty (a
+// freshly scanned entry that hasn't been hashed yet).
 func TestRehashAndMark_NeverHashedEntry_DoesNotPanic(t *testing.T) {
 	p, cfg := newTestServerProject(t)
 	writeServerSourceFile(t, cfg, "about.md", "hello world")
@@ -207,18 +204,9 @@ func TestHandleContentDeleted_RemovesEntryAndManifestRecord(t *testing.T) {
 	}
 }
 
-// TestHandleConfigModified_NeverEnablesCASWithoutABackend is a regression
-// test for a bug where handleConfigModified copied the freshly reloaded
-// BuildConfig (including UseCAS) onto the live project without creating or
-// refreshing the project's CAS backend to match. A project that starts
-// with CAS disabled has p.CAS == nil; a config reload flips UseCAS on even
-// with a completely absent config.yaml, since BuildConfig.UseCAS defaults
-// to "true". The combination (UseCAS=true, CAS==nil) used to be reachable
-// and is invalid: build.go passes the (typed-nil) *project.CAS through the
-// artifactCache interface, so `cache != nil` reads true even though the
-// pointer is nil, and the next incremental build panics inside a worker
-// goroutine. handleConfigModified now creates the CAS backend when it's
-// missing and UseCAS is enabled (and closes it when disabled).
+// A config reload that enables UseCAS must also create the CAS backend
+// (and closing it when UseCAS is disabled), so Config.Build.UseCAS and the
+// presence of p.CAS never disagree.
 func TestHandleConfigModified_NeverEnablesCASWithoutABackend(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", t.TempDir())
 
@@ -241,17 +229,13 @@ func TestHandleConfigModified_NeverEnablesCASWithoutABackend(t *testing.T) {
 	}
 
 	if p.Config.Build.UseCAS && p.CAS == nil {
-		t.Fatalf("BUG: config reload enabled UseCAS but left the CAS backend (p.CAS) nil -- the next incremental build will panic")
+		t.Fatalf("Config.Build.UseCAS is true but p.CAS is nil")
 	}
 }
 
-// TestHandleLayoutModified_PicksUpNewContentPattern is a regression test for
-// a bug where modifying a layout to add a new Content/Asset pattern didn't
-// rescan the affected directory: handleLayoutModified only invalidated and
-// rehashed entries *already in the graph*, via invalidateAndRehash. A
-// PartialScan of the layout's directory was added so newly-matching source
-// files are picked up as soon as the layout changes, instead of only on the
-// next full rebuild.
+// Adding a new Content/Asset pattern to a layout must rescan the affected
+// directory so newly-matching source files are picked up immediately,
+// rather than only on the next full rebuild.
 func TestHandleLayoutModified_PicksUpNewContentPattern(t *testing.T) {
 	p, cfg := newTestServerProject(t)
 	writeServerSourceFile(t, cfg, "about.md", "hello world")
