@@ -3,7 +3,6 @@ package pipeline
 import (
 	"craeft/internal/utils"
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 
@@ -15,7 +14,8 @@ const (
 )
 
 type bundle struct {
-	ctx api.BuildContext
+	ctx  api.BuildContext
+	root *utils.RootFS
 }
 
 func newBundle(entryFile string, root *utils.RootFS, pipesRoot *utils.RootFS, debug bool) (*bundle, error) {
@@ -49,7 +49,7 @@ func newBundle(entryFile string, root *utils.RootFS, pipesRoot *utils.RootFS, de
 	if err != nil {
 		return nil, fmt.Errorf("esbuild context: %w", err)
 	}
-	return &bundle{ctx: ctx}, nil
+	return &bundle{ctx: ctx, root: root}, nil
 }
 
 func (b *bundle) build(debug bool) (string, error) {
@@ -66,8 +66,8 @@ func (b *bundle) build(debug bool) (string, error) {
 	out := string(result.OutputFiles[0].Contents)
 
 	if debug {
-		// write .dbg.js alongside entry for inspection — best effort
-		_ = os.WriteFile("pipeline.dbg.js", []byte(out), 0o644)
+		// write .dbg.js into the pipe's own folder for inspection — best effort
+		_ = b.root.WriteFile("pipeline.dbg.js", []byte(out), 0o644)
 	}
 
 	return out, nil

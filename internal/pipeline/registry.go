@@ -129,7 +129,8 @@ func (r *Registry) Reload(name string) error {
 }
 
 // Get returns the Pipe for the given name.
-// Built-in pipes take precedence; JS pipes are looked up second.
+// Loaded JS pipes take precedence; built-in pipes are looked up second,
+// so a JS pipe can override a built-in of the same name (e.g. "md").
 func (r *Registry) Get(name string) (Pipe, error) {
 	if v, ok := r.jsPipes.Load(name); ok {
 		return v.(*JSPipe), nil
